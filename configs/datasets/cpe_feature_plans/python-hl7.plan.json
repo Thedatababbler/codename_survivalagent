@@ -1,0 +1,1068 @@
+{
+  "generator": "llm",
+  "split_policy": "feature",
+  "rationale": "Split feature-first into five dependency-ordered milestones: shared contracts/utilities first, then the hierarchical container model, then parsers built on those containers, then transport/MLLP modules, and finally package-level integration. This catches defects at the module that owns them: accessor/datetime/util contract errors before containers depend on them, container/indexing/stringification errors before parsing hides them, parser defects before networking uses parsed messages, and public export/wiring defects only at the final integration gate.",
+  "split": true,
+  "milestones": [
+    {
+      "milestone_id": "shared_contracts_utilities",
+      "title": "Shared exceptions, accessors, datetime parsing, and utilities",
+      "objective": "Implement the foundational modules that other features import: hl7.exceptions, hl7.accessor.Accessor, hl7.datatypes.parse_datetime and timezone handling, and hl7.util message classification/splitting/id helpers.",
+      "risk_rationale": "This milestone delivers the shared non-container contracts used by later modules. Its gate can verify Accessor parsing/key generation, exception hierarchy, HL7 type detection, file splitting helpers, message-control-id generation, and DTM-to-datetime conversion without any parser or container implementation. If these contracts are wrong, later container and parser code will build against incompatible accessor semantics or date/utility behavior.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "test_first",
+      "depends_on": [],
+      "focus_paths": [
+        "hl7/accessor.py",
+        "hl7/datatypes.py",
+        "hl7/exceptions.py",
+        "hl7/util.py",
+        "hl7/__init__.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "Accessor can be constructed from explicit 1-based segment, field, repeat, component, and subcomponent numbers and returns the documented key string.",
+          "Accessor.parse_key accepts both prefixed forms such as PID.F1.R1.C2.S2 and compact numeric forms such as PID.1.1.2.2, applying documented defaults.",
+          "Utility classifiers identify single HL7 messages, batches, and files by their documented leading segments.",
+          "Utility helpers split HL7 file/batch text into valid message-sized chunks without losing segment separators.",
+          "parse_datetime converts HL7 DTM strings of supported precision to datetime/date-like values with correct timezone offsets where present.",
+          "The documented exception classes exist and inherit from HL7Exception."
+        ],
+        "corner_cases": [
+          "Accessor with only a segment defaults to segment occurrence 1 and omits missing lower-level components from the key.",
+          "Accessor parsing rejects malformed keys, zero indexes, negative indexes, and unknown component prefixes.",
+          "Datetime parsing handles year-only through second/fraction precision, timezone offsets with plus and minus signs, and invalid calendar dates.",
+          "Utility detection handles bytes decoded with the requested encoding, trailing CR/LF whitespace, empty strings, and non-HL7 text."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "hl7.accessor",
+            "symbol": "Accessor",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "hl7.datatypes",
+            "symbol": "parse_datetime",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "hl7.util",
+            "symbol": "ishl7",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "hl7.util",
+            "symbol": "isbatch",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "hl7.util",
+            "symbol": "isfile",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "hl7.util",
+            "symbol": "split_file",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "hl7.util",
+            "symbol": "generate_message_control_id",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "hl7.exceptions",
+            "symbol": "HL7Exception",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "hl7.exceptions",
+            "symbol": "ParseException",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "hl7.exceptions",
+            "symbol": "MalformedSegmentException",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "hl7.exceptions",
+            "symbol": "MalformedBatchException",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "hl7.exceptions",
+            "symbol": "MalformedFileException",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write executable tests from the PRD and architecture documents for Accessor construction/parsing, datetime parsing, utility classification/splitting/id generation, and exception hierarchy. Do not edit source.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "builder_contract_author",
+          "title": "Contract author",
+          "mandate": "Implement the foundational contracts in accessor.py, datatypes.py, exceptions.py, and util.py exactly as documented, with no parser/container dependency beyond standard library code.",
+          "role": "contract_author",
+          "slot_id": "builder",
+          "focus_paths": [
+            "hl7/accessor.py",
+            "hl7/datatypes.py",
+            "hl7/exceptions.py",
+            "hl7/util.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "If the milestone gate fails, fix only the named contract, utility, accessor, datetime, or exception defects while preserving the frozen public symbols.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "hl7/accessor.py",
+            "hl7/datatypes.py",
+            "hl7/exceptions.py",
+            "hl7/util.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "hierarchical_containers",
+      "title": "HL7 hierarchical container model",
+      "objective": "Implement hl7.containers: Sequence, Container, File, Batch, Message, Segment, Field, Repetition, Component, and Factory with list behavior, HL7 1-based callable indexing, slicing, stringification, symbolic extraction/assignment, ACK creation, and escaping.",
+      "risk_rationale": "This milestone delivers the core in-memory data model independently of the parser by allowing tests to manually construct messages, segments, fields, repetitions, and components. Its gate can verify indexing, separators, symbolic access via Accessor, mutation, ACK generation, and batch/file header/trailer validation without later parsing or networking. If this model is wrong, all parsed data and public navigation APIs downstream will be wrong even if parsing succeeds.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "review_then_fix",
+      "depends_on": [
+        "shared_contracts_utilities"
+      ],
+      "focus_paths": [
+        "hl7/containers.py",
+        "hl7/accessor.py",
+        "hl7/exceptions.py",
+        "hl7/util.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "Container subclasses inherit list behavior and preserve their subclass type on slicing.",
+          "Sequence callable indexing provides HL7-compatible 1-based get and set operations.",
+          "Segment callable indexing accounts for the segment identifier so field numbers match HL7 field numbers.",
+          "Manually constructed Message, Segment, Field, Repetition, and Component objects stringify to valid HL7 using their separators.",
+          "Message.segment and Message.segments find segments by identifier and Message.__getitem__ supports segment-id and symbolic accessor lookups.",
+          "Message.extract_field and Message.assign_field navigate segment occurrence, field, repeat, component, and subcomponent positions.",
+          "File and Batch header/trailer properties validate FHS/FTS and BHS/BTS segment types and stringify with matching header/trailer pairs.",
+          "Message.escape and Message.unescape handle HL7 separator escape sequences and optional application maps.",
+          "Message.create_ack creates a valid ACK message from an existing message control id and supplied ACK metadata.",
+          "Factory creates each documented container subclass and can be customized by replacing creation callables."
+        ],
+        "corner_cases": [
+          "Callable index 0 and negative indexes are rejected for HL7-style indexing.",
+          "Missing fields, repeats, components, or subcomponents during assignment are padded in a way that preserves string round-tripping.",
+          "Repeated segments return all matches in original order.",
+          "Stringification preserves empty fields and trailing empty fields where represented in the container.",
+          "File or Batch with only a header or only a trailer raises the documented malformed exception.",
+          "Assigning a non-FHS header to File, non-FTS trailer to File, non-BHS header to Batch, or non-BTS trailer to Batch raises MalformedSegmentException.",
+          "Escaping and unescaping do not corrupt ordinary backslashes or Unicode text."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "hl7.containers",
+            "symbol": "Sequence",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "hl7.containers",
+            "symbol": "Container",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "hl7.containers",
+            "symbol": "File",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "hl7.containers",
+            "symbol": "Batch",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "hl7.containers",
+            "symbol": "Message",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "hl7.containers",
+            "symbol": "Segment",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "hl7.containers",
+            "symbol": "Field",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "hl7.containers",
+            "symbol": "Repetition",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "hl7.containers",
+            "symbol": "Component",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "hl7.containers",
+            "symbol": "Factory",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write executable tests that manually construct container objects and verify list behavior, HL7 callable indexing, symbolic access, assignment, stringification, file/batch validation, ACK creation, escape/unescape, and Factory customization. Do not edit source.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement hl7.containers against the documented hierarchy and previously frozen Accessor, utility, and exception contracts.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "hl7/containers.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "reviewer_spec_auditor",
+          "title": "Specification auditor",
+          "mandate": "Read containers.py against the PRD, architecture design, and UML. Report deviations in class names, methods, indexing rules, symbolic navigation, header/trailer validation, ACK behavior, escaping, or Factory semantics without editing.",
+          "role": "spec_auditor",
+          "slot_id": "reviewer",
+          "focus_paths": [],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Fix the reviewer report and any gate failures in the container implementation while preserving the contracts frozen by the shared utilities milestone.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "hl7/containers.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "parsing_batch_file_support",
+      "title": "HL7 parser, batch parser, and file parser",
+      "objective": "Implement hl7.parser parse functions and parse planning so single messages, batches, files, bytes, Unicode text, custom encodings, and custom factories produce the documented container hierarchy.",
+      "risk_rationale": "This milestone delivers the parser feature group that builds on the frozen containers. Its gate can parse documented sample messages and batches/files end-to-end into the existing container classes, verify round-trip stringification, hierarchy levels, separator handling, and custom factory creation without networking or final package re-export work. Parser defects are caught here rather than hidden behind public imports or transport APIs.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "parallel_audit",
+      "depends_on": [
+        "shared_contracts_utilities",
+        "hierarchical_containers"
+      ],
+      "focus_paths": [
+        "hl7/parser.py",
+        "hl7/containers.py",
+        "hl7/util.py",
+        "hl7/exceptions.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "parse parses a single pipe-delimited HL7 v2.x message into Message, Segment, Field, Repetition, and Component objects at the documented hierarchy levels.",
+          "parse_hl7 accepts str and bytes input, decodes bytes using the requested encoding, validates HL7-like input, and dispatches to message, batch, or file parsing as appropriate.",
+          "parse_batch parses BHS/BTS-wrapped batches into Batch objects containing Message objects and preserves optional batch header/trailer.",
+          "parse_file parses FHS/FTS-wrapped files into File objects containing Batch objects and preserves optional file header/trailer.",
+          "create_parse_plan and _ParsePlan derive separators from MSH and recursively select the correct container factory for each parse level.",
+          "Parsed messages support the container operations frozen in the prior milestone, including segment lookup, symbolic field extraction, callable indexing, and str(message) round-tripping.",
+          "Custom Factory subclasses or factory callables are used for created containers."
+        ],
+        "corner_cases": [
+          "Messages with CR, LF, or CRLF segment endings are normalized to HL7 segment separators without creating empty phantom segments.",
+          "MSH separator and encoding-character fields are handled specially so field separator and component/repetition/subcomponent separators are preserved.",
+          "Empty fields, repeated fields separated by ~, components separated by ^, and subcomponents separated by & parse into the correct levels.",
+          "Invalid non-HL7 input raises ParseException rather than returning partial containers.",
+          "Unicode field values survive parsing and stringification.",
+          "Bytes input with a non-default encoding decodes consistently or raises a clear decoding/parse error.",
+          "Batch/file text missing required matching trailers raises the documented malformed exception where appropriate."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "hl7.parser",
+            "symbol": "parse",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "hl7.parser",
+            "symbol": "parse_batch",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "hl7.parser",
+            "symbol": "parse_file",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "hl7.parser",
+            "symbol": "parse_hl7",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "hl7.parser",
+            "symbol": "create_parse_plan",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "hl7.parser",
+            "symbol": "_ParsePlan",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write executable parser tests from the documents and usage examples covering single message parsing, round-trip stringification, nested hierarchy types, separator handling, repeated/component/subcomponent fields, bytes/unicode input, batches, files, parse_hl7 dispatch, malformed input, and custom Factory use. Do not edit source.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement hl7.parser using the frozen container, utility, and exception contracts. Preserve the documented parse planning model and factory extensibility.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "hl7/parser.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "spec_review_spec_auditor",
+          "title": "Specification auditor",
+          "mandate": "Review parser behavior and signatures against the PRD, architecture design, and UML. Report any mismatch in parse dispatch, hierarchy construction, separator extraction, batch/file support, bytes handling, or factory behavior without editing.",
+          "role": "spec_auditor",
+          "slot_id": "spec_review",
+          "focus_paths": [],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "contract_review_contract_critic",
+          "title": "Contract critic",
+          "mandate": "Review that parser code does not violate the frozen Accessor, utility, exception, and container contracts. Report broken imports, changed container APIs, wrong exception usage, or bypassed Factory methods without editing.",
+          "role": "contract_critic",
+          "slot_id": "contract_review",
+          "focus_paths": [],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Fix parser defects named by the auditors or acceptance gate while preserving all previously frozen shared and container contracts.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "hl7/parser.py",
+            "hl7/containers.py",
+            "hl7/util.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "mllp_transport",
+      "title": "Synchronous and asyncio MLLP transport",
+      "objective": "Implement hl7.client and hl7.mllp modules for synchronous MLLP sending, CLI stream helpers, and asyncio MLLP stream reader/writer/server/client support.",
+      "risk_rationale": "This milestone delivers the transport feature group separately from parsing and container construction. Its gate can verify MLLP framing, socket send/receive behavior, CLI stream extraction, and asyncio reader/writer behavior using local in-memory streams or loopback sockets, without needing final package-level exports. If framing or stream semantics are wrong, downstream network users fail even when parsing is correct.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "review_then_fix",
+      "depends_on": [
+        "shared_contracts_utilities",
+        "hierarchical_containers",
+        "parsing_batch_file_support"
+      ],
+      "focus_paths": [
+        "hl7/client.py",
+        "hl7/mllp/__init__.py",
+        "hl7/mllp/exceptions.py",
+        "hl7/mllp/streams.py",
+        "hl7/parser.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "MLLPClient opens a blocking socket connection, supports context-manager close behavior, sends framed messages, and returns server responses.",
+          "MLLPClient.send_message accepts bytes, str, and Message-like objects and encodes/framed them using the configured encoding.",
+          "read_stream yields individual HL7 payloads stripped of MLLP start/end framing and supports both EB and FF style separators as documented.",
+          "read_loose reconstructs loosely formatted HL7 blobs with mixed line endings and MLLP control characters into valid message payloads.",
+          "stdout, stdin, stderr, and mllp_send exist with the documented CLI-helper behavior.",
+          "mllp.exceptions.InvalidBlockError exists and is raised for malformed MLLP blocks.",
+          "HL7StreamReader.readmessage reads a framed HL7 block and returns parsed or decoded message content according to the documented stream behavior.",
+          "HL7StreamWriter.writemessage writes correctly framed HL7 messages.",
+          "open_hl7_connection and start_hl7_server create asyncio HL7 reader/writer pairs over MLLP framing."
+        ],
+        "corner_cases": [
+          "Partial socket reads still assemble one full MLLP response block.",
+          "Multiple framed messages in one input stream are yielded separately.",
+          "Malformed blocks missing a start block, end block, or trailing carriage return raise InvalidBlockError.",
+          "Unicode messages are encoded and decoded according to the configured encoding and encoding_errors values.",
+          "send_message treats bytes as already encoded and does not double-encode them.",
+          "Client close is idempotent and context-manager exit closes sockets even after an exception.",
+          "Async writer accepts str, bytes, and Message-like objects consistently with the synchronous client."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "hl7.client",
+            "symbol": "MLLPException",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "hl7.client",
+            "symbol": "MLLPClient",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "hl7.client",
+            "symbol": "stdout",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "hl7.client",
+            "symbol": "stdin",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "hl7.client",
+            "symbol": "stderr",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "hl7.client",
+            "symbol": "read_stream",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "hl7.client",
+            "symbol": "read_loose",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "hl7.client",
+            "symbol": "mllp_send",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "hl7.mllp.exceptions",
+            "symbol": "InvalidBlockError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "hl7.mllp.streams",
+            "symbol": "MLLPStreamReader",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "hl7.mllp.streams",
+            "symbol": "MLLPStreamWriter",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "hl7.mllp.streams",
+            "symbol": "HL7StreamReader",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "hl7.mllp.streams",
+            "symbol": "HL7StreamWriter",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "hl7.mllp",
+            "symbol": "open_hl7_connection",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "hl7.mllp",
+            "symbol": "start_hl7_server",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write executable transport tests using loopback sockets, BytesIO-like streams, and asyncio local servers to verify MLLP framing, send_message input types, stream extraction, loose parsing, malformed block errors, and async open/start helpers. Do not edit source.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement synchronous client.py and asyncio hl7.mllp modules using only the standard library and the already frozen parser/container behavior.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "hl7/client.py",
+            "hl7/mllp/__init__.py",
+            "hl7/mllp/exceptions.py",
+            "hl7/mllp/streams.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "reviewer_contract_critic",
+          "title": "Contract critic",
+          "mandate": "Review transport code for violations of the frozen parser, container, and public exception contracts, and for MLLP framing/signature mismatches. Report findings without editing.",
+          "role": "contract_critic",
+          "slot_id": "reviewer",
+          "focus_paths": [],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Fix the reviewer report and gate failures in transport modules only, preserving all parser and container contracts.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "hl7/client.py",
+            "hl7/mllp/__init__.py",
+            "hl7/mllp/exceptions.py",
+            "hl7/mllp/streams.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "public_api_integration",
+      "title": "Package public API and full contract integration",
+      "objective": "Wire documented public imports in hl7.__init__, ensure all modules interoperate, run visible repository tests, and verify the full public contract from parser through containers, utilities, datatypes, ACK/escape behavior, and MLLP APIs.",
+      "risk_rationale": "This final milestone integrates modules that were verified in isolation and is graded against the full public contract. Its gate verifies consumers can import documented symbols from package-level paths and exercise complete end-to-end workflows such as hl7.parse(sample), symbolic navigation, ACK generation, datetime parsing, and MLLP framing. This catches wiring, re-export, packaging, and cross-module interoperability defects that individual module gates cannot see.",
+      "gate_level": "integration",
+      "split_reason": "feature_module",
+      "template_id": "parallel_audit",
+      "depends_on": [
+        "shared_contracts_utilities",
+        "hierarchical_containers",
+        "parsing_batch_file_support",
+        "mllp_transport"
+      ],
+      "focus_paths": [
+        "hl7/__init__.py",
+        "hl7/accessor.py",
+        "hl7/client.py",
+        "hl7/containers.py",
+        "hl7/datatypes.py",
+        "hl7/exceptions.py",
+        "hl7/mllp/__init__.py",
+        "hl7/mllp/exceptions.py",
+        "hl7/mllp/streams.py",
+        "hl7/parser.py",
+        "hl7/util.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "The package root imports cleanly in a clean Python 3.9+ environment with no external runtime dependencies.",
+          "Documented root-level public API symbols are importable from hl7 as well as their implementation modules.",
+          "The PRD sample message parses via hl7.parse, returns hl7.Message, supports list indexing, HL7 callable indexing, segment lookup, symbolic accessor lookup, and string round-trip.",
+          "Batch and file parsing work through documented public functions and return hl7.Batch and hl7.File objects.",
+          "ACK generation, escape/unescape, parse_datetime, utility classifiers, synchronous MLLP client symbols, and asyncio MLLP helpers remain usable together.",
+          "Visible check_tests and milestone behavior tests pass without requiring network access beyond loopback or any external packages.",
+          "The shipped file tree matches the documented hl7 package layout and contains no duplicated implementation packages or scratch artifacts."
+        ],
+        "corner_cases": [
+          "Root re-exports point to the same class/function objects as their implementation modules.",
+          "Importing hl7 does not open sockets, start event loops, parse files, or perform other side effects.",
+          "Custom Factory behavior still works when parse is called through the package root.",
+          "Unicode and bytes parsing still work through root-level parse_hl7.",
+          "MLLP imports do not shadow parser or container names and remain importable on platforms with only the standard library.",
+          "Previously frozen symbols are not renamed, removed, or narrowed during final wiring."
+        ],
+        "checks": [
+          {
+            "type": "import",
+            "module": "hl7",
+            "required_levels": [
+              "discovery",
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "hl7",
+            "symbol": "Accessor",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "hl7",
+            "symbol": "File",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "hl7",
+            "symbol": "Batch",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "hl7",
+            "symbol": "Message",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "hl7",
+            "symbol": "Segment",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "hl7",
+            "symbol": "Field",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "hl7",
+            "symbol": "Repetition",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "hl7",
+            "symbol": "Component",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "hl7",
+            "symbol": "Factory",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "hl7",
+            "symbol": "parse",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "hl7",
+            "symbol": "parse_batch",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "hl7",
+            "symbol": "parse_file",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "hl7",
+            "symbol": "parse_hl7",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "hl7",
+            "symbol": "parse_datetime",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "hl7",
+            "symbol": "HL7Exception",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "hl7",
+            "symbol": "ParseException",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "hl7.client",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "hl7.mllp",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "hl7.mllp",
+            "symbol": "HL7StreamReader",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "hl7.mllp",
+            "symbol": "HL7StreamWriter",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "hl7.mllp",
+            "symbol": "open_hl7_connection",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "hl7.mllp",
+            "symbol": "start_hl7_server",
+            "required_levels": [
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write executable integration tests from the documented public usage examples and package diagrams, focusing on root imports, complete parse/navigation/string round-trips, batch/file parse dispatch, ACK/escape/datetime utilities, MLLP imports, and absence of import side effects. Do not edit source.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Wire hl7.__init__ and hl7.mllp.__init__ so every documented public symbol is available at its documented import path, and fix cross-module integration issues without changing established behavior.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "hl7/__init__.py",
+            "hl7/mllp/__init__.py",
+            "hl7"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "spec_review_spec_auditor",
+          "title": "Specification auditor",
+          "mandate": "Audit the whole package against the PRD, architecture design, directory tree, and UML for missing public symbols, missing files, behavior gaps, or undocumented side effects. Report findings without editing.",
+          "role": "spec_auditor",
+          "slot_id": "spec_review",
+          "focus_paths": [],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "contract_review_contract_critic",
+          "title": "Contract critic",
+          "mandate": "Audit that final wiring preserves all contracts frozen by earlier milestones, including symbol locations, signatures, exception inheritance, and container/parser behavior. Report violations without editing.",
+          "role": "contract_critic",
+          "slot_id": "contract_review",
+          "focus_paths": [],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Apply the audit reports by fixing public wiring and removing any stray or duplicated files not in the documented tree, while preserving all frozen contracts and passing visible check_tests.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "hl7"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    }
+  ]
+}

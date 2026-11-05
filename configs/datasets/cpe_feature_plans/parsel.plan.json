@@ -1,0 +1,666 @@
+{
+  "generator": "llm",
+  "split_policy": "feature",
+  "rationale": "The work is split feature-first into four dependency-ordered modules: shared query contracts first, HTML/XML selector behaviour second, JSON/JMESPath support third, and final public-package integration last. This catches defects at the module that owns them: CSS pseudo-element translation and XPath functions can be verified without Selector; HTML/XML selection and extraction can be verified without JSON; JSON handling can be verified after the core Selector substrate exists; the final milestone validates documented import paths and end-to-end examples across all formats.",
+  "split": true,
+  "milestones": [
+    {
+      "milestone_id": "query_translation_and_xpath_functions",
+      "title": "CSS translation and XPath extension substrate",
+      "objective": "Implement the shared CSS-to-XPath translation layer and XPath extension functions that Selector will depend on, including ::text, ::attr(name), translator classes, css2xpath(), EXSLT setup hooks, and has-class().",
+      "risk_rationale": "This milestone delivers the cross-module query substrate. The gate can verify it alone by importing parsel.csstranslator and parsel.xpathfuncs, converting CSS selectors into XPath strings, and registering/evaluating XPath extension functions directly with lxml. If this contract is wrong, every later CSS selector and has-class XPath query can be built against an incompatible translation shape.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "test_first",
+      "depends_on": [],
+      "focus_paths": [
+        "parsel/csstranslator.py",
+        "parsel/xpathfuncs.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "CSS selectors convert to XPath using cssselect-compatible translators.",
+          "The non-standard ::text pseudo-element appends text-node selection to the generated XPath.",
+          "The non-standard ::attr(name) pseudo-element appends attribute selection to the generated XPath.",
+          "GenericTranslator and HTMLTranslator expose cached css_to_xpath methods with the documented default prefix.",
+          "css2xpath(query) uses the HTML translator semantics.",
+          "xpathfuncs.setup() registers has-class() so XPath expressions can match HTML class tokens accurately."
+        ],
+        "corner_cases": [
+          "::attr() accepts identifier and string-style attribute names.",
+          "Combining selectors propagates pseudo-element targeting from the joined expression.",
+          "Joining XPathExpr with a non-XPathExpr raises ValueError.",
+          "has-class() does not match partial class-name substrings.",
+          "has-class() with multiple class arguments requires all requested classes."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "parsel.csstranslator",
+            "symbol": "XPathExpr",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "parsel.csstranslator",
+            "symbol": "TranslatorProtocol",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "parsel.csstranslator",
+            "symbol": "TranslatorMixin",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "parsel.csstranslator",
+            "symbol": "GenericTranslator",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "parsel.csstranslator",
+            "symbol": "HTMLTranslator",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "parsel.csstranslator",
+            "symbol": "css2xpath",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "parsel.xpathfuncs",
+            "symbol": "set_xpathfunc",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "parsel.xpathfuncs",
+            "symbol": "has_class",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "parsel.xpathfuncs",
+            "symbol": "setup",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write behavioural tests for csstranslator and xpathfuncs from the design documents: pseudo-element XPath output, translator classes, css2xpath(), XPathExpr joining, and has-class registration with lxml. Do not modify source.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "parsel/csstranslator.py",
+            "parsel/xpathfuncs.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "builder_contract_author",
+          "title": "Contract author",
+          "mandate": "Implement the shared CSS translation and XPath function contracts exactly as documented, preserving importable symbols and behaviour for later Selector code.",
+          "role": "contract_author",
+          "slot_id": "builder",
+          "focus_paths": [
+            "parsel/csstranslator.py",
+            "parsel/xpathfuncs.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "If the milestone gate fails, fix only the reported csstranslator or xpathfuncs contract and behaviour failures.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "parsel/csstranslator.py",
+            "parsel/xpathfuncs.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "html_xml_selector_core",
+      "title": "HTML/XML Selector and SelectorList core",
+      "objective": "Implement Selector and SelectorList support for HTML and XML parsing, XPath, CSS delegation through the frozen translator, extraction, regex helpers, attributes, namespace management, and destructive element removal.",
+      "risk_rationale": "This milestone delivers the core selector model for lxml-backed documents. Its gate can verify it without JSON by constructing HTML/XML Selector instances, running XPath and CSS queries, chaining SelectorList operations, extracting strings, applying regexes, managing namespaces, and dropping elements. If wrong, downstream JSON and public integration would inherit broken Selector semantics or incompatible SelectorList behaviour.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "review_then_fix",
+      "depends_on": [
+        "query_translation_and_xpath_functions"
+      ],
+      "focus_paths": [
+        "parsel/selector.py",
+        "parsel/utils.py",
+        "parsel/csstranslator.py",
+        "parsel/xpathfuncs.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "Selector can parse HTML text, XML text, and byte bodies into the correct lxml root type.",
+          "Selector.xpath() returns a SelectorList of Selector objects and supports chaining.",
+          "Selector.css() converts through the frozen translator and returns the same results as equivalent XPath.",
+          "SelectorList batch xpath(), css(), re(), get(), getall(), extract(), extract_first(), attrib, and drop() behave as documented.",
+          "Selector.get(), getall(), re(), re_first(), attrib, register_namespace(), remove_namespaces(), and drop() behave as documented for HTML/XML selectors.",
+          "SafeXMLParser disables external entity resolution by default.",
+          "Element removal raises the documented exceptions for text nodes, pseudo-elements, root nodes, or nodes without parents."
+        ],
+        "corner_cases": [
+          "Empty SelectorList.get(default) returns the provided default and attrib returns an empty mapping.",
+          "SelectorList slicing returns a SelectorList, while indexing returns a Selector.",
+          "Text-node and attribute selectors extract string values rather than serialized elements.",
+          "Regex methods handle compiled patterns, no matches, entity replacement, and first-match defaults.",
+          "XPath namespaces can be supplied per call and registered on the selector.",
+          "Removing namespaces does not destroy element text or attributes.",
+          "drop() on a selected child mutates the original document tree."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "parsel.selector",
+            "symbol": "CannotRemoveElementWithoutRoot",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "parsel.selector",
+            "symbol": "CannotRemoveElementWithoutParent",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "parsel.selector",
+            "symbol": "CannotDropElementWithoutParent",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "parsel.selector",
+            "symbol": "SafeXMLParser",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "parsel.selector",
+            "symbol": "create_root_node",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "parsel.selector",
+            "symbol": "SelectorList",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "parsel.selector",
+            "symbol": "Selector",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "parsel.selector",
+            "symbol": "_xml_or_html",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write behavioural tests for HTML/XML Selector and SelectorList APIs from the PRD and architecture: parsing, XPath, CSS chaining, extraction, regex, attrib, namespace handling, SafeXMLParser, and drop exceptions. Do not modify source.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "parsel/selector.py",
+            "parsel/utils.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement the lxml-backed Selector and SelectorList core for HTML/XML documents using the already-frozen csstranslator and xpathfuncs contracts.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "parsel/selector.py",
+            "parsel/utils.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "reviewer_contract_critic",
+          "title": "Contract critic",
+          "mandate": "Review the implementation against the frozen CSS translator and XPath function contracts plus the documented Selector/SelectorList API, reporting signature, import, and behaviour deviations without editing.",
+          "role": "contract_critic",
+          "slot_id": "reviewer",
+          "focus_paths": [
+            "parsel/selector.py",
+            "parsel/utils.py",
+            "parsel/csstranslator.py",
+            "parsel/xpathfuncs.py"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Fix the specific deviations reported by the reviewer or gate while preserving the frozen query translation contracts.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "parsel/selector.py",
+            "parsel/utils.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "json_jmespath_support",
+      "title": "JSON type detection and JMESPath querying",
+      "objective": "Add JSON document support to Selector and SelectorList, including automatic JSON detection, explicit type='json', JMESPath selection, scalar/list/object wrapping, and JMESPath over text extracted from HTML/XML nodes.",
+      "risk_rationale": "This milestone delivers the JSON feature group on top of the existing Selector substrate. Its gate can verify it without final package integration by importing parsel.selector.Selector directly, querying JSON strings and extracted script text with JMESPath, and checking SelectorList flattening. If wrong, multi-format support and chained HTML-to-JSON workflows will fail even if HTML/XML selection is correct.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "test_first",
+      "depends_on": [
+        "html_xml_selector_core"
+      ],
+      "focus_paths": [
+        "parsel/selector.py",
+        "parsel/utils.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "Selector detects valid JSON text as type json when no explicit type overrides it.",
+          "Selector(type='json') parses JSON text and byte bodies into Python JSON roots.",
+          "Selector.jmespath() returns a SelectorList whose items can be extracted with get() and getall().",
+          "SelectorList.jmespath() applies queries to each selector and flattens the combined results.",
+          "JMESPath queries over arrays return one selector per item for getall(), while get() returns the first item.",
+          "HTML/XML text nodes containing JSON can be followed by .jmespath() as shown in the PRD example."
+        ],
+        "corner_cases": [
+          "Invalid JSON text falls back to the documented non-json type rather than crashing during auto-detection.",
+          "JMESPath scalar results, null results, dictionaries, and arrays are wrapped consistently.",
+          "Empty JMESPath results produce an empty SelectorList whose get(default) behaviour remains correct.",
+          "Explicit type='html' or type='xml' prevents valid-looking text from being treated as JSON.",
+          "Byte-body JSON respects the supplied encoding."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "parsel.selector",
+            "symbol": "Selector",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "parsel.selector",
+            "symbol": "SelectorList",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "parsel.selector",
+            "symbol": "_is_valid_json",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "parsel.selector",
+            "symbol": "_load_json_or_none",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "parsel.selector",
+            "symbol": "_get_root_and_type_from_text",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "parsel.selector",
+            "symbol": "_get_root_and_type_from_bytes",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "parsel.selector",
+            "symbol": "_get_root_type",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write behavioural tests for JSON detection and JMESPath support from the PRD, including JSON roots, arrays, scalars, empty results, byte bodies, and chaining from HTML script text. Do not modify source.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "parsel/selector.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "builder_implementer",
+          "title": "Implementer",
+          "mandate": "Implement JSON root detection and JMESPath support in Selector and SelectorList while preserving the previously frozen HTML/XML behaviours.",
+          "role": "implementer",
+          "slot_id": "builder",
+          "focus_paths": [
+            "parsel/selector.py",
+            "parsel/utils.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "If the milestone gate fails, fix only the reported JSON/JMESPath behaviours and avoid changing frozen HTML/XML and translator contracts except where required by the failure.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "parsel/selector.py",
+            "parsel/utils.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "public_api_integration",
+      "title": "Public package integration and full contract validation",
+      "objective": "Wire the package-level public API, ensure documented imports work, preserve py.typed, run the complete visible integration suite, and validate the PRD end-to-end examples across HTML, XML, JSON, CSS, XPath, regex, attributes, namespaces, and drop().",
+      "risk_rationale": "This final milestone delivers the outward-facing integrated library contract. The gate verifies the repository exactly as users consume it, especially from parsel import Selector, package re-exports, typed marker presence, and end-to-end workflows that combine all prior modules. Earlier milestones can pass through private module imports while this catches missing public wiring, packaging omissions, accidental debris, or cross-module regressions.",
+      "gate_level": "integration",
+      "split_reason": "feature_module",
+      "template_id": "parallel_audit",
+      "depends_on": [
+        "json_jmespath_support"
+      ],
+      "focus_paths": [
+        "parsel/__init__.py",
+        "parsel/py.typed",
+        "parsel/selector.py",
+        "parsel/csstranslator.py",
+        "parsel/xpathfuncs.py",
+        "parsel/utils.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "from parsel import Selector and from parsel import SelectorList work as documented.",
+          "The package root exposes the documented selector classes and removal exceptions needed by consumers.",
+          "The complete PRD usage example works end to end, including CSS ::text, XPath regex extraction, chained link extraction, and HTML script text followed by JMESPath.",
+          "HTML, XML, and JSON documents can all be queried through the unified Selector interface.",
+          "Visible check_tests pass at integration level.",
+          "The package contains only the documented parsel modules plus py.typed and remains importable in a clean environment."
+        ],
+        "corner_cases": [
+          "Public imports do not rely on import order side effects.",
+          "Package-level re-exports refer to the same classes as parsel.selector.",
+          "py.typed is present for type-aware consumers.",
+          "No duplicate package copies, scratch files, or undocumented modules shadow the intended implementation.",
+          "Previously frozen translator, XPath function, HTML/XML, and JSON behaviours still pass together."
+        ],
+        "checks": [
+          {
+            "type": "export",
+            "module": "parsel",
+            "symbol": "Selector",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "parsel",
+            "symbol": "SelectorList",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "parsel",
+            "symbol": "CannotRemoveElementWithoutRoot",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "parsel",
+            "symbol": "CannotRemoveElementWithoutParent",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "parsel",
+            "symbol": "CannotDropElementWithoutParent",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "parsel",
+            "symbol": "Selector",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "parsel",
+            "symbol": "SelectorList",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "parsel.csstranslator",
+            "symbol": "css2xpath",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "parsel.xpathfuncs",
+            "symbol": "setup",
+            "required_levels": [
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write integration tests from the PRD public examples and package contract: public imports, py.typed, multi-format Selector workflows, CSS/XPath/JMESPath chaining, regex, attributes, namespaces, and drop. Do not modify source.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "parsel"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Wire the package-level API in parsel/__init__.py, ensure py.typed and documented modules are present, and make all implemented subsystems work together through public imports.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "parsel/__init__.py",
+            "parsel/py.typed",
+            "parsel"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "spec_review_spec_auditor",
+          "title": "Specification auditor",
+          "mandate": "Audit the integrated package against the PRD, architecture design, and UML, reporting missing public behaviours, wrong import paths, or unsupported documented examples without editing.",
+          "role": "spec_auditor",
+          "slot_id": "spec_review",
+          "focus_paths": [
+            "parsel"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "contract_review_contract_critic",
+          "title": "Contract critic",
+          "mandate": "Audit the integrated package against all frozen earlier contracts for csstranslator, xpathfuncs, Selector, SelectorList, and JSON/JMESPath support, reporting regressions without editing.",
+          "role": "contract_critic",
+          "slot_id": "contract_review",
+          "focus_paths": [
+            "parsel"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Apply the audit findings by fixing public wiring and removing any undocumented debris or shadowing files, while preserving all frozen contracts and passing the full visible integration gate.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "parsel"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,807 @@
+{
+  "generator": "llm",
+  "split_policy": "feature",
+  "rationale": "Split into five feature modules ordered by dependency: shared IAM/time/botocore utilities first, CloudTrail parsing and policy generation next, AWS/local record acquisition next, policy guessing next, and CLI/public integration last. Each non-final milestone provides behavior that can be tested directly through Python APIs without relying on later CLI wiring; the final milestone verifies the documented command pipeline and public import surface.",
+  "split": true,
+  "milestones": [
+    {
+      "milestone_id": "core_contracts_and_utilities",
+      "title": "Core IAM contracts and shared utilities",
+      "objective": "Implement the reusable IAM policy model, JSON encoding, time parsing helpers, collection helper, and botocore service-definition lookup utilities that later modules import.",
+      "risk_rationale": "This milestone delivers the shared contracts used by policy generation, guessing, CloudTrail parsing, and the CLI. Its gate can verify the IAM element behavior, JSON shape, statement merging, deterministic ordering, time parsing, iterator consumption, and botocore lookup functions directly without any CloudTrail log source or CLI commands. If these contracts are wrong, every downstream module can produce consistently wrong policies while still importing successfully.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "test_first",
+      "depends_on": [],
+      "focus_paths": [
+        "trailscraper/iam.py",
+        "trailscraper/time_utils.py",
+        "trailscraper/collection_utils.py",
+        "trailscraper/boto_service_definitions.py",
+        "trailscraper/__init__.py",
+        "trailscraper/known-iam-actions.txt"
+      ],
+      "acceptance": {
+        "criteria": [
+          "Action serializes as the IAM action string '<service-prefix>:<action-name>'.",
+          "Statement serializes to valid IAM JSON with Effect, Action, and Resource fields, preserving scalar-versus-list compatibility where appropriate.",
+          "Statement.merge combines statements with the same effect by deduplicating and sorting actions and resources.",
+          "PolicyDocument serializes to standard IAM policy JSON with Version and Statement fields and can produce a JSON string.",
+          "IAMJSONEncoder serializes BaseElement subclasses through json_repr.",
+          "Action.matching_actions returns only known IAM actions that share the derived base action and match the allowed prefixes.",
+          "Time parsing accepts absolute dates and relative phrases such as 'one hour ago' and 'now' and returns timezone-aware datetimes suitable for comparisons.",
+          "consume exhausts an iterator without retaining yielded values.",
+          "Botocore service-definition helpers locate service model files and return operation definitions for installed botocore services."
+        ],
+        "corner_cases": [
+          "Duplicate Action and Resource entries during merge.",
+          "Single action/resource versus multiple action/resource JSON representations.",
+          "Unknown or empty allowed prefixes for matching_actions.",
+          "Pluralized base action names such as ListBuckets/ListBucket and verb-prefixed names such as DescribeInstances.",
+          "Naive parsed dates must not silently compare incorrectly with timezone-aware CloudTrail timestamps.",
+          "Empty iterators passed to consume.",
+          "Missing botocore operation names should fail clearly rather than returning unrelated definitions."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "trailscraper.iam",
+            "symbol": "BaseElement",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "trailscraper.iam",
+            "symbol": "Action",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "trailscraper.iam",
+            "symbol": "Statement",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "trailscraper.iam",
+            "symbol": "PolicyDocument",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "trailscraper.iam",
+            "symbol": "IAMJSONEncoder",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "trailscraper.collection_utils",
+            "symbol": "consume",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "trailscraper.boto_service_definitions",
+            "symbol": "boto_service_definition_files",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "trailscraper.boto_service_definitions",
+            "symbol": "service_definition_file",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "trailscraper.boto_service_definitions",
+            "symbol": "operation_definition",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "trailscraper.time_utils",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "trailscraper",
+            "symbol": "__version__",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write executable tests for IAM serialization, statement merging, action guessing support, time parsing, collection consumption, and botocore definition lookup using only the design documents.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "trailscraper/iam.py",
+            "trailscraper/time_utils.py",
+            "trailscraper/collection_utils.py",
+            "trailscraper/boto_service_definitions.py",
+            "trailscraper/__init__.py",
+            "trailscraper/known-iam-actions.txt"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "builder_contract_author",
+          "title": "Contract author",
+          "mandate": "Implement the foundational IAM model and utility contracts exactly as documented, keeping symbols importable at their documented modules and avoiding downstream policy-generation assumptions outside this milestone.",
+          "role": "contract_author",
+          "slot_id": "builder",
+          "focus_paths": [
+            "trailscraper/iam.py",
+            "trailscraper/time_utils.py",
+            "trailscraper/collection_utils.py",
+            "trailscraper/boto_service_definitions.py",
+            "trailscraper/__init__.py",
+            "trailscraper/known-iam-actions.txt"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "If the gate fails, repair only the named foundational IAM or utility contract failures without adding later CloudTrail, downloader, or CLI features.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "trailscraper/iam.py",
+            "trailscraper/time_utils.py",
+            "trailscraper/collection_utils.py",
+            "trailscraper/boto_service_definitions.py",
+            "trailscraper/__init__.py",
+            "trailscraper/known-iam-actions.txt"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "cloudtrail_records_and_policy_generation",
+      "title": "CloudTrail parsing, filtering, and IAM policy generation",
+      "objective": "Implement CloudTrail Record and LogFile behavior, raw record parsing/filtering, event-to-IAM statement conversion, and generate_policy aggregation from records.",
+      "risk_rationale": "This milestone delivers the core transformation from observed CloudTrail events to IAM policy statements. Its gate can create raw CloudTrail JSON and gzipped log files locally, parse them into Records, filter by time and role, convert them to Statements, and aggregate a PolicyDocument without S3 downloaders, record-source adapters, guessing, or CLI. If wrong, downstream sources and CLI commands will faithfully transport incorrect actions/resources.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "review_then_fix",
+      "depends_on": [
+        "core_contracts_and_utilities"
+      ],
+      "focus_paths": [
+        "trailscraper/cloudtrail.py",
+        "trailscraper/policy_generator.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "Raw CloudTrail records parse into Record objects with event source, event name, resource ARNs, assumed role ARN, event time, and raw source preserved.",
+          "Malformed raw records are skipped without crashing parse_records.",
+          "Record.to_statement maps CloudTrail event source and event name to IAM Action and Resource fields, including documented special cases for S3, KMS, STS, and API Gateway.",
+          "LogFile validates CloudTrail gzip filenames, extracts delivery timestamps, reads gzipped JSON records, and converts contained events into Record objects.",
+          "filter_records applies inclusive time-window filtering and optional multiple assumed-role ARN filtering.",
+          "generate_policy combines generated statements into a PolicyDocument, merging identical resources and identical actions where documented."
+        ],
+        "corner_cases": [
+          "CloudTrail records with missing resources should use '*' when no precise resource is available.",
+          "Records missing eventTime, eventSource, or eventName should not crash batch parsing.",
+          "Boundary event times exactly equal to from_date or to_date are included.",
+          "No role filter means all roles pass; multiple role filters match any listed ARN.",
+          "Invalid gzip files, unreadable files, and nonmatching filenames are handled gracefully.",
+          "API Gateway records without enough request metadata fall back safely rather than producing malformed ARNs."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "trailscraper.cloudtrail",
+            "symbol": "Record",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "trailscraper.cloudtrail",
+            "symbol": "LogFile",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "trailscraper.cloudtrail",
+            "symbol": "parse_records",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "trailscraper.cloudtrail",
+            "symbol": "filter_records",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "trailscraper.policy_generator",
+            "symbol": "generate_policy",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "trailscraper.cloudtrail",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "trailscraper.policy_generator",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write tests that exercise CloudTrail raw event parsing, LogFile gzip handling, filtering, event-to-IAM action/resource conversion, and policy aggregation from the design documents.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "trailscraper/cloudtrail.py",
+            "trailscraper/policy_generator.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement CloudTrail Record, LogFile, parse/filter helpers, and generate_policy using the frozen IAM/time utility contracts from the previous milestone.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "trailscraper/cloudtrail.py",
+            "trailscraper/policy_generator.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "reviewer_spec_auditor",
+          "title": "Specification auditor",
+          "mandate": "Review the implemented CloudTrail parsing and policy generation against the PRD and UML, focusing on quiet mapping errors, missing special cases, and incorrect merge behavior.",
+          "role": "spec_auditor",
+          "slot_id": "reviewer",
+          "focus_paths": [
+            "trailscraper/cloudtrail.py",
+            "trailscraper/policy_generator.py"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_edge_case_hardener",
+          "title": "Edge-case hardener",
+          "mandate": "Fix deviations found by review and harden malformed records, invalid files, boundary timestamps, missing resources, and service-specific action mapping edge cases.",
+          "role": "edge_case_hardener",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "trailscraper/cloudtrail.py",
+            "trailscraper/policy_generator.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "record_sources_and_downloads",
+      "title": "Record sources and CloudTrail S3 acquisition",
+      "objective": "Implement local-directory record loading, CloudTrail API record loading, and S3 CloudTrail log download behavior including account, region, organization, prefix, date-range, wait, and parallelism support.",
+      "risk_rationale": "This milestone delivers acquisition adapters that supply Records to the already-tested parser/generator. Its gate can use temporary directories, gzipped logs, and mocked boto3 clients to verify local loading, CloudTrail lookup_events pagination, S3 key construction/listing/download skipping, organization path support, date filtering, wait behavior, and parallel concurrency without the CLI or policy guessing. If wrong, the core generator may be correct but receive the wrong event set.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "review_then_fix",
+      "depends_on": [
+        "cloudtrail_records_and_policy_generation"
+      ],
+      "focus_paths": [
+        "trailscraper/record_sources/__init__.py",
+        "trailscraper/record_sources/local_directory_record_source.py",
+        "trailscraper/record_sources/cloudtrail_api_record_source.py",
+        "trailscraper/s3_download.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "LocalDirectoryRecordSource finds valid local CloudTrail log files, filters by timeframe using LogFile.contains_events_for_timeframe, loads records, and reports the most recent event timestamp.",
+          "CloudTrailAPIRecordSource calls CloudTrail lookup_events for the requested time range, follows pagination, parses returned CloudTrailEvent payloads, and returns Record objects.",
+          "S3 download logic builds AWSLogs key prefixes for account IDs, regions, date ranges, optional custom prefix, and optional organization IDs.",
+          "Downloader skips files that already exist locally and creates the requested local directory layout.",
+          "Downloader supports multiple account IDs and regions, includes us-east-1 like any other region, and honors the documented default parallelism of 10 when not overridden.",
+          "Wait mode checks whether logs contain events through the requested end time before returning."
+        ],
+        "corner_cases": [
+          "Empty local log directory returns no records and no timestamp rather than crashing.",
+          "Nested organization-trail paths are handled separately from account-level trail paths.",
+          "CloudTrail API responses with empty Events, malformed CloudTrailEvent JSON, or multiple pages do not break loading.",
+          "Date ranges spanning multiple days/months/years generate the expected keys without off-by-one omissions.",
+          "Existing local files are not re-downloaded or overwritten unnecessarily.",
+          "Parallelism of 1 behaves serially; larger parallelism still propagates download failures clearly."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "trailscraper.record_sources.local_directory_record_source",
+            "symbol": "LocalDirectoryRecordSource",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "trailscraper.record_sources.cloudtrail_api_record_source",
+            "symbol": "CloudTrailAPIRecordSource",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "trailscraper.record_sources",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "trailscraper.s3_download",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "trailscraper.record_sources",
+            "symbol": "LocalDirectoryRecordSource",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "trailscraper.record_sources",
+            "symbol": "CloudTrailAPIRecordSource",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write tests for local-directory loading, last-event timestamp computation, CloudTrail API pagination/parsing, and mocked S3 download key construction/skipping/waiting/parallelism.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "trailscraper/record_sources",
+            "trailscraper/s3_download.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement the record-source adapters and S3 downloader using the frozen CloudTrail parser and utility contracts, with boto3 isolated behind documented functions/classes for testability.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "trailscraper/record_sources",
+            "trailscraper/s3_download.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "reviewer_contract_critic",
+          "title": "Contract critic",
+          "mandate": "Review that acquisition code imports and uses the frozen Record, LogFile, parse_records, filter_records, time, and collection contracts without changing their public behavior.",
+          "role": "contract_critic",
+          "slot_id": "reviewer",
+          "focus_paths": [
+            "trailscraper/record_sources",
+            "trailscraper/s3_download.py",
+            "trailscraper/cloudtrail.py",
+            "trailscraper/time_utils.py",
+            "trailscraper/collection_utils.py"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_edge_case_hardener",
+          "title": "Edge-case hardener",
+          "mandate": "Fix acquisition defects found by tests or review, especially empty directories, malformed API events, organization paths, existing files, date-range boundaries, and pagination.",
+          "role": "edge_case_hardener",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "trailscraper/record_sources",
+            "trailscraper/s3_download.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "policy_guessing",
+      "title": "IAM policy enhancement by guessing related actions",
+      "objective": "Implement policy extension that infers related known IAM actions from existing policy actions, with optional allowed-prefix filtering.",
+      "risk_rationale": "This milestone delivers the independent policy-enhancement feature that consumes PolicyDocument/Statement/Action contracts but does not require record sources, downloads, or CLI. Its gate can construct policy documents directly and verify guessed statements, prefix filters, known-action validation, original statement preservation, and wildcard resources. If wrong, users receive overly broad, missing, or invalid recommendations even when generation is correct.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "test_first",
+      "depends_on": [
+        "core_contracts_and_utilities"
+      ],
+      "focus_paths": [
+        "trailscraper/guess.py",
+        "trailscraper/iam.py",
+        "trailscraper/known-iam-actions.txt"
+      ],
+      "acceptance": {
+        "criteria": [
+          "guess_statements returns a PolicyDocument containing all original statements plus additional guessed statements where related actions exist.",
+          "Guessed statements use Resource '*' as documented and do not mutate the original statement objects unexpectedly.",
+          "Allowed prefixes restrict guessed actions to requested verb prefixes such as Get, List, Describe, Delete, or Update.",
+          "Guessed actions are validated against known IAM actions and are not invented when absent from known-iam-actions.txt.",
+          "Statements with no guessable actions are returned unchanged."
+        ],
+        "corner_cases": [
+          "Policy with empty Statement list.",
+          "Statement Action represented as a single Action versus a list of Actions.",
+          "Multiple original actions producing duplicate guessed actions.",
+          "Allowed prefix list empty or containing prefixes that match no known action.",
+          "Actions from different IAM service prefixes must not be mixed into the wrong service.",
+          "Original Deny statements should be preserved and not converted to Allow."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "trailscraper.guess",
+            "symbol": "guess_statements",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "trailscraper.guess",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write policy-guessing tests from the PRD for preserving original statements, adding wildcard-resource guessed statements, filtering by --only-style prefixes, and validating against known IAM actions.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "trailscraper/guess.py",
+            "trailscraper/iam.py",
+            "trailscraper/known-iam-actions.txt"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "builder_implementer",
+          "title": "Implementer",
+          "mandate": "Implement guess_statements and its helpers using the frozen IAM model and known action data, without changing the public IAM contracts.",
+          "role": "implementer",
+          "slot_id": "builder",
+          "focus_paths": [
+            "trailscraper/guess.py",
+            "trailscraper/known-iam-actions.txt"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "If the gate fails, repair only the named policy-guessing behavior and preserve all earlier IAM serialization and matching contracts.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "trailscraper/guess.py",
+            "trailscraper/iam.py",
+            "trailscraper/known-iam-actions.txt"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "cli_and_end_to_end_integration",
+      "title": "Click CLI and end-to-end command integration",
+      "objective": "Wire all implemented modules into the documented Click command-line interface, package entry point, global options, and pipe-friendly JSON workflows.",
+      "risk_rationale": "This final milestone integrates all frozen modules behind the public trailscraper CLI contract. Its gate can run Click commands with isolated files, mocked AWS clients, and stdin/stdout pipelines to verify download, select, generate, guess, last-event-timestamp, --verbose, and --version behavior across the full repository. This is intentionally last because it depends on every prior feature module being importable and behaviorally stable.",
+      "gate_level": "integration",
+      "split_reason": "feature_module",
+      "template_id": "parallel_audit",
+      "depends_on": [
+        "core_contracts_and_utilities",
+        "cloudtrail_records_and_policy_generation",
+        "record_sources_and_downloads",
+        "policy_guessing"
+      ],
+      "focus_paths": [
+        "trailscraper/cli.py",
+        "trailscraper/__init__.py",
+        "setup.py",
+        "pyproject.toml",
+        "setup.cfg",
+        "trailscraper"
+      ],
+      "acceptance": {
+        "criteria": [
+          "The trailscraper Click root group exposes --verbose, --version, --help, and the documented subcommands.",
+          "download command parses all documented options and invokes S3 download behavior with bucket, prefix, org IDs, account IDs, regions, log directory, parsed from/to times, wait flag, and parallelism.",
+          "select command can read from local logs or CloudTrail API, apply role/time filters, and emit JSON CloudTrail records suitable for piping.",
+          "generate command reads CloudTrail records from STDIN and writes a standard IAM policy JSON document to STDOUT.",
+          "guess command reads an IAM policy from STDIN, applies optional repeated --only filters, and writes the extended policy JSON to STDOUT.",
+          "last-event-timestamp prints the most recent local event timestamp for a log directory.",
+          "Unix-style pipelines such as select | generate and generate | guess work through JSON stdin/stdout without debug noise unless verbose logging is enabled appropriately.",
+          "The package imports cleanly on a fresh environment with the documented dependencies and exposes the CLI entry point."
+        ],
+        "corner_cases": [
+          "No input on generate or guess reports a clear Click/runtime error rather than a traceback with partial output.",
+          "Multiple --filter-assumed-role-arn, --account-id, --region, --org-id, and --only options are all accepted.",
+          "Default date values match the PRD: download defaults one day ago to now; select defaults 1970-01-01 to now.",
+          "Verbose mode must not corrupt JSON emitted to stdout.",
+          "Empty selection emits valid JSON representing no records.",
+          "CLI help remains available even if AWS credentials are absent.",
+          "Local directory defaults expand '~/.trailscraper/logs' consistently."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "trailscraper.cli",
+            "symbol": "root_group",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "trailscraper.cli",
+            "symbol": "download",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "trailscraper.cli",
+            "symbol": "select",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "trailscraper.cli",
+            "symbol": "generate",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "trailscraper.cli",
+            "symbol": "guess",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "trailscraper.cli",
+            "symbol": "last_event_timestamp",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "trailscraper.cli",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "trailscraper",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "trailscraper",
+            "symbol": "__version__",
+            "required_levels": [
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write integration tests using Click's runner for every documented command, stdin/stdout JSON pipelines, option parsing, defaults, version/help behavior, and mocked AWS/local file interactions.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "trailscraper/cli.py",
+            "trailscraper",
+            "setup.py",
+            "pyproject.toml",
+            "setup.cfg"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Wire the CLI root group and subcommands to the completed modules, configure package version/entry-point behavior, and preserve clean JSON stdout for composable pipelines.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "trailscraper/cli.py",
+            "trailscraper/__init__.py",
+            "setup.py",
+            "pyproject.toml",
+            "setup.cfg"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "spec_review_spec_auditor",
+          "title": "Specification auditor",
+          "mandate": "Audit the CLI and package behavior against the PRD command synopsis, global options, defaults, stdin/stdout semantics, and documented workflows.",
+          "role": "spec_auditor",
+          "slot_id": "spec_review",
+          "focus_paths": [
+            "trailscraper/cli.py",
+            "trailscraper/__init__.py",
+            "setup.py",
+            "pyproject.toml",
+            "setup.cfg"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "contract_review_contract_critic",
+          "title": "Contract critic",
+          "mandate": "Audit that final CLI wiring does not break frozen contracts from IAM, CloudTrail parsing, record sources, S3 download, and policy guessing, and that imports remain at documented module paths.",
+          "role": "contract_critic",
+          "slot_id": "contract_review",
+          "focus_paths": [
+            "trailscraper"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Apply fixes from both audits, remove accidental debris or unsupported surfaces, and ensure the shipped CLI/package surface exactly matches the documented repository tree and public commands.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "trailscraper",
+            "setup.py",
+            "pyproject.toml",
+            "setup.cfg"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,663 @@
+{
+  "generator": "llm",
+  "split_policy": "feature",
+  "rationale": "The project is split into four feature modules in dependency order. Foundational error, utility, registry, and compatibility contracts come first; schema parsing follows those contracts; validator behavior then builds on the schema and error systems; the final milestone wires the documented public API, packaging, benchmarks package, and full integration. Each milestone owns executable behavior and has a gate that can verify it before later milestones exist.",
+  "split": true,
+  "milestones": [
+    {
+      "milestone_id": "foundation_errors_utils_platform",
+      "title": "Foundational errors, utilities, registries, and platform compatibility",
+      "objective": "Implement the shared contracts used by all later features: validation error objects and handlers, error trees, TypeDefinition, path comparison, validator and schema registries, dynamic validator factory support, and Python-version-compatible importlib_metadata handling.",
+      "risk_rationale": "This milestone freezes the data structures and constants that schema and validator code exchange. Its gate can instantiate errors, build error trees, register schemas and rulesets, create type definitions, compare paths, and resolve package metadata without requiring schema parsing or document validation. If these contracts are wrong, downstream modules will either fail to import or silently disagree about error and registry behavior.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "chain",
+      "depends_on": [],
+      "focus_paths": [
+        "cerberus/errors.py",
+        "cerberus/utils.py",
+        "cerberus/platform.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "ValidationError, ErrorList, DocumentErrorTree, SchemaErrorTree, ErrorTreeNode, BaseErrorHandler, and BasicErrorHandler provide usable error collection, tree insertion, traversal, and formatting behavior.",
+          "TypeDefinition represents allowed Python types and validator_factory can construct validator classes or equivalent validator extensions from supplied configuration.",
+          "schema_registry and rules_set_registry support registration and retrieval of named schemas and rulesets.",
+          "compare_paths_lt provides deterministic ordering for nested validation paths.",
+          "platform exposes importlib_metadata compatibility suitable for Python 3.7+ environments."
+        ],
+        "corner_cases": [
+          "Empty error collections format without raising and have stable length and iteration behavior.",
+          "Errors at root paths and deeply nested list or mapping paths are inserted into the correct tree nodes.",
+          "Duplicate registry names replace or reject entries according to the documented registry contract without corrupting unrelated entries.",
+          "TypeDefinition handles one type, multiple types, and invalid type specifications.",
+          "Metadata lookup remains importable when the standard-library importlib.metadata is available and when the backport is required."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "cerberus.errors",
+            "symbol": "ValidationError",
+            "required_levels": [
+              "discovery",
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cerberus.errors",
+            "symbol": "ErrorList",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cerberus.errors",
+            "symbol": "DocumentErrorTree",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cerberus.errors",
+            "symbol": "SchemaErrorTree",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cerberus.errors",
+            "symbol": "BasicErrorHandler",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cerberus.utils",
+            "symbol": "TypeDefinition",
+            "required_levels": [
+              "discovery",
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cerberus.utils",
+            "symbol": "validator_factory",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cerberus.utils",
+            "symbol": "compare_paths_lt",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "cerberus.utils",
+            "symbol": "schema_registry",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "cerberus.utils",
+            "symbol": "rules_set_registry",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "cerberus.platform",
+            "symbol": "importlib_metadata",
+            "required_levels": [
+              "discovery",
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Create executable tests from the design documents for error objects, error trees, formatting, registries, TypeDefinition, validator_factory, path comparison, and platform metadata compatibility; do not modify source files.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "cerberus/errors.py",
+            "cerberus/utils.py",
+            "cerberus/platform.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "first_contract_author",
+          "title": "Contract author",
+          "mandate": "Implement and freeze the foundational public classes, registries, constants, and compatibility imports in errors.py, utils.py, and platform.py so later schema and validator modules can import stable contracts.",
+          "role": "contract_author",
+          "slot_id": "first",
+          "focus_paths": [
+            "cerberus/errors.py",
+            "cerberus/utils.py",
+            "cerberus/platform.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "second_implementer",
+          "title": "Implementer",
+          "mandate": "Complete the documented behavior of error collection and formatting, error-tree navigation, registry operations, type definitions, dynamic validator construction, path ordering, and metadata lookup against the frozen contracts.",
+          "role": "implementer",
+          "slot_id": "second",
+          "focus_paths": [
+            "cerberus/errors.py",
+            "cerberus/utils.py",
+            "cerberus/platform.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "third_edge_case_hardener",
+          "title": "Edge-case hardener",
+          "mandate": "Exercise and harden empty, malformed, nested, duplicate, and compatibility edge cases in the foundational modules without changing the documented public symbols or signatures.",
+          "role": "edge_case_hardener",
+          "slot_id": "third",
+          "focus_paths": [
+            "cerberus/errors.py",
+            "cerberus/utils.py",
+            "cerberus/platform.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "schema_definition_system",
+      "title": "Schema definition and parsing system",
+      "objective": "Implement DefinitionSchema, UnvalidatedSchema, SchemaError, schema normalization and validation, nested schema structures, logical operators, and schema references using the foundational errors and registries.",
+      "risk_rationale": "This milestone owns the independent schema-definition behavior consumed by validators. Its gate can validate and normalize schema definitions, reject malformed rules, resolve nested schemas and references, and exercise anyof, allof, oneof, and noneof without requiring document validation. Keeping it separate catches schema-language defects before they are obscured by validator execution.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "chain",
+      "depends_on": [
+        "foundation_errors_utils_platform"
+      ],
+      "focus_paths": [
+        "cerberus/schema.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "DefinitionSchema and UnvalidatedSchema accept supported schema mappings and expose deterministic normalized or validated representations.",
+          "SchemaError is raised or represented through the foundational error system for invalid rule shapes, unknown rules, invalid rule arguments, and invalid nested schemas.",
+          "Nested mapping and list schemas are parsed recursively.",
+          "Logical operators anyof, allof, oneof, and noneof are recognized and validated.",
+          "Named schema references resolve through schema_registry and missing references produce a useful schema error."
+        ],
+        "corner_cases": [
+          "Empty schemas and empty nested mappings remain valid where the documented rules permit them.",
+          "A schema supplied as a non-mapping is rejected with the documented schema type error.",
+          "Malformed logical-operator lists, duplicate or missing rule keys, and invalid type definitions are rejected without partial state leakage.",
+          "Recursive or missing schema references fail deterministically rather than recursing indefinitely.",
+          "Unknown validation rules are rejected unless explicitly registered."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "cerberus.schema",
+            "symbol": "DefinitionSchema",
+            "required_levels": [
+              "discovery",
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cerberus.schema",
+            "symbol": "UnvalidatedSchema",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cerberus.schema",
+            "symbol": "SchemaError",
+            "required_levels": [
+              "discovery",
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cerberus.schema",
+            "symbol": "_SchemaRuleTypeError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "cerberus.utils",
+            "symbol": "schema_registry",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write executable schema-system tests from the design documents covering valid and invalid rule definitions, nesting, logical operators, references, normalization, and schema error reporting; do not edit implementation files.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "cerberus/schema.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "first_contract_author",
+          "title": "Contract author",
+          "mandate": "Establish the schema module's public classes, exception contracts, rule-definition shape, and interactions with schema_registry and foundational error trees before implementing full parsing behavior.",
+          "role": "contract_author",
+          "slot_id": "first",
+          "focus_paths": [
+            "cerberus/schema.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "second_implementer",
+          "title": "Implementer",
+          "mandate": "Implement recursive schema parsing and validation, logical operator handling, schema references, rule argument checks, and normalized schema output according to the architecture documents.",
+          "role": "implementer",
+          "slot_id": "second",
+          "focus_paths": [
+            "cerberus/schema.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "third_edge_case_hardener",
+          "title": "Edge-case hardener",
+          "mandate": "Harden schema handling for non-mapping inputs, malformed nested structures, empty logical branches, missing references, recursion, duplicate rules, and unknown rule registration while preserving frozen contracts.",
+          "role": "edge_case_hardener",
+          "slot_id": "third",
+          "focus_paths": [
+            "cerberus/schema.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "core_validator_behavior",
+      "title": "Core validation and normalization engine",
+      "objective": "Implement BareValidator and Validator with document validation, validated and normalized results, required and nullable handling, type checks, min and max constraints, regex checks, nested validation, logical rules, normalization methods, custom rules, and error-handler integration.",
+      "risk_rationale": "This milestone owns the primary runtime behavior of Cerberus. Its gate can instantiate validators, validate and normalize documents, inspect errors, exercise every documented _validate_* and _normalize_* family, and use custom rules and types against the already-frozen schema and error contracts. It does not depend on package re-exports or packaging, so failures are localized to validation semantics.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "gate_then_repair",
+      "depends_on": [
+        "foundation_errors_utils_platform",
+        "schema_definition_system"
+      ],
+      "focus_paths": [
+        "cerberus/validator.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "BareValidator and Validator can validate mapping documents against schemas and expose validate(), validated(), normalized(), and related documented methods.",
+          "Core rules including required, nullable, type, min, max, regex, readonly, dependencies, allowed, forbidden, and nested schema rules produce correct success states and error paths.",
+          "Normalization supports default values, coercion, purging or ignoring unknown fields where configured, and nested normalization.",
+          "anyof, allof, oneof, and noneof operate during document validation and report errors through the configured error handler.",
+          "Custom validation rules, custom coercers, and custom type definitions can be registered and invoked.",
+          "Validator instances are callable or otherwise usable through the documented public invocation behavior."
+        ],
+        "corner_cases": [
+          "Missing required fields, explicit null values, empty documents, and unknown fields follow the configured allow-unknown and purge behavior.",
+          "Boundary values exactly equal to min or max and values just outside the boundary are handled correctly.",
+          "Wrong scalar types, invalid regex patterns, empty collections, and nested list or mapping paths produce stable errors.",
+          "Normalization does not mutate caller-owned input when the documented API promises non-mutation.",
+          "Custom rules and coercers that raise exceptions are handled according to the documented error behavior.",
+          "Repeated validation with the same validator does not retain stale errors or normalized data from a prior document."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "cerberus.validator",
+            "symbol": "BareValidator",
+            "required_levels": [
+              "discovery",
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cerberus.validator",
+            "symbol": "Validator",
+            "required_levels": [
+              "discovery",
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cerberus.validator",
+            "symbol": "readonly_classproperty",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cerberus.validator",
+            "symbol": "_SchemaRuleTypeError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cerberus.validator",
+            "symbol": "validate",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cerberus.validator",
+            "symbol": "validated",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cerberus.validator",
+            "symbol": "normalized",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Create the executable validator behavior suite from the design documents covering validation, normalization, nested schemas, logical operators, all core rule families, customizations, error handlers, and repeated-use edge cases; do not modify source.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "cerberus/validator.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement BareValidator and Validator end to end from the documents, using the frozen schema, error, registry, and utility contracts; include documented _validate_* and _normalize_* methods and public validation APIs.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "cerberus/validator.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "If the acceptance gate reports failures, fix only the named validator behavior, signature, or contract deviations, then rerun the focused validator suite and leave unrelated modules unchanged.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "cerberus/validator.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "public_api_packaging_integration",
+      "title": "Unified public API, packaging, benchmarks package, and integration",
+      "objective": "Wire the documented cerberus package exports, version metadata, pyproject.toml installation and test dependencies, benchmark package initialization, and cross-module behavior so users can import and use the complete public contract.",
+      "risk_rationale": "This final milestone owns outward-facing reachability and repository integration. Its gate imports every documented public symbol from cerberus and its submodules, installs or builds the package from pyproject.toml, verifies benchmark package behavior, and runs representative validation, schema, error, registry, and customization flows together. It is last because it depends on all implementation modules and is graded on the full public contract.",
+      "gate_level": "integration",
+      "split_reason": "feature_module",
+      "template_id": "review_then_fix",
+      "depends_on": [
+        "foundation_errors_utils_platform",
+        "schema_definition_system",
+        "core_validator_behavior"
+      ],
+      "focus_paths": [
+        "cerberus/__init__.py",
+        "pyproject.toml",
+        "cerberus/benchmarks/__init__.py",
+        "cerberus/benchmarks"
+      ],
+      "acceptance": {
+        "criteria": [
+          "cerberus.__init__ exposes Validator, BareValidator where documented, DocumentError, SchemaError, errors, schema_registry, rules_set_registry, TypeDefinition, and version information.",
+          "All documented submodule imports work from a clean interpreter and from an installed package.",
+          "pyproject.toml defines an installable package, Python compatibility metadata, runtime and test dependencies, and test configuration sufficient to run the visible suite.",
+          "cerberus/benchmarks/__init__.py defines DOCUMENTS_PATH as the directory containing benchmark documents.",
+          "Representative end-to-end flows validate and normalize documents, report formatted errors, resolve schemas, and invoke custom rules through the public API."
+        ],
+        "corner_cases": [
+          "The package imports successfully when optional metadata dependencies differ across Python versions.",
+          "Public re-exports refer to the same classes and registries as their defining modules rather than duplicate or stale objects.",
+          "Installation metadata does not omit cerberus subpackages or benchmark data paths.",
+          "Importing the package does not eagerly trigger circular imports or require benchmark files to exist for normal validation use.",
+          "Version access remains available even when package metadata is unavailable in a source checkout."
+        ],
+        "checks": [
+          {
+            "type": "export",
+            "module": "cerberus",
+            "symbol": "Validator",
+            "required_levels": [
+              "discovery",
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "cerberus",
+            "symbol": "DocumentError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "cerberus",
+            "symbol": "SchemaError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "cerberus",
+            "symbol": "errors",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "cerberus",
+            "symbol": "schema_registry",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "cerberus",
+            "symbol": "rules_set_registry",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "cerberus",
+            "symbol": "TypeDefinition",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "cerberus",
+            "symbol": "__version__",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "cerberus.benchmarks",
+            "symbol": "DOCUMENTS_PATH",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write executable integration tests from the design documents for public imports, package metadata, benchmark DOCUMENTS_PATH, installed-package reachability, and representative end-to-end validation and normalization flows; do not edit source.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "cerberus/__init__.py",
+            "pyproject.toml",
+            "cerberus/benchmarks"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Wire all documented public exports and version information, complete pyproject.toml packaging and dependency metadata, define the benchmark package constant exactly as specified, and verify cross-module imports and end-to-end usage.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "cerberus/__init__.py",
+            "pyproject.toml",
+            "cerberus/benchmarks"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "reviewer_contract_critic",
+          "title": "Contract critic",
+          "mandate": "Read-only audit the integration against every contract frozen by earlier milestones, checking identity-preserving re-exports, signatures, import paths, package inclusion, version behavior, and benchmark constant reachability; report concrete deviations.",
+          "role": "contract_critic",
+          "slot_id": "reviewer",
+          "focus_paths": [
+            "cerberus/__init__.py",
+            "pyproject.toml",
+            "cerberus/benchmarks"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Apply only the fixes named by the integration gate and contract review, prioritizing broken public imports, packaging metadata, circular imports, missing re-exports, and end-to-end contract mismatches; rerun the full visible suite.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "cerberus/__init__.py",
+            "pyproject.toml",
+            "cerberus/benchmarks"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    }
+  ]
+}

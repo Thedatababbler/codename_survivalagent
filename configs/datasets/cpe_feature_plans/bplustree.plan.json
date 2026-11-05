@@ -1,0 +1,757 @@
+{
+  "generator": "llm",
+  "split_policy": "feature",
+  "rationale": "Split into five feature modules following the documented dependency layers: shared constants/serializers/entry byte contracts first, node structures next, persistence/WAL next, tree algorithms next, and final public-package integration last. Each milestone owns behavior that can be tested immediately without relying on later milestones, while the final milestone grades the complete public contract and import surface.",
+  "split": true,
+  "milestones": [
+    {
+      "milestone_id": "serialization_entry_contracts",
+      "title": "Serialization, constants, utilities, and entry byte formats",
+      "objective": "Build the foundational contracts used by every later module: TreeConf, documented constants, serializers, utility iterators, and Entry/Record/Reference serialization behavior.",
+      "risk_rationale": "This milestone delivers the byte-level contract for keys, values, overflow references, and child references. Later nodes, memory pages, WAL recovery, and tree operations all depend on these exact lengths and serializer semantics. Its gate can verify serializer round trips, fixed-size dump/load behavior, entry ordering, and utility iteration without node, memory, or tree code.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "test_first",
+      "depends_on": [],
+      "focus_paths": [
+        "bplustree/const.py",
+        "bplustree/serializer.py",
+        "bplustree/entry.py",
+        "bplustree/utils.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "TreeConf is a namedtuple-like configuration object with page_size, order, key_size, value_size, and serializer fields.",
+          "IntSerializer, StrSerializer, UUIDSerializer, and DatetimeUTCSerializer serialize to exactly key_size bytes and deserialize back to equivalent Python objects.",
+          "Record dumps and loads fixed-length key/value entries and supports overflow_page references for out-of-line values.",
+          "Reference dumps and loads fixed-length key/before/after child-pointer entries.",
+          "Entry comparison operators order entries by key.",
+          "pairwise yields overlapping consecutive pairs and iter_slice yields byte chunks with a last-chunk indicator."
+        ],
+        "corner_cases": [
+          "Integer keys at zero and large positive values.",
+          "String keys shorter than key_size and too long for key_size.",
+          "UUID and UTC datetime round trips.",
+          "Empty iterables passed to pairwise and iter_slice.",
+          "Record values exactly value_size, shorter than value_size, and represented by overflow_page instead of inline bytes.",
+          "Malformed byte strings with incorrect lengths passed to load."
+        ],
+        "checks": [
+          {
+            "type": "export",
+            "module": "bplustree.const",
+            "symbol": "TreeConf",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "bplustree.serializer",
+            "symbol": "Serializer",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "bplustree.serializer",
+            "symbol": "IntSerializer",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "bplustree.serializer",
+            "symbol": "StrSerializer",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "bplustree.serializer",
+            "symbol": "UUIDSerializer",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "bplustree.serializer",
+            "symbol": "DatetimeUTCSerializer",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "bplustree.entry",
+            "symbol": "Entry",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "bplustree.entry",
+            "symbol": "Record",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "bplustree.entry",
+            "symbol": "Reference",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "bplustree.utils",
+            "symbol": "pairwise",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "bplustree.utils",
+            "symbol": "iter_slice",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write executable tests from the design documents for TreeConf, serializers, Entry/Record/Reference dump-load contracts, comparison semantics, and utility iterators. Do not modify source.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "builder_contract_author",
+          "title": "Contract author",
+          "mandate": "Implement const.py, serializer.py, entry.py, and utils.py as the shared byte-format substrate that later node and persistence modules will import.",
+          "role": "contract_author",
+          "slot_id": "builder",
+          "focus_paths": [],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "If the milestone gate fails, repair only the reported contract, serialization, entry, or utility defects without adding later tree or storage behavior.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "node_hierarchy",
+      "title": "B+ tree node hierarchy and page serialization",
+      "objective": "Build Node, record-node, reference-node, leaf, internal, root, and lonely-root behavior on top of the frozen entry contracts.",
+      "risk_rationale": "This milestone delivers the in-page tree structure: sorted entry management, node capacity rules, split support, node type conversion, and node dump/load. Its gate can construct nodes directly with TreeConf and Record/Reference objects, then verify ordering, splitting, removal, and page serialization without FileMemory or BPlusTree.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "review_then_fix",
+      "depends_on": [
+        "serialization_entry_contracts"
+      ],
+      "focus_paths": [
+        "bplustree/node.py",
+        "bplustree/entry.py",
+        "bplustree/const.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "Node.from_page_data reconstructs the correct concrete node type from serialized page bytes.",
+          "RecordNode implementations store Record entries and ReferenceNode implementations store Reference entries.",
+          "insert_entry maintains sorted order and rejects or replaces duplicates according to the documented node behavior needed by tree insertion.",
+          "remove_entry, get_entry, pop_smallest, smallest_key, biggest_key, and split_entries operate correctly.",
+          "LonelyRootNode can convert to LeafNode and RootNode can convert to InternalNode while preserving entries and page linkage.",
+          "Node dump output is page-sized and can be loaded back without losing page, parent, next_page, or entries."
+        ],
+        "corner_cases": [
+          "Empty nodes and single-entry nodes.",
+          "Insertion at beginning, middle, and end.",
+          "Duplicate keys.",
+          "Splitting odd and even numbers of entries.",
+          "Removing a missing key.",
+          "Nodes at max_children and min_children boundaries.",
+          "next_page absent and present."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "bplustree.node",
+            "symbol": "Node",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "bplustree.node",
+            "symbol": "RecordNode",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "bplustree.node",
+            "symbol": "ReferenceNode",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "bplustree.node",
+            "symbol": "LonelyRootNode",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "bplustree.node",
+            "symbol": "RootNode",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "bplustree.node",
+            "symbol": "InternalNode",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "bplustree.node",
+            "symbol": "LeafNode",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write executable tests for node construction, sorted entry mutation, split boundaries, concrete node conversion, and page dump/load using only the frozen serialization contracts.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement the complete node hierarchy in node.py using TreeConf, Record, and Reference without changing the frozen entry or serializer APIs.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "reviewer_contract_critic",
+          "title": "Contract critic",
+          "mandate": "Read the implementation and report any violation of the frozen serialization_entry_contracts symbols, byte formats, or import paths.",
+          "role": "contract_critic",
+          "slot_id": "reviewer",
+          "focus_paths": [],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Fix only the reviewer-reported or gate-reported node defects while preserving the earlier milestone contracts.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "file_memory_wal",
+      "title": "Persistent page memory, metadata, cache, transactions, and WAL",
+      "objective": "Build FileMemory and WAL so pages, nodes, metadata, checkpoints, and transactional writes are persisted safely on disk.",
+      "risk_rationale": "This milestone delivers the persistence subsystem used by the tree but testable independently: raw page I/O, node I/O, metadata storage, cache behavior, write-ahead logging, commit/rollback, and checkpointing. Its gate can create temporary files, write pages and nodes, close and reopen FileMemory, and verify recovery without requiring BPlusTree algorithms.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "review_then_fix",
+      "depends_on": [
+        "serialization_entry_contracts",
+        "node_hierarchy"
+      ],
+      "focus_paths": [
+        "bplustree/memory.py",
+        "bplustree/node.py",
+        "bplustree/const.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "FileMemory opens or creates the data file and exposes get_page, set_page, get_node, set_node, get_metadata, set_metadata, perform_checkpoint, close, read_transaction, and write_transaction.",
+          "WAL records dirty pages, makes committed pages readable before checkpoint, supports rollback of uncommitted writes, and checkpoints committed pages to the data file.",
+          "Metadata persists root_node_page and TreeConf across close and reopen.",
+          "Page numbers are allocated consistently through next_available_page and last_page.",
+          "Node pages written through set_node can be read back through get_node as the correct concrete Node subtype.",
+          "Cache usage does not change correctness after repeated reads, writes, checkpoint, and reopen."
+        ],
+        "corner_cases": [
+          "Brand-new empty files.",
+          "Reopening files with existing metadata.",
+          "Reading pages present only in WAL before checkpoint.",
+          "Rolling back uncommitted page writes.",
+          "Checkpoint with and without reopening the WAL.",
+          "Writing exactly page_size bytes and rejecting or normalizing incorrect page lengths.",
+          "Closing more than once."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "bplustree.memory",
+            "symbol": "FileMemory",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "bplustree.memory",
+            "symbol": "WAL",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "bplustree.memory",
+            "symbol": "ReadTransaction",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "bplustree.memory",
+            "symbol": "WriteTransaction",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "bplustree.memory",
+            "symbol": "ReachedEndOfFile",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "bplustree.memory",
+            "symbol": "FrameType",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write executable tests for FileMemory and WAL page persistence, metadata round trips, node storage, transaction commit/rollback, checkpoint, and reopen recovery.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement memory.py using the frozen TreeConf and node serialization contracts, including WAL-backed page writes, metadata, cache, transaction context managers, and checkpointing.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "reviewer_contract_critic",
+          "title": "Contract critic",
+          "mandate": "Review memory.py for violations of earlier byte formats, node load/dump contracts, and documented FileMemory/WAL method names.",
+          "role": "contract_critic",
+          "slot_id": "reviewer",
+          "focus_paths": [],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Fix only the reported persistence defects while preserving the frozen serializer, entry, and node contracts.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "tree_core_operations",
+      "title": "BPlusTree core algorithms and object API",
+      "objective": "Build BPlusTree insertion, lookup, deletion, splitting, overflow values, iteration, batching, and context lifecycle on top of FileMemory and Node.",
+      "risk_rationale": "This milestone delivers the main B+ tree behavior while still being scoped to bplustree.tree rather than package-wide export integration. Its gate can instantiate BPlusTree from bplustree.tree, insert and retrieve records, force leaf and parent splits with small order values, store overflow values, delete records, iterate ranges, close and reopen files, and verify persistence.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "parallel_audit",
+      "depends_on": [
+        "serialization_entry_contracts",
+        "node_hierarchy",
+        "file_memory_wal"
+      ],
+      "focus_paths": [
+        "bplustree/tree.py",
+        "bplustree/memory.py",
+        "bplustree/node.py",
+        "bplustree/entry.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "BPlusTree initializes a new empty tree when no metadata exists and loads an existing tree when metadata is present.",
+          "insert stores bytes values and raises ValueError on duplicate keys unless replace=True.",
+          "get returns the stored value or the supplied default when absent.",
+          "__contains__, __getitem__, __setitem__, __len__, __bool__, __iter__, keys, items, and values behave as documented.",
+          "batch_insert accepts ascending non-overlapping key/value pairs and rejects unsorted or duplicate input.",
+          "Large values exceeding value_size are written to overflow pages and reconstructed exactly.",
+          "Leaf and internal node splits preserve sorted key order and search correctness.",
+          "delete or documented deletion behavior removes keys without corrupting remaining records.",
+          "checkpoint and close persist all committed records across reopen."
+        ],
+        "corner_cases": [
+          "Empty tree get, len, bool, iteration, items, and values.",
+          "Duplicate insert with replace=False and replacement with replace=True.",
+          "Splits at root, leaf, and internal levels using small order settings.",
+          "Keys inserted in ascending, descending, and mixed order.",
+          "Values exactly value_size, one byte over value_size, and spanning multiple overflow pages.",
+          "Slice iteration with start, stop, missing bounds, and invalid backward or stepped slices.",
+          "Deleting absent keys and deleting keys from root-only and multi-level trees.",
+          "Using close twice and using the context-manager protocol."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "bplustree.tree",
+            "symbol": "BPlusTree",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "bplustree.tree",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write executable tests for BPlusTree behavior from tree.py: initialization, insert/get, replace semantics, splits, overflow values, batch_insert, iteration/ranges, deletion, checkpoint, close, and reopen persistence.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement bplustree.tree.BPlusTree using the existing FileMemory, Node, Entry, Serializer, and TreeConf contracts without changing their public behavior.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "spec_review_spec_auditor",
+          "title": "Specification auditor",
+          "mandate": "Audit BPlusTree behavior against PRD.md, architecture_design.md, UML.md, and UML_pyreverse.md, focusing on documented public methods, overflow handling, splitting, iteration, persistence, and lifecycle semantics.",
+          "role": "spec_auditor",
+          "slot_id": "spec_review",
+          "focus_paths": [],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "contract_review_contract_critic",
+          "title": "Contract critic",
+          "mandate": "Audit the tree implementation for any breakage of frozen serializers, entries, nodes, FileMemory, WAL, and metadata contracts.",
+          "role": "contract_critic",
+          "slot_id": "contract_review",
+          "focus_paths": [],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Fix only the defects identified by the auditors or acceptance gate while preserving all earlier frozen contracts.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "public_package_integration",
+      "title": "Public package exports and full-contract integration",
+      "objective": "Wire the package-level public API, ensure documented import paths work, remove debris, and validate the complete B+ tree contract end to end.",
+      "risk_rationale": "This milestone integrates all previously implemented modules into the documented package surface. Its gate verifies the full public contract from consumer import paths, including BPlusTree and serializers from bplustree, persistent operations across close/reopen, visible check_tests, and cross-module interoperability. Defects here are integration failures rather than isolated algorithm or byte-format issues.",
+      "gate_level": "integration",
+      "split_reason": "feature_module",
+      "template_id": "parallel_audit",
+      "depends_on": [
+        "serialization_entry_contracts",
+        "node_hierarchy",
+        "file_memory_wal",
+        "tree_core_operations"
+      ],
+      "focus_paths": [
+        "bplustree/__init__.py",
+        "bplustree/tree.py",
+        "bplustree/serializer.py",
+        "bplustree/const.py",
+        "bplustree/entry.py",
+        "bplustree/node.py",
+        "bplustree/memory.py",
+        "bplustree/utils.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "bplustree.__init__ contains import/export wiring only and exposes the documented public API.",
+          "Consumers can import BPlusTree and serializer classes from bplustree and use them without private-module knowledge.",
+          "The full visible check_tests suite passes.",
+          "End-to-end workflows insert, replace, delete, batch_insert, iterate keys/items/values, use slices, checkpoint, close, and reopen with data intact.",
+          "All modules agree on TreeConf, entry lengths, node page layout, metadata, and serializer behavior.",
+          "The repository contains only the documented package tree and no scratch implementation artifacts."
+        ],
+        "corner_cases": [
+          "Package-root imports in a clean interpreter.",
+          "Multiple serializer types used through package-level exports.",
+          "Context-manager close after exceptions.",
+          "Reopening after checkpoint and after normal close.",
+          "Range scans across multiple linked leaves.",
+          "Large overflow values mixed with inline values.",
+          "Small order/page settings that force many splits."
+        ],
+        "checks": [
+          {
+            "type": "import",
+            "module": "bplustree",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "bplustree",
+            "symbol": "BPlusTree",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "bplustree",
+            "symbol": "IntSerializer",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "bplustree",
+            "symbol": "StrSerializer",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "bplustree",
+            "symbol": "UUIDSerializer",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "bplustree",
+            "symbol": "DatetimeUTCSerializer",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "bplustree",
+            "symbol": "Serializer",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "bplustree",
+            "symbol": "TreeConf",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "bplustree",
+            "symbol": "BPlusTree",
+            "required_levels": [
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write executable integration tests that use only package-level imports and documented public APIs for serializers and BPlusTree, including persistence, overflow values, ranges, batch insertion, deletion, and context management.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Wire bplustree/__init__.py exports, verify public import paths, run the visible check_tests suite, and make minimal integration fixes without changing frozen module contracts unnecessarily.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "spec_review_spec_auditor",
+          "title": "Specification auditor",
+          "mandate": "Audit the final repository against all design documents for missing public methods, missing exports, behavioral gaps, or undocumented files.",
+          "role": "spec_auditor",
+          "slot_id": "spec_review",
+          "focus_paths": [],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "contract_review_contract_critic",
+          "title": "Contract critic",
+          "mandate": "Audit final integration for violations of contracts frozen by the four earlier milestones, especially TreeConf, byte layouts, node serialization, FileMemory/WAL semantics, and public import paths.",
+          "role": "contract_critic",
+          "slot_id": "contract_review",
+          "focus_paths": [],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Apply final integration repairs named by the audits and remove scratch files or duplicate package artifacts so the shipped repository matches the documented file tree.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    }
+  ]
+}

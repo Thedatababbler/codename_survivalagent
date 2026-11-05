@@ -1,0 +1,1007 @@
+{
+  "generator": "llm",
+  "split_policy": "feature",
+  "rationale": "The implementation is split by feature module and dependency order: static data and shared matcher contracts first, then pattern detection, then guess/time estimation, then feedback plus the public Python API, and finally the CLI/package integration. Each non-final milestone exposes behaviour that can be tested immediately through its module functions without relying on later outward-facing layers. The last milestone verifies the full documented public contract including imports, command-line execution, JSON output, and cross-module wiring.",
+  "split": true,
+  "milestones": [
+    {
+      "milestone_id": "data_and_matching_contracts",
+      "title": "Shared data, constants, and matcher substrate",
+      "objective": "Create the package modules and shared contracts for keyboard adjacency graphs, frequency lists, ranked dictionaries, l33t tables, regex definitions, and helper functions that later matchers and scorers import.",
+      "risk_rationale": "This milestone delivers the shared data layout and constants that matching and scoring must agree on: dictionary ranks, adjacency graph shape, l33t substitution tables, regex definitions, and public helper exports. Its gate can verify the data modules and helper functions directly by importing them, checking ranked dictionary construction, adding custom frequency lists, and confirming graph/list structures are usable without requiring full password scoring or CLI integration. If these contracts are wrong, downstream matchers and scoring will silently build around incompatible dictionary ranks or graph layouts.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "test_first",
+      "depends_on": [],
+      "focus_paths": [
+        "zxcvbn/__init__.py",
+        "zxcvbn/adjacency_graphs.py",
+        "zxcvbn/frequency_lists.py",
+        "zxcvbn/matching.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "The zxcvbn package imports on Python 3.8+ with no external runtime dependencies.",
+          "Frequency list data is available as plain Python data through FREQUENCY_LISTS and contains the documented built-in categories for passwords, English/Wikipedia terms, female names, male names, surnames, and US TV/film references.",
+          "ADJACENCY_GRAPHS exposes keyboard graph data for qwerty, dvorak, keypad, and mac keypad style layouts in a shape that spatial matching and scoring can consume.",
+          "build_ranked_dict returns 1-based lowercase rank mappings preserving the order of the supplied list.",
+          "add_frequency_lists adds custom ranked dictionaries to the global matcher dictionary registry and sanitizes terms to lowercase.",
+          "get_ranked_dictionaries returns the currently available ranked dictionaries without requiring the public zxcvbn estimator."
+        ],
+        "corner_cases": [
+          "Empty frequency list input produces an empty ranked dictionary.",
+          "Duplicate words in a supplied list do not crash and resolve deterministically.",
+          "Mixed-case custom frequency terms are normalized so dictionary matching can be case-insensitive.",
+          "Importing matching before any public estimator exists does not create import cycles.",
+          "Constants needed by multiple modules are exported from their documented modules, not only hidden at a private definition site."
+        ],
+        "checks": [
+          {
+            "type": "export",
+            "module": "zxcvbn.adjacency_graphs",
+            "symbol": "ADJACENCY_GRAPHS",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "zxcvbn.frequency_lists",
+            "symbol": "FREQUENCY_LISTS",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "zxcvbn.matching",
+            "symbol": "RANKED_DICTIONARIES",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "zxcvbn.matching",
+            "symbol": "L33T_TABLE",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "zxcvbn.matching",
+            "symbol": "REGEXEN",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.matching",
+            "symbol": "build_ranked_dict",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.matching",
+            "symbol": "add_frequency_lists",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.matching",
+            "symbol": "get_ranked_dictionaries",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write executable tests for the shared data and matching contracts: imports, exported constants, ranked dictionary behaviour, custom list addition, lowercase sanitization, and basic graph/list shape from the design documents only.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "zxcvbn/adjacency_graphs.py",
+            "zxcvbn/frequency_lists.py",
+            "zxcvbn/matching.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "builder_contract_author",
+          "title": "Contract author",
+          "mandate": "Implement the zxcvbn package substrate: adjacency graph constants, built-in frequency list constants, ranked dictionary globals, l33t and regex constants, build_ranked_dict, add_frequency_lists, and get_ranked_dictionaries with no external runtime dependencies.",
+          "role": "contract_author",
+          "slot_id": "builder",
+          "focus_paths": [
+            "zxcvbn/__init__.py",
+            "zxcvbn/adjacency_graphs.py",
+            "zxcvbn/frequency_lists.py",
+            "zxcvbn/matching.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "If the milestone gate fails, fix only the reported shared-data, export, import, or helper-contract defects while preserving the documented public module names.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "zxcvbn/adjacency_graphs.py",
+            "zxcvbn/frequency_lists.py",
+            "zxcvbn/matching.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "pattern_matching_engine",
+      "title": "Password pattern detection matchers",
+      "objective": "Implement all documented pattern matching functions for dictionary, reverse dictionary, l33t, repeat, spatial, sequence, regex, date, and aggregate matching.",
+      "risk_rationale": "This milestone delivers the pattern detection layer as a standalone module that returns match dictionaries with enough metadata for scoring and feedback later. Its gate can verify matcher behaviour directly by calling matching.py functions against passwords such as common dictionary words, reversed words, p@ssw0rd-style l33t, qwerty paths, repeated tokens, unicode/codepoint sequences, recent years, and dates. It does not need time estimates, feedback, the public zxcvbn function, or the CLI to catch defects owned by match detection.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "test_first",
+      "depends_on": [
+        "data_and_matching_contracts"
+      ],
+      "focus_paths": [
+        "zxcvbn/matching.py",
+        "zxcvbn/adjacency_graphs.py",
+        "zxcvbn/frequency_lists.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "dictionary_match finds case-insensitive substrings in all ranked dictionaries and includes pattern, token, i, j, matched_word, rank, and dictionary_name metadata.",
+          "reverse_dictionary_match identifies reversed dictionary words and marks them as reversed while preserving original token positions.",
+          "l33t_match identifies dictionary words produced by supported substitutions and records sub/sub_display metadata without duplicating plain dictionary matches.",
+          "spatial_match detects keyboard walks on the documented adjacency graphs and records graph, turns, shifted_count, token, i, and j.",
+          "repeat_match detects single-character and multi-character repeated patterns and records base_token, base_guesses or base_matches information, and repeat_count.",
+          "sequence_match detects ascending and descending monotonic Unicode codepoint sequences and records sequence_name, sequence_space, ascending, and token positions.",
+          "regex_match detects documented regex patterns such as recent years.",
+          "date_match detects dates with and without separators and normalizes day, month, year, and separator metadata.",
+          "omnimatch returns all matcher results sorted by start index and end index."
+        ],
+        "corner_cases": [
+          "An empty password returns an empty match list from every matcher.",
+          "Overlapping matches are returned rather than prematurely filtered, so scoring can choose the optimal path.",
+          "User-added frequency dictionaries from the previous milestone participate in dictionary, reverse, and l33t matching.",
+          "Unicode sequences such as non-ASCII adjacent codepoints are handled without crashing.",
+          "Invalid dates such as 99/99/9999 are ignored while plausible two-digit years are normalized.",
+          "A password containing l33t symbols that do not map to any known word does not produce false positive dictionary matches."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.matching",
+            "symbol": "omnimatch",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.matching",
+            "symbol": "dictionary_match",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.matching",
+            "symbol": "reverse_dictionary_match",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.matching",
+            "symbol": "relevant_l33t_subtable",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.matching",
+            "symbol": "enumerate_l33t_subs",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.matching",
+            "symbol": "translate",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.matching",
+            "symbol": "l33t_match",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.matching",
+            "symbol": "repeat_match",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.matching",
+            "symbol": "spatial_match",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.matching",
+            "symbol": "spatial_match_helper",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.matching",
+            "symbol": "sequence_match",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.matching",
+            "symbol": "regex_match",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.matching",
+            "symbol": "date_match",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.matching",
+            "symbol": "map_ints_to_dmy",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.matching",
+            "symbol": "map_ints_to_dm",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.matching",
+            "symbol": "two_to_four_digit_year",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write behavioural tests for every matcher from the design documents only, including dictionary, reverse, l33t, spatial, repeat, sequence, regex, date, helper utilities, custom dictionaries, sorting, and empty input handling.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "zxcvbn/matching.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "builder_implementer",
+          "title": "Implementer",
+          "mandate": "Implement the full pattern matching engine in matching.py using the frozen data contracts and no external runtime dependencies. Return match dictionaries compatible with later scoring and feedback functions.",
+          "role": "implementer",
+          "slot_id": "builder",
+          "focus_paths": [
+            "zxcvbn/matching.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "If the matcher gate fails, repair only the reported matching behaviour or metadata defects while preserving the frozen exports and data contracts from prior milestones.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "zxcvbn/matching.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "scoring_and_time_estimates",
+      "title": "Guess estimation, optimal sequence scoring, and attack-time estimates",
+      "objective": "Implement scoring.py and time_estimates.py: per-pattern guess calculations, dynamic programming for the most guessable match sequence, score thresholds, crack time calculations, and display formatting.",
+      "risk_rationale": "This milestone delivers the mathematical core that consumes match dictionaries and produces guesses, scores, and attack time estimates. Its gate can verify it directly with handcrafted match dictionaries and matcher-produced examples, without needing public API wiring, feedback text, or the CLI. Defects here would cause all downstream result scores and crack times to be confidently wrong even if pattern detection is correct.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "review_then_fix",
+      "depends_on": [
+        "data_and_matching_contracts",
+        "pattern_matching_engine"
+      ],
+      "focus_paths": [
+        "zxcvbn/scoring.py",
+        "zxcvbn/time_estimates.py",
+        "zxcvbn/matching.py",
+        "zxcvbn/adjacency_graphs.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "nCk computes exact binomial coefficients and handles boundary values such as k=0, k=n, and k>n.",
+          "calc_average_degree computes usable average degree values from adjacency graphs.",
+          "estimate_guesses dispatches by pattern type and annotates or returns guess estimates for bruteforce, dictionary, reverse, l33t, repeat, sequence, regex, date, and spatial matches.",
+          "dictionary_guesses combines rank, uppercase variations, l33t variations, and reversal multipliers.",
+          "spatial_guesses accounts for pattern length, turns, graph average degree, starting positions, and shifted keys.",
+          "most_guessable_match_sequence chooses the minimum-guess non-overlapping match sequence and fills bruteforce gaps.",
+          "estimate_attack_times returns raw seconds and display strings for online throttled, online unthrottled, offline slow hash, and offline fast hash scenarios plus a 0-4 score.",
+          "guesses_to_score follows the documented thresholds: less than 1e3, less than 1e6, less than 1e8, less than 1e10, and at least 1e10.",
+          "display_time renders seconds, minutes, hours, days, months, years, and centuries in human-readable form."
+        ],
+        "corner_cases": [
+          "Empty passwords and no-match passwords receive valid bruteforce-only scoring instead of crashing.",
+          "Very large guesses are represented with Decimal-compatible precision and do not overflow.",
+          "Uppercase variation counts handle all-lowercase, all-uppercase, title-case, mixed-case, and non-alphabetic tokens.",
+          "l33t variation counts handle repeated substituted characters and multiple possible substitutions.",
+          "Date guesses handle two-digit and four-digit years near and far from the reference year.",
+          "Dynamic programming handles overlapping matches, adjacent matches, and uncovered gaps deterministically."
+        ],
+        "checks": [
+          {
+            "type": "export",
+            "module": "zxcvbn.time_estimates",
+            "symbol": "SECONDS_PER_GUESS",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.scoring",
+            "symbol": "calc_average_degree",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.scoring",
+            "symbol": "nCk",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.scoring",
+            "symbol": "most_guessable_match_sequence",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.scoring",
+            "symbol": "estimate_guesses",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.scoring",
+            "symbol": "bruteforce_guesses",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.scoring",
+            "symbol": "dictionary_guesses",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.scoring",
+            "symbol": "repeat_guesses",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.scoring",
+            "symbol": "sequence_guesses",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.scoring",
+            "symbol": "regex_guesses",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.scoring",
+            "symbol": "date_guesses",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.scoring",
+            "symbol": "spatial_guesses",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.scoring",
+            "symbol": "uppercase_variations",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.scoring",
+            "symbol": "l33t_variations",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.time_estimates",
+            "symbol": "estimate_attack_times",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.time_estimates",
+            "symbol": "guesses_to_score",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.time_estimates",
+            "symbol": "display_time",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.time_estimates",
+            "symbol": "float_to_decimal",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write executable tests for scoring and time estimation from the design documents only, using both handcrafted match dictionaries and matches from the frozen matcher layer. Cover thresholds, dynamic programming, all pattern guess functions, Decimal safety, and display formatting.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "zxcvbn/scoring.py",
+            "zxcvbn/time_estimates.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement scoring.py and time_estimates.py against the frozen matcher metadata contracts, including per-pattern guesses, uppercase/l33t combinatorics, optimal match sequence dynamic programming, score mapping, crack-time scenarios, and human-readable durations.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "zxcvbn/scoring.py",
+            "zxcvbn/time_estimates.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "reviewer_contract_critic",
+          "title": "Contract critic",
+          "mandate": "Review the scoring and time-estimate implementation for quiet contract violations against earlier frozen matcher/data exports, especially match dictionary keys, graph assumptions, numeric types, and public function signatures. Report deviations only.",
+          "role": "contract_critic",
+          "slot_id": "reviewer",
+          "focus_paths": [
+            "zxcvbn/scoring.py",
+            "zxcvbn/time_estimates.py",
+            "zxcvbn/matching.py"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Fix the reported scoring/time-estimate defects and any gate failures while preserving the frozen matcher and data contracts.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "zxcvbn/scoring.py",
+            "zxcvbn/time_estimates.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "feedback_and_public_estimator",
+      "title": "Feedback generation and public zxcvbn estimator",
+      "objective": "Implement feedback.py and the public zxcvbn.zxcvbn function that combines matching, scoring, attack time estimates, user inputs, max length enforcement, and result assembly.",
+      "risk_rationale": "This milestone delivers the library API used by Python consumers. Its gate can verify direct imports from zxcvbn, result dictionary shape, user input handling, max_length behaviour, score/time fields, sequence data, calc_time, guesses_log10, and actionable feedback without requiring the CLI. If this layer is wrong, the lower-level engines may work but the documented import and result contract will still fail for application code.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "parallel_audit",
+      "depends_on": [
+        "data_and_matching_contracts",
+        "pattern_matching_engine",
+        "scoring_and_time_estimates"
+      ],
+      "focus_paths": [
+        "zxcvbn/__init__.py",
+        "zxcvbn/feedback.py",
+        "zxcvbn/matching.py",
+        "zxcvbn/scoring.py",
+        "zxcvbn/time_estimates.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "from zxcvbn import zxcvbn imports the documented callable.",
+          "zxcvbn(password, user_inputs=None, max_length=72) returns a dictionary containing password, guesses, guesses_log10, sequence, calc_time, crack_times_seconds, crack_times_display, score, and feedback.",
+          "User inputs are accepted as a list, sanitized to lowercase, and included in dictionary matching for that call.",
+          "The default maximum password length is 72 characters and can be overridden by max_length.",
+          "Scores and crack time fields in the public result agree with time_estimates.estimate_attack_times for the selected guess count.",
+          "Feedback for weak passwords includes warnings and suggestions, while strong passwords produce empty or minimal positive feedback.",
+          "Pattern-specific feedback distinguishes dictionary, spatial, repeat, sequence, regex, and date weaknesses.",
+          "Dictionary feedback warns about common passwords, names, capitalization, reversed words, and l33t substitutions when the selected match metadata indicates them."
+        ],
+        "corner_cases": [
+          "Empty passwords return a valid result dictionary and weak score rather than crashing.",
+          "Passwords over the default max_length are rejected or handled according to the documented maximum-length constraint, while the same password can be analyzed when a larger max_length is supplied.",
+          "None user_inputs behaves like an empty list.",
+          "Non-string user input values do not crash after sanitization or are rejected with a clear documented exception.",
+          "guess_log10 is defined for low guess counts and does not fail on Decimal values.",
+          "Feedback generation handles an empty sequence and unknown pattern types gracefully."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn",
+            "symbol": "zxcvbn",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.feedback",
+            "symbol": "get_feedback",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.feedback",
+            "symbol": "get_match_feedback",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.feedback",
+            "symbol": "get_dictionary_match_feedback",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "zxcvbn",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write executable tests for feedback.py and the public zxcvbn callable from the design documents only, covering result shape, max_length, user_inputs, score/time consistency, guesses_log10, calc_time, weak and strong feedback, and pattern-specific warnings.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "zxcvbn/__init__.py",
+            "zxcvbn/feedback.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement feedback generation and wire the public zxcvbn.zxcvbn function to the frozen matching, scoring, and time-estimate modules. Preserve documented import paths and assemble the complete result dictionary for Python callers.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "zxcvbn/__init__.py",
+            "zxcvbn/feedback.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "spec_review_spec_auditor",
+          "title": "Specification auditor",
+          "mandate": "Audit the public estimator and feedback implementation against the PRD and architecture documents for quiet deviations in result shape, max_length behaviour, user input handling, feedback semantics, and score/time fields. Report deviations only.",
+          "role": "spec_auditor",
+          "slot_id": "spec_review",
+          "focus_paths": [
+            "zxcvbn/__init__.py",
+            "zxcvbn/feedback.py"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "contract_review_contract_critic",
+          "title": "Contract critic",
+          "mandate": "Audit that the public estimator respects frozen contracts from matching, scoring, and time_estimates, including imported symbols, match metadata expectations, numeric types, and exported function names. Report deviations only.",
+          "role": "contract_critic",
+          "slot_id": "contract_review",
+          "focus_paths": [
+            "zxcvbn/__init__.py",
+            "zxcvbn/feedback.py",
+            "zxcvbn/matching.py",
+            "zxcvbn/scoring.py",
+            "zxcvbn/time_estimates.py"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Fix all reported public-estimator, feedback, and gate failures while preserving the frozen lower-level module contracts.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "zxcvbn/__init__.py",
+            "zxcvbn/feedback.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "cli_packaging_and_full_integration",
+      "title": "CLI, module execution, packaging surface, and full-contract integration",
+      "objective": "Implement __main__.py CLI behaviour, JSON encoding, stdin/getpass password input, argparse options, module execution, console-script readiness, and final integration cleanup across the package.",
+      "risk_rationale": "This final milestone delivers the outward-facing command-line feature and validates the entire public contract end to end. Its gate can run the visible tests plus direct Python API calls, imports from documented modules, python -m zxcvbn, piped stdin usage, argparse user-input and max-length options, JSON output parsing, and no-extra-dependency/package-surface checks. As the integration milestone, it catches wiring defects between already frozen modules as well as CLI-specific behaviour.",
+      "gate_level": "integration",
+      "split_reason": "feature_module",
+      "template_id": "parallel_audit",
+      "depends_on": [
+        "data_and_matching_contracts",
+        "pattern_matching_engine",
+        "scoring_and_time_estimates",
+        "feedback_and_public_estimator"
+      ],
+      "focus_paths": [
+        "zxcvbn/__main__.py",
+        "zxcvbn/__init__.py",
+        "zxcvbn/feedback.py",
+        "zxcvbn/matching.py",
+        "zxcvbn/scoring.py",
+        "zxcvbn/time_estimates.py",
+        "zxcvbn/adjacency_graphs.py",
+        "zxcvbn/frequency_lists.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "python -m zxcvbn reads a password from stdin, analyzes it through the public zxcvbn function, and writes valid JSON to stdout.",
+          "The CLI uses argparse from the standard library and supports --user-input multiple times and --max-length INTEGER.",
+          "When stdin is not available, the CLI prompts securely via getpass rather than echoing the password.",
+          "JSONEncoder subclasses json.JSONEncoder and converts otherwise non-serializable objects such as Decimal values through string representation.",
+          "The JSON CLI output includes the same documented result fields as the public API and is parseable by json.loads.",
+          "The package has no external runtime imports beyond the standard library.",
+          "All documented modules import successfully together without cycles or hidden missing exports.",
+          "The visible check_tests suite and milestone behavioural tests pass at integration level."
+        ],
+        "corner_cases": [
+          "Piped input with a trailing newline is stripped correctly without changing the password's internal spaces.",
+          "Multiple --user-input flags all affect dictionary matching.",
+          "--max-length permits analysis of a password longer than the default limit when set high enough.",
+          "Invalid --max-length values fail through argparse with a nonzero exit instead of a traceback.",
+          "CLI output remains valid JSON when result values include Decimal or other non-native JSON types.",
+          "Interactive prompt path does not attempt to read forever when stdin is absent."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.__main__",
+            "symbol": "cli",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn.__main__",
+            "symbol": "JSONEncoder",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "zxcvbn",
+            "symbol": "zxcvbn",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "zxcvbn.__main__",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "zxcvbn.matching",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "zxcvbn.scoring",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "zxcvbn.time_estimates",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "zxcvbn.feedback",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "zxcvbn.adjacency_graphs",
+            "symbol": "ADJACENCY_GRAPHS",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "zxcvbn.frequency_lists",
+            "symbol": "FREQUENCY_LISTS",
+            "required_levels": [
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write integration tests from the design documents only for CLI execution, python -m zxcvbn, piped stdin, argparse --user-input and --max-length options, JSONEncoder Decimal handling, valid JSON output, package imports, and end-to-end consistency with the public zxcvbn callable.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "zxcvbn/__main__.py",
+            "zxcvbn/__init__.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement the command-line interface in __main__.py using argparse, sys/select/getpass as appropriate, JSON output through JSONEncoder, and wire it to the public zxcvbn function while preserving all frozen module contracts.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "zxcvbn/__main__.py",
+            "zxcvbn/__init__.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "spec_review_spec_auditor",
+          "title": "Specification auditor",
+          "mandate": "Audit the completed repository against the PRD, architecture, and UML documents for missing features, wrong CLI options, nonstandard dependencies, incorrect result fields, or documented import paths that are not reachable. Report deviations only.",
+          "role": "spec_auditor",
+          "slot_id": "spec_review",
+          "focus_paths": [
+            "zxcvbn"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "contract_review_contract_critic",
+          "title": "Contract critic",
+          "mandate": "Audit the final integration against all frozen exports and behaviours from prior milestones, checking that CLI/public wiring did not mutate matcher, scoring, feedback, data, or time-estimate contracts. Report violations only.",
+          "role": "contract_critic",
+          "slot_id": "contract_review",
+          "focus_paths": [
+            "zxcvbn"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Fix reported final integration issues and remove any stray files, scratch artifacts, duplicate package copies, or undocumented runtime dependencies so the shipped surface matches the declared zxcvbn file tree and full public contract.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "zxcvbn"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,664 @@
+{
+  "generator": "llm",
+  "split_policy": "feature",
+  "rationale": "The project describes several independently testable feature groups around a single public autopep8 module. The plan separates foundational file and source-analysis utilities, the complete FixPEP8/error-fixing engine, configuration and multi-file processing, and finally the CLI/public integration layer. Each milestone owns executable behavior and freezes the symbols needed by later work; the final milestone validates the complete public contract.",
+  "split": true,
+  "milestones": [
+    {
+      "milestone_id": "foundational_source_utilities",
+      "title": "Foundational source, encoding, and package contracts",
+      "objective": "Create the installable project foundation and implement the public source/file utility functions: encoding detection and validation, file opening and reading, warning formatting, string and future-import recognition, import-placement analysis, and the documented blank-line and continued-indentation helper contracts.",
+      "risk_rationale": "This milestone delivers the shared utilities that the formatter, configuration loader, and file processors depend on. Its gate can exercise each utility directly using temporary files and representative source fragments, without requiring the formatter or CLI to exist. Incorrect encoding, import-position, or helper contracts would cause downstream modules to parse or rewrite source incorrectly.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "test_first",
+      "depends_on": [],
+      "focus_paths": [
+        "autopep8.py",
+        "pyproject.toml"
+      ],
+      "acceptance": {
+        "criteria": [
+          "The repository is installable as an autopep8 package with the documented Python and dependency metadata.",
+          "The autopep8 module imports successfully and exposes the documented utility functions.",
+          "File reading detects UTF-8 BOMs and Python encoding declarations, validates the detected encoding, and falls back to latin-1 when validation fails.",
+          "open_with_encoding and readlines_from_file preserve usable line endings and return decoded text for supported encodings.",
+          "get_module_imports_on_top_of_file identifies the valid insertion point after module docstrings, future imports, dunder assignments, comments, and related leading constructs.",
+          "extended_blank_lines and continued_indentation return generator-compatible checker results for valid and invalid source layouts.",
+          "is_string_literal and is_future_import distinguish matching and non-matching source lines."
+        ],
+        "corner_cases": [
+          "Empty files and files containing only comments or whitespace.",
+          "UTF-8 BOM input, an explicit coding cookie, and invalid declared encodings.",
+          "CRLF, LF, and mixed newline input.",
+          "Module docstrings followed by comments, future imports, dunder assignments, and imports.",
+          "String prefixes in different cases and quote styles.",
+          "Valid continuation indentation, hanging closing brackets, tabs, and noqa-suppressed lines."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "autopep8",
+            "symbol": "_custom_formatwarning",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "autopep8",
+            "symbol": "open_with_encoding",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "autopep8",
+            "symbol": "_detect_encoding_from_file",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "autopep8",
+            "symbol": "detect_encoding",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "autopep8",
+            "symbol": "readlines_from_file",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "autopep8",
+            "symbol": "extended_blank_lines",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "autopep8",
+            "symbol": "continued_indentation",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "autopep8",
+            "symbol": "get_module_imports_on_top_of_file",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "autopep8",
+            "symbol": "is_string_literal",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "autopep8",
+            "symbol": "is_future_import",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "autopep8",
+            "symbol": "__version__",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write and freeze executable tests derived from the design documents for package importability, metadata, encoding detection, file opening, source helper behavior, import placement, and checker generators. Do not modify implementation files.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "autopep8.py",
+            "pyproject.toml"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "builder_implementer",
+          "title": "Implementer",
+          "mandate": "Implement the installable project foundation and all documented encoding, file, warning, source-recognition, import-placement, blank-line, and continued-indentation utilities. Preserve the exact documented callable names and signatures.",
+          "role": "implementer",
+          "slot_id": "builder",
+          "focus_paths": [
+            "autopep8.py",
+            "pyproject.toml"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "If the acceptance gate fails, fix only the reported foundational utility, metadata, importability, or contract defect and rerun the focused tests.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "autopep8.py",
+            "pyproject.toml"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "pep8_fixing_engine",
+      "title": "PEP 8 detection and FixPEP8 formatting engine",
+      "objective": "Implement the core FixPEP8 engine and the documented formatting pipeline, integrating pycodestyle diagnostics with fixers for indentation, whitespace, imports, line length, syntax-related formatting, and warning codes. Provide fix_code and the complete documented family of error-specific fixing functions.",
+      "risk_rationale": "This milestone owns the central formatting behavior and keeps the FixPEP8 class cohesive rather than splitting one tightly coupled class across milestones. Its gate can format source strings directly, inspect pycodestyle error handling, and verify representative E1, E2, E3/E4, E5, E7, and W fixes without configuration files, directory traversal, or CLI wiring.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "review_then_fix",
+      "depends_on": [
+        "foundational_source_utilities"
+      ],
+      "focus_paths": [
+        "autopep8.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "FixPEP8 exists as the core formatting engine and can be constructed for source input and formatting options.",
+          "fix_code returns formatted Python source and leaves already compliant source stable.",
+          "The engine obtains or consumes pycodestyle diagnostics and applies fixes according to selected and ignored error codes.",
+          "Indentation, whitespace, import normalization, line-length, syntax-related, and warning fixes are implemented for the documented error families.",
+          "Representative named fixers including fix_e101, fix_e201, and fix_e401 are callable and participate in the formatting process.",
+          "Aggressive mode changes behavior only when requested and does not corrupt valid Python source.",
+          "Formatting preserves comments, strings, line endings where practical, and source validity."
+        ],
+        "corner_cases": [
+          "Empty source, whitespace-only source, and source already compliant with PEP 8.",
+          "Comments and string literals containing characters that resemble formatting violations.",
+          "Nested indentation, tabs, hanging continuations, and mixed indentation.",
+          "Multiple errors on one line and overlapping fixes.",
+          "Long lines containing URLs, comments, or strings that should not be blindly split.",
+          "Imports after module docstrings, future imports, comments, or guarded import blocks.",
+          "Malformed or partially parseable input where the engine must avoid destructive rewrites."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "autopep8",
+            "symbol": "FixPEP8",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "autopep8",
+            "symbol": "fix_code",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "autopep8",
+            "symbol": "fix_e101",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "autopep8",
+            "symbol": "fix_e201",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "autopep8",
+            "symbol": "fix_e401",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "autopep8",
+            "symbol": "DEFAULT_MAX_LINE_LENGTH",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Create frozen behavior tests for FixPEP8 and fix_code using representative pycodestyle violations across E1, E2, E3/E4, E5, E7, and W families, including selection, ignoring, aggressive mode, idempotence, comments, strings, and malformed input.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "autopep8.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement the cohesive FixPEP8 class, pycodestyle-driven formatting pipeline, representative and family-wide fixer functions, and fix_code behavior from the design documents. Reuse the frozen foundational helpers and preserve their contracts.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "autopep8.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "reviewer_behaviour_critic",
+          "title": "Behaviour critic",
+          "mandate": "Review the implemented formatter against the frozen tests and documented examples, concentrating on incorrect rewrites, missed error families, non-idempotent output, and accidental changes inside strings or comments. Report concrete defects without editing.",
+          "role": "behaviour_critic",
+          "slot_id": "reviewer",
+          "focus_paths": [
+            "autopep8.py"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Apply only the concrete formatter defects identified by the reviewer or acceptance gate, then rerun the complete engine suite and preserve all earlier utility contracts.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "autopep8.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "configuration_and_batch_processing",
+      "title": "Configuration loading and multi-file processing",
+      "objective": "Implement configuration discovery and merging for pyproject.toml, setup.cfg, and .pep8, expose formatting options such as indentation, maximum line length, select, ignore, and aggressive mode, and add single-file and multi-file processing with recursive discovery, matching/exclusion, encoding handling, and optional parallel execution.",
+      "risk_rationale": "This milestone delivers the outward file-processing behavior that consumes the core engine but remains testable through temporary project trees and files without the CLI. Its gate verifies configuration precedence, file selection, recursive traversal, in-place behavior, diffs, and encoding handling independently, catching errors before CLI integration.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "chain",
+      "depends_on": [
+        "pep8_fixing_engine"
+      ],
+      "focus_paths": [
+        "autopep8.py",
+        "pyproject.toml"
+      ],
+      "acceptance": {
+        "criteria": [
+          "Configuration can be read from pyproject.toml, setup.cfg, and .pep8 when present.",
+          "Global and local configuration values merge with documented precedence and expose line length, indentation, select, ignore, and aggressive settings.",
+          "fix_file formats a single file using detected encoding and supports dry-run, diff, and in-place behavior as applicable.",
+          "fix_multiple_files processes explicit files and recursively discovered Python files.",
+          "File matching and exclusion patterns prevent excluded files from being modified.",
+          "Batch processing reports changed or failed files without corrupting unrelated files.",
+          "Optional parallel processing produces equivalent formatted results to sequential processing."
+        ],
+        "corner_cases": [
+          "No configuration file, multiple configuration files, and conflicting global/local values.",
+          "Empty directories, nonexistent paths, duplicate file arguments, and symlink or non-Python files.",
+          "Excluded files nested below recursively scanned directories.",
+          "UTF-8 BOM and non-UTF-8 source files in a batch.",
+          "Read-only or failed-to-write files.",
+          "Zero-file batches and batches containing a mixture of compliant and noncompliant files.",
+          "Parallel processing with one failing file and several successful files."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "autopep8",
+            "symbol": "fix_file",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "autopep8",
+            "symbol": "fix_multiple_files",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "autopep8",
+            "symbol": "read_config",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "autopep8",
+            "symbol": "parse_args",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "autopep8",
+            "symbol": "DEFAULT_INDENT_SIZE",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "autopep8",
+            "symbol": "DEFAULT_MAX_LINE_LENGTH",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write frozen tests using temporary files and directory trees for configuration discovery/precedence, all supported options, fix_file, fix_multiple_files, recursion, filtering, exclusions, encodings, diffs, in-place writes, and sequential versus parallel results.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "autopep8.py",
+            "pyproject.toml"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "first_contract_author",
+          "title": "Contract author",
+          "mandate": "Define and implement the configuration data flow and stable option contracts, including defaults, supported configuration file formats, precedence, select/ignore semantics, indentation, line length, and aggressive mode without breaking FixPEP8.",
+          "role": "contract_author",
+          "slot_id": "first",
+          "focus_paths": [
+            "autopep8.py",
+            "pyproject.toml"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "second_implementer",
+          "title": "Implementer",
+          "mandate": "Implement fix_file and fix_multiple_files on top of the frozen configuration and formatting engine, including recursive discovery, matching and exclusion, encoding-aware reads/writes, diff and in-place modes, error reporting, and optional parallel execution.",
+          "role": "implementer",
+          "slot_id": "second",
+          "focus_paths": [
+            "autopep8.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "third_edge_case_hardener",
+          "title": "Edge-case hardener",
+          "mandate": "Exercise and harden configuration and batch processing for empty inputs, conflicting configuration, malformed files, encoding failures, write failures, excluded paths, duplicate arguments, and partial parallel failures while preserving public signatures.",
+          "role": "edge_case_hardener",
+          "slot_id": "third",
+          "focus_paths": [
+            "autopep8.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "cli_and_public_integration",
+      "title": "Command-line interface and complete public contract integration",
+      "objective": "Wire the complete public API and command-line entry point, expose documented functions through import autopep8 and wildcard imports, implement CLI options for files, recursive processing, diff, in-place, aggressive, maximum line length, select, and ignore, and validate the full repository contract.",
+      "risk_rationale": "This final milestone owns the outward-facing integration seam where users invoke every earlier feature. Its gate runs the visible tests and end-to-end subprocess/API checks against the full public contract, so import paths, option parsing, exit behavior, file changes, and cross-module interactions are verified together rather than assumed from isolated components.",
+      "gate_level": "integration",
+      "split_reason": "feature_module",
+      "template_id": "parallel_audit",
+      "depends_on": [
+        "configuration_and_batch_processing"
+      ],
+      "focus_paths": [
+        "autopep8.py",
+        "pyproject.toml",
+        "README.rst",
+        "tox.ini"
+      ],
+      "acceptance": {
+        "criteria": [
+          "import autopep8 succeeds in a clean supported environment and exposes the documented primary functions, FixPEP8, version information, and utility functions.",
+          "The command-line interface accepts files and directories and supports recursive processing, --diff, --in-place, --aggressive, --max-line-length, --select, and --ignore.",
+          "CLI output and exit status distinguish successful formatting, displayed diffs, invalid arguments, and processing failures.",
+          "CLI behavior uses the same configuration and formatting semantics as the Python API.",
+          "Wildcard/public imports expose the documented usable API without requiring private-module imports.",
+          "End-to-end formatting of one file and a recursive directory produces the expected content, diff, and in-place effects.",
+          "The complete visible check_tests suite passes and packaging metadata declares the required runtime dependencies."
+        ],
+        "corner_cases": [
+          "CLI invocation with no paths, nonexistent paths, directories without Python files, and mixed valid/invalid paths.",
+          "Mutually conflicting or repeated CLI options and configuration values overridden by command-line arguments.",
+          "Diff mode without in-place modification and in-place mode without emitting unintended diff output.",
+          "Recursive processing with excluded files and files using different encodings.",
+          "Wildcard import behavior and importing the module from an installed package rather than the repository root.",
+          "Formatter failures in one file during a multi-file CLI run."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "autopep8",
+            "symbol": "main",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "autopep8",
+            "symbol": "parse_args",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "autopep8",
+            "symbol": "fix_code",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "autopep8",
+            "symbol": "fix_file",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "autopep8",
+            "symbol": "fix_multiple_files",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "autopep8",
+            "symbol": "FixPEP8",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "autopep8",
+            "symbol": "__version__",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "autopep8",
+            "symbol": "__all__",
+            "required_levels": [
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Create frozen end-to-end tests for installed-module imports, wildcard exports, CLI argument parsing and subprocess behavior, option precedence, output/exit status, single-file formatting, recursive directory processing, diff mode, and in-place mode.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "autopep8.py",
+            "pyproject.toml",
+            "README.rst",
+            "tox.ini"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Wire the complete public API, __all__, package metadata, console entry point, argument parser, and main CLI behavior to the already implemented engine, configuration, and batch-processing functions.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "autopep8.py",
+            "pyproject.toml",
+            "README.rst",
+            "tox.ini"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "spec_review_spec_auditor",
+          "title": "Specification auditor",
+          "mandate": "Audit the integrated repository against PRD.md and architecture_design.md, focusing on missing documented features, option names, signatures, package metadata, CLI semantics, and public import paths. Report every concrete deviation without editing.",
+          "role": "spec_auditor",
+          "slot_id": "spec_review",
+          "focus_paths": [
+            "autopep8.py",
+            "pyproject.toml",
+            "README.rst",
+            "tox.ini"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "contract_review_contract_critic",
+          "title": "Contract critic",
+          "mandate": "Review the integration against all contracts frozen by earlier milestones, concentrating on changed signatures, missing exports, altered defaults, broken formatter/configuration interactions, and CLI bypasses of the tested API.",
+          "role": "contract_critic",
+          "slot_id": "contract_review",
+          "focus_paths": [
+            "autopep8.py",
+            "pyproject.toml"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Fix only the concrete defects reported by the two audits or the integration gate, then run the full visible check_tests suite and end-to-end CLI/API checks without regressing earlier contracts.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "autopep8.py",
+            "pyproject.toml",
+            "README.rst",
+            "tox.ini"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    }
+  ]
+}

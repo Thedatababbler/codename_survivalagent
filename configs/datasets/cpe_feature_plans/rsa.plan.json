@@ -1,0 +1,1004 @@
+{
+  "generator": "llm",
+  "split_policy": "feature",
+  "rationale": "The repository is split feature-first into five milestones ordered by dependency: mathematical/encoding substrate, key objects and key generation/storage, PKCS#1 cryptographic operations, command-line tools, and final public-package integration. This catches defects at the module that owns them: arithmetic and byte conversion bugs before keys depend on them, key serialization bugs before encryption/signing uses keys, PKCS#1 behaviour before CLI wraps it, and import/entry-point wiring last.",
+  "split": true,
+  "milestones": [
+    {
+      "milestone_id": "math_encoding_substrate",
+      "title": "Mathematical, byte-transform, PEM, ASN.1, random, and prime foundations",
+      "objective": "Implement the pure-Python substrate modules that all higher-level RSA features import: integer sizing and modular arithmetic, raw RSA integer operations, byte/integer transforms, random-number helpers, prime generation, PEM wrapping/parsing, and ASN.1 public-key structures.",
+      "risk_rationale": "This milestone delivers the shared low-level contracts used by key generation, serialization, encryption, and signing. Its gate can verify it independently by exercising numeric functions, CRT/inverse behaviour, transform round trips, PEM round trips, ASN.1 class availability, prime predicates, and low-level RSA integer exponentiation without requiring key classes, PKCS#1 padding, or CLI commands. If these contracts are wrong, downstream modules can all appear internally consistent while producing incompatible bytes or mathematically invalid RSA results.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "test_first",
+      "depends_on": [],
+      "focus_paths": [
+        "rsa/common.py",
+        "rsa/core.py",
+        "rsa/transform.py",
+        "rsa/randnum.py",
+        "rsa/prime.py",
+        "rsa/pem.py",
+        "rsa/asn1.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "common.bit_size, byte_size, ceil_div, extended_gcd, inverse, and crt return mathematically correct results for representative positive, zero, and boundary inputs.",
+          "common.inverse raises NotRelativePrimeError carrying a, b, and d when no modular inverse exists.",
+          "transform converts between bytes and integers without losing leading-zero semantics required by RSA block sizing.",
+          "core.encrypt_int and core.decrypt_int perform modular RSA exponentiation and validate integer types and message range.",
+          "core.decrypt_int_fast combines per-prime residues with CRT for two-prime and multiprime inputs.",
+          "pem saves and loads named PEM blocks with correct base64 wrapping and rejects mismatched or malformed PEM data.",
+          "prime and randnum provide usable random integer and prime-generation primitives suitable for later key generation.",
+          "asn1 exposes the documented pyasn1 sequence classes for raw and OpenSSL public-key encodings."
+        ],
+        "corner_cases": [
+          "bit_size(0) returns 0 and byte_size(0) returns a non-negative valid size.",
+          "ceil_div handles exact division and one-over-boundary division.",
+          "inverse fails for non-coprime values and succeeds for coprime negative or large inputs where documented.",
+          "CRT handles multiple congruences and rejects or fails predictably for invalid modulus relationships.",
+          "Integer-to-bytes conversion preserves explicit requested block sizes including leading zero bytes.",
+          "RSA integer encryption rejects negative messages, non-integers, and messages greater than or equal to n.",
+          "PEM loading tolerates normal line wrapping but rejects wrong marker names and invalid base64."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "rsa.common",
+            "symbol": "bit_size",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rsa.common",
+            "symbol": "byte_size",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rsa.common",
+            "symbol": "ceil_div",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rsa.common",
+            "symbol": "extended_gcd",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rsa.common",
+            "symbol": "inverse",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rsa.common",
+            "symbol": "crt",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rsa.common",
+            "symbol": "NotRelativePrimeError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rsa.core",
+            "symbol": "assert_int",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rsa.core",
+            "symbol": "encrypt_int",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rsa.core",
+            "symbol": "decrypt_int",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rsa.core",
+            "symbol": "decrypt_int_fast",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "rsa.transform",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "rsa.randnum",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "rsa.prime",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "rsa.pem",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rsa.asn1",
+            "symbol": "PubKeyHeader",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rsa.asn1",
+            "symbol": "OpenSSLPubKey",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rsa.asn1",
+            "symbol": "AsnPubKey",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write executable tests from the design documents for rsa.common, rsa.core, rsa.transform, rsa.randnum, rsa.prime, rsa.pem, and rsa.asn1, emphasizing independent mathematical and encoding contracts rather than later key APIs.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "rsa/common.py",
+            "rsa/core.py",
+            "rsa/transform.py",
+            "rsa/randnum.py",
+            "rsa/prime.py",
+            "rsa/pem.py",
+            "rsa/asn1.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "builder_contract_author",
+          "title": "Contract author",
+          "mandate": "Implement the foundational modules with stable function signatures, exception attributes, byte-layout behaviour, and ASN.1 class exports that later key and PKCS#1 modules will import.",
+          "role": "contract_author",
+          "slot_id": "builder",
+          "focus_paths": [
+            "rsa/common.py",
+            "rsa/core.py",
+            "rsa/transform.py",
+            "rsa/randnum.py",
+            "rsa/prime.py",
+            "rsa/pem.py",
+            "rsa/asn1.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Repair only the substrate defects named by the acceptance gate, preserving the frozen public symbols and signatures.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "rsa/common.py",
+            "rsa/core.py",
+            "rsa/transform.py",
+            "rsa/randnum.py",
+            "rsa/prime.py",
+            "rsa/pem.py",
+            "rsa/asn1.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "key_generation_and_serialization",
+      "title": "RSA key objects, key generation, blinding, and PKCS#1 key storage",
+      "objective": "Implement rsa.key and rsa.parallel: AbstractKey, PublicKey, PrivateKey, prime selection, public/private exponent calculation, new key generation including multiprime and poolsize support, blinding helpers, dictionary-like component access, equality/hash/repr, pickling-safe state, and PKCS#1 PEM/DER plus OpenSSL public-key loading/saving.",
+      "risk_rationale": "This milestone delivers the key model and serialization contract consumed by PKCS#1 operations and CLI tools. Its gate can verify key generation, component invariants, blinding/unblinding, dictionary-like key access, PEM/DER round trips, OpenSSL public-key parsing, multiprime metadata, and parallel-generation imports without requiring message padding or command-line tools. A defect here would make later encryption/signing either mathematically impossible or byte-incompatible with saved keys.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "review_then_fix",
+      "depends_on": [
+        "math_encoding_substrate"
+      ],
+      "focus_paths": [
+        "rsa/key.py",
+        "rsa/parallel.py",
+        "rsa/asn1.py",
+        "rsa/pem.py",
+        "rsa/common.py",
+        "rsa/core.py",
+        "rsa/prime.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "PublicKey and PrivateKey expose the documented attributes and support __getitem__, equality, hashing, repr, and pickling-compatible behaviour.",
+          "newkeys generates usable public/private key pairs of requested size with default exponent 65537 and custom exponent support.",
+          "find_primes and find_p_q generate distinct primes whose product bit length satisfies the accurate parameter contract.",
+          "calculate_keys_custom_exponent computes e and d such that RSA round trips work for messages smaller than n.",
+          "PrivateKey precomputes CRT data for two-prime and multiprime keys and blinded_decrypt returns the same value as direct private exponentiation.",
+          "Public and private keys save and load in PKCS#1 PEM and DER formats.",
+          "PublicKey loads OpenSSL PEM and DER public-key structures.",
+          "poolsize and parallel generation pathways are available without breaking single-process generation."
+        ],
+        "corner_cases": [
+          "Reject or fail predictably when public exponent is not relatively prime to the totient.",
+          "Generated p and q are distinct.",
+          "accurate=True produces n with the requested bit length.",
+          "nprimes greater than 2 records rs, ds, and ts consistently for multiprime decryption.",
+          "load_pkcs1 rejects unknown formats and malformed key bytes.",
+          "save_pkcs1 rejects unknown formats.",
+          "Dictionary-like access rejects unknown component names.",
+          "Blinding state updates safely without corrupting decrypt results."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "rsa.key",
+            "symbol": "AbstractKey",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rsa.key",
+            "symbol": "PublicKey",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rsa.key",
+            "symbol": "PrivateKey",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rsa.key",
+            "symbol": "find_primes",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rsa.key",
+            "symbol": "find_p_q",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rsa.key",
+            "symbol": "calculate_keys_custom_exponent",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rsa.key",
+            "symbol": "newkeys",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "rsa.parallel",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write executable tests from the design documents for key classes, key generation parameters, blinding, CRT metadata, PEM/DER/OpenSSL serialization, and parallel-generation surface.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "rsa/key.py",
+            "rsa/parallel.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement rsa.key and rsa.parallel using the frozen math, transform, PEM, ASN.1, prime, and core substrate; keep all documented key methods and attributes stable.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "rsa/key.py",
+            "rsa/parallel.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "reviewer_contract_critic",
+          "title": "Contract critic",
+          "mandate": "Review the implementation for violations of frozen substrate contracts and documented key object signatures, especially serialization byte formats and multiprime CRT fields.",
+          "role": "contract_critic",
+          "slot_id": "reviewer",
+          "focus_paths": [
+            "rsa/key.py",
+            "rsa/parallel.py"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Fix the reviewer and gate findings in key generation and serialization without changing frozen substrate contracts.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "rsa/key.py",
+            "rsa/parallel.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "pkcs1_crypto_operations",
+      "title": "PKCS#1 encryption, decryption, signatures, verification, hashing, and MGF1",
+      "objective": "Implement rsa.pkcs1 and rsa.pkcs1_v2 behaviours: PKCS#1 v1.5 encryption/decryption padding, signing and verification padding, file-like signing/verifying, compute_hash and sign_hash workflows, supported hash algorithms, CryptoError hierarchy, and MGF1 for PKCS#1 v2.1 support.",
+      "risk_rationale": "This milestone delivers the cryptographic operations that consume frozen key objects. Its gate can verify encrypt/decrypt and sign/verify end-to-end with generated keys, validate PKCS#1 v1.5 padding structure, check supported hash identifiers and ASN.1 prefixes, and test MGF1 determinism without any CLI or package entry-point wiring. If wrong, later CLI and public API can be wired correctly but perform insecure or incompatible cryptography.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "test_first",
+      "depends_on": [
+        "key_generation_and_serialization"
+      ],
+      "focus_paths": [
+        "rsa/pkcs1.py",
+        "rsa/pkcs1_v2.py",
+        "rsa/key.py",
+        "rsa/core.py",
+        "rsa/common.py",
+        "rsa/transform.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "encrypt applies PKCS#1 v1.5 random nonzero padding with at least 8 padding bytes and decrypt reverses it for valid ciphertext.",
+          "decrypt raises DecryptionError for malformed blocks, wrong block type, missing separator, ciphertext of wrong size, or messages too long for the key.",
+          "sign signs bytes and file-like objects using the requested supported hash method.",
+          "verify accepts bytes and file-like objects, returns the hash method name for valid signatures, and raises VerificationError for invalid signatures or mismatched messages.",
+          "compute_hash and sign_hash support remote-signing workflows and the documented hash algorithms.",
+          "MGF1 returns deterministic masks of requested length using the selected hash algorithm.",
+          "CryptoError, DecryptionError, and VerificationError form the documented exception hierarchy."
+        ],
+        "corner_cases": [
+          "Encrypting a message longer than key_bytes - 11 fails.",
+          "Encryption padding never contains zero bytes before the separator.",
+          "Decrypting tampered ciphertext does not leak partial plaintext.",
+          "Verification rejects a valid signature over a different message.",
+          "Unsupported hash names fail predictably.",
+          "Empty messages can be signed and verified.",
+          "File-like objects are read as bytes and not confused with path strings.",
+          "MGF1 handles zero-length masks and masks longer than one hash digest."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "rsa.pkcs1",
+            "symbol": "CryptoError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rsa.pkcs1",
+            "symbol": "DecryptionError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rsa.pkcs1",
+            "symbol": "VerificationError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rsa.pkcs1",
+            "symbol": "encrypt",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rsa.pkcs1",
+            "symbol": "decrypt",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rsa.pkcs1",
+            "symbol": "sign",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rsa.pkcs1",
+            "symbol": "verify",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rsa.pkcs1",
+            "symbol": "compute_hash",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rsa.pkcs1",
+            "symbol": "sign_hash",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "rsa.pkcs1",
+            "symbol": "HASH_ASN1",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "rsa.pkcs1",
+            "symbol": "HASH_METHODS",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rsa.pkcs1_v2",
+            "symbol": "mgf1",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write executable tests from the design documents for PKCS#1 v1.5 encryption/decryption, signing/verification, hash handling, error classes, file-like inputs, and pkcs1_v2 MGF1.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "rsa/pkcs1.py",
+            "rsa/pkcs1_v2.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "builder_implementer",
+          "title": "Implementer",
+          "mandate": "Implement rsa.pkcs1 and rsa.pkcs1_v2 against the frozen key, core, common, and transform contracts, preserving documented exceptions and hash constants.",
+          "role": "implementer",
+          "slot_id": "builder",
+          "focus_paths": [
+            "rsa/pkcs1.py",
+            "rsa/pkcs1_v2.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Repair only the PKCS#1 and MGF1 behavioural failures named by the gate without altering frozen key or substrate contracts.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "rsa/pkcs1.py",
+            "rsa/pkcs1_v2.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "command_line_tools",
+      "title": "Command-line RSA tools",
+      "objective": "Implement rsa.cli command utilities and operation classes for pyrsa-keygen, pyrsa-encrypt, pyrsa-decrypt, pyrsa-sign, pyrsa-verify, and pyrsa-priv2pub using optparse and the frozen library behaviours.",
+      "risk_rationale": "This milestone delivers the outward-facing command-line feature group that wraps already frozen key and PKCS#1 modules. Its gate can verify argument parsing, stdin/stdout and file I/O handling, key format options, operation class behaviour, generated key files, encryption/decryption command flow, signing/verifying command flow, and verify exit status using direct function invocation or subprocesses. It does not need final package re-export cleanup beyond importing rsa.cli.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "review_then_fix",
+      "depends_on": [
+        "pkcs1_crypto_operations"
+      ],
+      "focus_paths": [
+        "rsa/cli.py",
+        "rsa/key.py",
+        "rsa/pkcs1.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "keygen parses the documented options and writes private and optional public keys in PEM or DER format.",
+          "CryptoOperation implements common parsing, key loading, input reading, output writing, and call workflow for cryptographic subcommands.",
+          "EncryptOperation encrypts bytes with a public key and DecryptOperation decrypts bytes with a private key.",
+          "SignOperation signs input bytes with the requested hash method.",
+          "VerifyOperation verifies a signature file, produces no output on success, and exits with nonzero status on verification failure.",
+          "priv2pub extracts a public key from a private key with independent input and output formats.",
+          "Commands support stdin/stdout when input or output filenames are omitted."
+        ],
+        "corner_cases": [
+          "Missing required positional arguments produce parser errors.",
+          "Invalid key format choices fail predictably.",
+          "Binary DER data is not corrupted by text-mode I/O.",
+          "Verification failure exits with status 1 and does not write a success payload.",
+          "Output omitted writes bytes to stdout without unintended text encoding.",
+          "Input omitted reads from stdin.",
+          "Sign command requires the hash method positional argument."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "rsa.cli",
+            "symbol": "keygen",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rsa.cli",
+            "symbol": "CryptoOperation",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rsa.cli",
+            "symbol": "EncryptOperation",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rsa.cli",
+            "symbol": "DecryptOperation",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rsa.cli",
+            "symbol": "SignOperation",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rsa.cli",
+            "symbol": "VerifyOperation",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write executable tests from the design documents for optparse CLI behaviour, file/stdin/stdout handling, key formats, operation classes, command workflows, and verification exit status.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "rsa/cli.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement rsa.cli using the frozen key and PKCS#1 APIs, matching the documented command names, options, positional arguments, and binary I/O semantics.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "rsa/cli.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "reviewer_spec_auditor",
+          "title": "Specification auditor",
+          "mandate": "Audit cli.py against the PRD command usage blocks and architecture design, reporting option mismatches, missing commands, wrong exit behaviour, or text/binary I/O deviations.",
+          "role": "spec_auditor",
+          "slot_id": "reviewer",
+          "focus_paths": [
+            "rsa/cli.py"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Fix CLI defects named by the auditor and gate while preserving frozen library APIs.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "rsa/cli.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "public_api_packaging_integration",
+      "title": "Public package API, packaging metadata, entry points, and full integration",
+      "objective": "Wire the complete public library contract at documented import paths, expose top-level rsa APIs, ensure package metadata and console entry points are correct, include py.typed, prune stray files, and validate the full end-to-end library and CLI workflows.",
+      "risk_rationale": "This final milestone integrates all completed feature modules into the public contract. Its gate is the full integration check: consumers must be able to import documented symbols from rsa and submodules, generate keys, save/load them, encrypt/decrypt, sign/verify, use multiprime and custom exponent options, run CLI entry points, and pass visible tests. This belongs last because it depends on every earlier module being complete and freezes the repository-facing surface rather than an internal subsystem.",
+      "gate_level": "integration",
+      "split_reason": "feature_module",
+      "template_id": "parallel_audit",
+      "depends_on": [
+        "command_line_tools"
+      ],
+      "focus_paths": [
+        "rsa/__init__.py",
+        "rsa/py.typed",
+        "rsa/util.py",
+        "pyproject.toml",
+        "rsa"
+      ],
+      "acceptance": {
+        "criteria": [
+          "import rsa exposes the documented public API for newkeys, key classes, encrypt, decrypt, sign, verify, compute_hash, sign_hash, and public exceptions.",
+          "Documented usage examples work end to end from the package root.",
+          "Submodules listed in the architecture import successfully on Python 3.8+ with only pyasn1 as a runtime dependency.",
+          "Console entry points for pyrsa-keygen, pyrsa-encrypt, pyrsa-decrypt, pyrsa-sign, pyrsa-verify, and pyrsa-priv2pub are declared and dispatch to the implemented CLI behaviours.",
+          "pyproject uses Poetry as build backend and declares Python and pyasn1 runtime dependency constraints.",
+          "rsa/py.typed exists so type-aware consumers see the package as typed.",
+          "Visible check_tests and milestone behavioural tests pass at integration level.",
+          "The repository contains no extra scratch implementation copies or undocumented duplicate package trees."
+        ],
+        "corner_cases": [
+          "Top-level imports work in a clean environment without relying on local test path hacks.",
+          "Package-root exceptions are identical to the submodule exception classes.",
+          "PEM/DER keys generated through top-level APIs can be consumed by CLI operations and vice versa.",
+          "Entry points handle binary stdin/stdout correctly when installed.",
+          "Multiprime key generation remains available through rsa.newkeys.",
+          "Unsupported hash and malformed ciphertext errors propagate as documented exception types.",
+          "No runtime import requires development dependencies such as pytest, mypy, flake8, tox, Sphinx, or coveralls."
+        ],
+        "checks": [
+          {
+            "type": "import",
+            "module": "rsa",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "rsa",
+            "symbol": "PublicKey",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "rsa",
+            "symbol": "PrivateKey",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "rsa",
+            "symbol": "newkeys",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "rsa",
+            "symbol": "encrypt",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "rsa",
+            "symbol": "decrypt",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "rsa",
+            "symbol": "sign",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "rsa",
+            "symbol": "verify",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "rsa",
+            "symbol": "compute_hash",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "rsa",
+            "symbol": "sign_hash",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "rsa",
+            "symbol": "DecryptionError",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "rsa",
+            "symbol": "VerificationError",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "rsa.util",
+            "required_levels": [
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write executable integration tests from the design documents for package-root imports, usage examples, submodule imports, pyproject metadata, console entry points, and library/CLI interoperability.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "rsa/__init__.py",
+            "rsa/util.py",
+            "rsa/py.typed",
+            "pyproject.toml",
+            "rsa"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Wire package-root exports, util helpers, py.typed, Poetry metadata, dependency constraints, and console entry points so the completed modules are reachable through the documented public contract.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "rsa/__init__.py",
+            "rsa/util.py",
+            "rsa/py.typed",
+            "pyproject.toml"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "spec_review_spec_auditor",
+          "title": "Specification auditor",
+          "mandate": "Audit the whole repository against the PRD, architecture design, UML diagrams, command usage blocks, and documented examples; report missing public behaviours or mismatched import paths.",
+          "role": "spec_auditor",
+          "slot_id": "spec_review",
+          "focus_paths": [
+            "rsa",
+            "pyproject.toml"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "contract_review_contract_critic",
+          "title": "Contract critic",
+          "mandate": "Audit final integration against all previously frozen contracts, confirming no substrate, key, PKCS#1, or CLI symbols were moved, narrowed, or made incompatible.",
+          "role": "contract_critic",
+          "slot_id": "contract_review",
+          "focus_paths": [
+            "rsa",
+            "pyproject.toml"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Apply the auditor findings, remove stray scratch files or duplicate implementations, and leave only the documented package surface while preserving all frozen contracts.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "rsa",
+            "pyproject.toml"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    }
+  ]
+}

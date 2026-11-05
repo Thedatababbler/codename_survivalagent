@@ -1,0 +1,537 @@
+{
+  "generator": "llm",
+  "split_policy": "feature",
+  "rationale": "The work is split into four feature modules in dependency order: foundational CSV/path/transformation utilities, SQLite table-writing primitives, normalization and full-text-search features, and finally the Click CLI that integrates every utility into the documented public command. This avoids one long end-to-end milestone while ensuring every non-final milestone has behaviour that can be exercised directly through csvs_to_sqlite.utils before the CLI exists.",
+  "split": true,
+  "milestones": [
+    {
+      "milestone_id": "csv_loading_and_transforms",
+      "title": "CSV discovery, loading, shape, and date transformation utilities",
+      "objective": "Build the foundational utility layer for finding CSV inputs, accepting URLs, loading CSV/TSV data with pandas, applying shape mappings, forcing string columns, and parsing date/datetime columns.",
+      "risk_rationale": "This milestone delivers the data-ingestion and dataframe-transformation contract that all later database features consume. Its gate can verify it alone by calling utility functions directly with temporary CSV files and pandas DataFrames, without needing SQLite table creation, lookup extraction, FTS, or the CLI.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "test_first",
+      "depends_on": [],
+      "focus_paths": [
+        "csvs_to_sqlite/utils.py",
+        "csvs_to_sqlite/__init__.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "csvs_from_paths returns a deterministic mapping from derived table names to CSV file paths for individual files, recursive directories, and URL inputs.",
+          "PathOrURL accepts URL strings without local filesystem validation while preserving normal click.Path behaviour for local paths.",
+          "load_csv reads CSV and TSV files using the requested separator and quoting mode, tries documented encodings, raises LoadCsvError when loading fails, supports skip_errors for rows with too many fields, supports shape-based column filtering, and supports just_strings.",
+          "parse_shape converts strings like csvcol:dbcol(TYPE),other into rename mappings, selected input columns, and SQL type overrides.",
+          "apply_shape drops unspecified columns, renames selected columns, mutates the DataFrame consistently, and returns SQL type overrides.",
+          "apply_dates_and_datetimes converts requested date columns to ISO dates and datetime columns to ISO datetimes, using both dateparser defaults and explicit datetime format strings."
+        ],
+        "corner_cases": [
+          "Empty directories and directories with nested non-CSV files.",
+          "Duplicate CSV basenames from different directories requiring numeric suffixes.",
+          "Latin-1 encoded CSV files after UTF-8 decoding fails.",
+          "Shape entries with and without explicit SQL type overrides.",
+          "Missing date/datetime values and unparsable values should not crash the entire transformation.",
+          "CSV fields containing embedded separators or quotes according to the selected csv quoting constant."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "csvs_to_sqlite.utils",
+            "symbol": "LoadCsvError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "csvs_to_sqlite.utils",
+            "symbol": "load_csv",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "csvs_to_sqlite.utils",
+            "symbol": "csvs_from_paths",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "csvs_to_sqlite.utils",
+            "symbol": "_is_url",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "csvs_to_sqlite.utils",
+            "symbol": "PathOrURL",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "csvs_to_sqlite.utils",
+            "symbol": "parse_shape",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "csvs_to_sqlite.utils",
+            "symbol": "apply_shape",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "csvs_to_sqlite.utils",
+            "symbol": "apply_dates_and_datetimes",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write executable tests for path discovery, URL recognition, CSV loading options, shape parsing/application, just_strings behaviour, and date/datetime conversion from the PRD and architecture documents only.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "csvs_to_sqlite/utils.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "builder_contract_author",
+          "title": "Contract author",
+          "mandate": "Implement the foundational csvs_to_sqlite.utils contracts for CSV/path loading and dataframe transformations with stable signatures and exceptions for downstream milestones.",
+          "role": "contract_author",
+          "slot_id": "builder",
+          "focus_paths": [
+            "csvs_to_sqlite/utils.py",
+            "csvs_to_sqlite/__init__.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "If the milestone gate fails, fix only the named CSV/path/shape/date utility defects while preserving the frozen public symbols.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "csvs_to_sqlite/utils.py",
+            "csvs_to_sqlite/__init__.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "sqlite_schema_and_writes",
+      "title": "SQLite schema generation, table writes, primary keys, and indexes",
+      "objective": "Build the database-writing utilities that turn DataFrames into SQLite tables with inferred SQL types, custom type overrides, primary keys, foreign key clauses, table replacement helpers, and single or compound indexes.",
+      "risk_rationale": "This milestone delivers the core SQLite persistence contract used by extraction, FTS, and the CLI. Its gate can verify it independently by creating in-memory SQLite databases and pandas DataFrames, then inspecting sqlite_master, PRAGMA output, inserted rows, primary keys, and indexes without requiring lookup table extraction or command-line orchestration.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "test_first",
+      "depends_on": [
+        "csv_loading_and_transforms"
+      ],
+      "focus_paths": [
+        "csvs_to_sqlite/utils.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "table_exists and drop_table correctly inspect and remove SQLite tables.",
+          "get_create_table_sql generates CREATE TABLE SQL for DataFrame columns with INTEGER, REAL, and TEXT inference, applies sql_type_overrides, returns the generated SQL and ordered column list, and includes primary key definitions when requested.",
+          "to_sql_with_foreign_keys creates tables, inserts all DataFrame rows, includes declared foreign key constraints, respects primary keys and type overrides, and can create indexes for foreign key columns when requested.",
+          "add_index creates valid single-column and compound SQLite indexes for existing columns and rejects invalid column names without creating broken indexes."
+        ],
+        "corner_cases": [
+          "Nullable integer-like columns that pandas may represent as floats.",
+          "Column names requiring SQLite quoting because of spaces, punctuation, or reserved words.",
+          "Compound primary keys and compound indexes.",
+          "Empty DataFrames with known columns.",
+          "Existing tables that need to be dropped before replacement by later CLI orchestration.",
+          "Foreign key columns whose referenced table already exists."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "csvs_to_sqlite.utils",
+            "symbol": "table_exists",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "csvs_to_sqlite.utils",
+            "symbol": "drop_table",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "csvs_to_sqlite.utils",
+            "symbol": "get_create_table_sql",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "csvs_to_sqlite.utils",
+            "symbol": "to_sql_with_foreign_keys",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "csvs_to_sqlite.utils",
+            "symbol": "add_index",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write executable tests for SQLite schema generation, type inference, primary keys, foreign key table creation, row insertion, table existence/drop helpers, and index creation from the design documents only.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "csvs_to_sqlite/utils.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "builder_implementer",
+          "title": "Implementer",
+          "mandate": "Implement the SQLite persistence utilities on top of the frozen dataframe utilities, keeping the documented function signatures importable from csvs_to_sqlite.utils.",
+          "role": "implementer",
+          "slot_id": "builder",
+          "focus_paths": [
+            "csvs_to_sqlite/utils.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "If the milestone gate fails, repair only the reported SQLite schema/write/index defects without changing the frozen CSV loading and transformation contracts.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "csvs_to_sqlite/utils.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "lookup_extraction_and_fts",
+      "title": "Lookup table extraction, foreign key refactoring, and full-text search",
+      "objective": "Build the normalization and search features: LookupTable, column extraction into lookup tables, DataFrame foreign-key refactoring, SQLite FTS version detection, and creation/population of full-text search virtual tables.",
+      "risk_rationale": "This milestone delivers the advanced relational features that sit between raw table writes and the CLI. Its gate can verify it with in-memory SQLite databases and DataFrames by checking lookup rows, stable IDs, rewritten foreign-key columns, optional lookup FTS tables, and generated FTS search results, without needing the final command-line wrapper.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "review_then_fix",
+      "depends_on": [
+        "csv_loading_and_transforms",
+        "sqlite_schema_and_writes"
+      ],
+      "focus_paths": [
+        "csvs_to_sqlite/utils.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "LookupTable.ensure_table_exists creates a lookup table with id INTEGER PRIMARY KEY and a text value column, and creates an associated FTS table when requested.",
+          "LookupTable.id_for_value returns the same ID for repeated values, inserts new values exactly once, handles cached and uncached paths, and populates lookup FTS rows when enabled.",
+          "refactor_dataframes parses extraction specifications in simple and expanded forms, creates/reuses lookup tables, and replaces matching DataFrame columns with integer foreign key IDs across all supplied DataFrames.",
+          "best_fts_version detects the best SQLite FTS module available in descending preference order.",
+          "generate_and_populate_fts creates FTS virtual tables for requested columns and populates them from direct columns and foreign-key lookup values."
+        ],
+        "corner_cases": [
+          "Repeated, null, empty-string, and mixed-type extracted values.",
+          "The same extraction column appearing in more than one DataFrame.",
+          "Custom extraction syntax column:LookupTable:value_column.",
+          "no-fulltext-fks behaviour represented by index_fts being false for lookup tables.",
+          "FTS columns that include a mix of direct table columns and foreign-key-backed columns.",
+          "SQLite builds that support FTS5, only FTS4/FTS3, or no tested FTS module."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "csvs_to_sqlite.utils",
+            "symbol": "LookupTable",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "csvs_to_sqlite.utils",
+            "symbol": "refactor_dataframes",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "csvs_to_sqlite.utils",
+            "symbol": "best_fts_version",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "csvs_to_sqlite.utils",
+            "symbol": "generate_and_populate_fts",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write executable tests for lookup table creation, cached id lookup, extraction specs, dataframe FK replacement, FTS version detection, and FTS population from direct and extracted columns.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "csvs_to_sqlite/utils.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement LookupTable, refactor_dataframes, best_fts_version, and generate_and_populate_fts using the frozen SQLite table-writing utilities.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "csvs_to_sqlite/utils.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "reviewer_contract_critic",
+          "title": "Contract critic",
+          "mandate": "Review the implementation for violations of the frozen CSV loading, shape, date, SQLite schema, table write, and index utility contracts; report deviations without editing.",
+          "role": "contract_critic",
+          "slot_id": "reviewer",
+          "focus_paths": [
+            "csvs_to_sqlite/utils.py"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_implementer",
+          "title": "Implementer",
+          "mandate": "Fix the review findings for lookup extraction and FTS while preserving all previously frozen utility signatures and behaviours.",
+          "role": "implementer",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "csvs_to_sqlite/utils.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "cli_full_integration",
+      "title": "Click CLI and full public csvs-to-sqlite integration",
+      "objective": "Implement the documented csvs-to-sqlite command-line interface in csvs_to_sqlite.cli, wire it to all utility features, expose package imports, and verify complete conversion flows through Click.",
+      "risk_rationale": "This final milestone integrates all frozen modules into the public command. Its gate verifies the full public contract by invoking the Click CLI against temporary files and databases, covering option parsing, multi-file and directory inputs, table naming, replacement, schema customization, extraction, dates, FTS, indexes, fixed columns, filename columns, and just-strings behaviour.",
+      "gate_level": "integration",
+      "split_reason": "feature_module",
+      "template_id": "parallel_audit",
+      "depends_on": [
+        "csv_loading_and_transforms",
+        "sqlite_schema_and_writes",
+        "lookup_extraction_and_fts"
+      ],
+      "focus_paths": [
+        "csvs_to_sqlite/cli.py",
+        "csvs_to_sqlite/utils.py",
+        "csvs_to_sqlite/__init__.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "csvs_to_sqlite.cli.cli is a Click command implementing the documented usage csvs-to-sqlite [OPTIONS] PATHS... DBNAME.",
+          "The CLI converts one or more CSV files into SQLite tables named from filenames by default and from --table for single-file imports.",
+          "The CLI recursively imports CSV files from directory inputs and handles URL/path parameters through PathOrURL.",
+          "The CLI honours separator, quoting, skip-errors, replace-tables, shape, just-strings, date, datetime, and datetime-format options.",
+          "The CLI adds filename-column, fixed-column, fixed-column-int, and fixed-column-float values to imported rows.",
+          "The CLI applies primary keys, extraction foreign keys, optional FK indexes, optional lookup FTS, requested FTS tables, and requested single or compound indexes.",
+          "The --version and --help Click behaviours work without crashing.",
+          "The package contains only the documented csvs_to_sqlite modules and exposes the public CLI at the documented import path."
+        ],
+        "corner_cases": [
+          "Multiple input CSVs with colliding basenames.",
+          "Using --table with multiple input files should fail clearly or follow the documented single-table constraint consistently.",
+          "Replacing an existing table and associated FTS/index artefacts.",
+          "Combining --shape with --date/--datetime, fixed columns, filename column, primary keys, and just-strings.",
+          "Extraction plus FTS where requested FTS columns include foreign-key-backed values.",
+          "TSV input with tab separator.",
+          "Rows with too many fields when --skip-errors is present versus absent.",
+          "Compound indexes and compound primary keys passed more than once."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "csvs_to_sqlite.cli",
+            "symbol": "cli",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "csvs_to_sqlite.cli",
+            "required_levels": [
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write executable Click-runner integration tests for the full documented CLI, including basic conversion, directory processing, TSV input, shape, just-strings, dates, extraction, primary keys, indexes, FTS, fixed columns, filename columns, replacement, help, and version behaviour.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "csvs_to_sqlite/cli.py",
+            "csvs_to_sqlite/utils.py",
+            "csvs_to_sqlite/__init__.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement and wire the Click cli() command to the frozen utility layer, ensuring all documented options parse and orchestrate the complete CSV-to-SQLite workflow.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "csvs_to_sqlite/cli.py",
+            "csvs_to_sqlite/utils.py",
+            "csvs_to_sqlite/__init__.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "spec_review_spec_auditor",
+          "title": "Specification auditor",
+          "mandate": "Audit the CLI and package against the PRD, architecture, and UML documents for missing options, incorrect behaviours, or undocumented public surface changes; report findings without editing.",
+          "role": "spec_auditor",
+          "slot_id": "spec_review",
+          "focus_paths": [
+            "csvs_to_sqlite/cli.py",
+            "csvs_to_sqlite/utils.py",
+            "csvs_to_sqlite/__init__.py"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "contract_review_contract_critic",
+          "title": "Contract critic",
+          "mandate": "Audit the CLI integration for violations of all frozen utility contracts from earlier milestones, especially changed signatures, moved symbols, and incompatible assumptions about extraction, schema writing, FTS, shape, and loading behaviour.",
+          "role": "contract_critic",
+          "slot_id": "contract_review",
+          "focus_paths": [
+            "csvs_to_sqlite/cli.py",
+            "csvs_to_sqlite/utils.py",
+            "csvs_to_sqlite/__init__.py"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_integrator",
+          "title": "Integrator",
+          "mandate": "Fix the spec and contract audit findings, then prune any accidental debris so the final repository exposes exactly the documented csvs_to_sqlite package and working CLI.",
+          "role": "integrator",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "csvs_to_sqlite/cli.py",
+            "csvs_to_sqlite/utils.py",
+            "csvs_to_sqlite/__init__.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        }
+      ]
+    }
+  ]
+}

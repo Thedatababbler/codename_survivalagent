@@ -1,0 +1,1169 @@
+{
+  "generator": "llm",
+  "split_policy": "feature",
+  "rationale": "The implementation is split feature-first into five dependency-ordered milestones: shared contracts and rendering/config substrate first, template source acquisition next, user input/replay/hooks next, the file generation engine next, and the public API/CLI integration last. This catches defects at the module that owns them: configuration and Jinja contracts can be tested without repositories, repository resolution can be tested without rendering projects, prompting/hooks/replay can be tested without the generator, generation can be tested through local templates without the CLI, and the final milestone verifies the complete documented public contract.",
+  "split": true,
+  "milestones": [
+    {
+      "milestone_id": "foundation_config_environment_contracts",
+      "title": "Foundation contracts: package metadata, exceptions, configuration, Jinja environment, extensions, logging and utilities",
+      "objective": "Build the shared substrate imported by the rest of the package: version loading, Cookiecutter-specific exception hierarchy, user configuration loading and merging, strict Jinja2 environment creation, built-in extensions and common utility/logging helpers.",
+      "risk_rationale": "This milestone delivers the contracts that downstream modules import: exception classes, configuration defaults and path expansion semantics, and the strict Jinja environment with built-in filters/extensions. Its gate can verify these behaviours directly by importing modules, loading temporary YAML config files, rendering Jinja snippets, and checking that undefined variables and unknown extensions raise the documented exceptions, without any repository acquisition, prompting, generation or CLI integration.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "test_first",
+      "depends_on": [],
+      "focus_paths": [
+        "cookiecutter/__init__.py",
+        "cookiecutter/VERSION.txt",
+        "cookiecutter/exceptions.py",
+        "cookiecutter/config.py",
+        "cookiecutter/environment.py",
+        "cookiecutter/extensions.py",
+        "cookiecutter/utils.py",
+        "cookiecutter/log.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "Importing cookiecutter exposes a non-empty __version__ read from VERSION.txt.",
+          "All documented Cookiecutter exceptions inherit from CookiecutterException, and UndefinedVariableInTemplate preserves message, original Jinja error and context in its string form.",
+          "get_user_config and get_config return merged configuration dictionaries with replay_dir and cookiecutters_dir expanded for environment variables and user home directories.",
+          "Invalid or missing explicit configuration files raise the documented Cookiecutter exceptions.",
+          "StrictEnvironment uses Jinja2 StrictUndefined and loads built-in extensions plus template-declared extensions from cookiecutter._extensions.",
+          "Built-in extensions provide jsonify, slugify, UUID, random string and time-related template functionality as documented."
+        ],
+        "corner_cases": [
+          "Missing default user config falls back to DEFAULT_CONFIG instead of failing.",
+          "A config file whose top-level YAML value is not a mapping raises InvalidConfiguration.",
+          "Nested configuration dictionaries merge recursively without dropping unspecified defaults.",
+          "Unknown extension import errors are wrapped as UnknownExtension.",
+          "Undefined template variables fail immediately rather than rendering as empty strings.",
+          "VERSION.txt with surrounding whitespace produces a stripped __version__."
+        ],
+        "checks": [
+          {
+            "type": "export",
+            "module": "cookiecutter",
+            "symbol": "__version__",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter",
+            "symbol": "_get_version",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "cookiecutter.config",
+            "symbol": "DEFAULT_CONFIG",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.config",
+            "symbol": "get_user_config",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.config",
+            "symbol": "get_config",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.config",
+            "symbol": "merge_configs",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.environment",
+            "symbol": "ExtensionLoaderMixin",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.environment",
+            "symbol": "StrictEnvironment",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.environment",
+            "symbol": "create_env_with_context",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.extensions",
+            "symbol": "JsonifyExtension",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.extensions",
+            "symbol": "RandomStringExtension",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.extensions",
+            "symbol": "SlugifyExtension",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.extensions",
+            "symbol": "TimeExtension",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.extensions",
+            "symbol": "UUIDExtension",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.extensions",
+            "symbol": "SimpleFilterExtension",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.exceptions",
+            "symbol": "CookiecutterException",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.exceptions",
+            "symbol": "ConfigDoesNotExistException",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.exceptions",
+            "symbol": "InvalidConfiguration",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.exceptions",
+            "symbol": "UndefinedVariableInTemplate",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.exceptions",
+            "symbol": "UnknownExtension",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write behavioural tests for configuration loading/merging, version discovery, exception hierarchy and strict Jinja environment/extensions using only the design documents. Do not edit source.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "cookiecutter/__init__.py",
+            "cookiecutter/config.py",
+            "cookiecutter/environment.py",
+            "cookiecutter/extensions.py",
+            "cookiecutter/exceptions.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "builder_contract_author",
+          "title": "Contract author",
+          "mandate": "Implement the foundational public contracts exactly as documented: package version export, exception classes, DEFAULT_CONFIG and config resolution, StrictEnvironment and built-in extensions, plus any utility/logging helpers needed by these modules.",
+          "role": "contract_author",
+          "slot_id": "builder",
+          "focus_paths": [
+            "cookiecutter/__init__.py",
+            "cookiecutter/VERSION.txt",
+            "cookiecutter/exceptions.py",
+            "cookiecutter/config.py",
+            "cookiecutter/environment.py",
+            "cookiecutter/extensions.py",
+            "cookiecutter/utils.py",
+            "cookiecutter/log.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "If the milestone gate fails, fix only the reported foundation/config/environment contract failures without adding later repository, generation or CLI behaviour.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "cookiecutter/__init__.py",
+            "cookiecutter/VERSION.txt",
+            "cookiecutter/exceptions.py",
+            "cookiecutter/config.py",
+            "cookiecutter/environment.py",
+            "cookiecutter/extensions.py",
+            "cookiecutter/utils.py",
+            "cookiecutter/log.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "template_source_resolution",
+      "title": "Template source resolution: local directories, VCS repositories and ZIP archives",
+      "objective": "Implement repository discovery and acquisition for local template directories, Git/Mercurial URLs and shorthands, private VCS prefixes, checkout selection, cached clones, ZIP file detection/download/extraction and template directory finding.",
+      "risk_rationale": "This milestone delivers the source-acquisition feature group. Its gate can verify repository classification, abbreviation expansion, local directory detection, ZIP extraction, VCS command selection and error handling using temporary local repositories/files and mocked subprocess/network calls, without needing prompting, rendering or the final CLI. If this module is wrong, downstream generation receives the wrong repo_dir or cleanup contract and cannot reliably find cookiecutter.json.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "review_then_fix",
+      "depends_on": [
+        "foundation_config_environment_contracts"
+      ],
+      "focus_paths": [
+        "cookiecutter/repository.py",
+        "cookiecutter/vcs.py",
+        "cookiecutter/zipfile.py",
+        "cookiecutter/find.py",
+        "cookiecutter/utils.py",
+        "cookiecutter/exceptions.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "Repository URLs, local directories and ZIP files are correctly identified.",
+          "GitHub, GitLab and Bitbucket shorthand forms expand through configured abbreviations.",
+          "determine_repo_dir returns a usable repository directory and cleanup flag for local paths, cloned VCS repositories and extracted ZIP archives.",
+          "Git and Mercurial clone operations validate that the required executable exists, support checkout values and raise documented exceptions on failure.",
+          "ZIP repositories can be local or remote and invalid ZIP/template contents raise InvalidZipRepository.",
+          "Template directory finding is unambiguous and raises UnknownTemplateDirException when no unique cookiecutter template directory can be selected."
+        ],
+        "corner_cases": [
+          "git+ and hg+ private repository prefixes are accepted and routed to the correct VCS type.",
+          "Unknown URL schemes or repository types raise UnknownRepoType.",
+          "Missing VCS executables raise VCSNotInstalled before clone attempts.",
+          "Clone subprocess failures raise RepositoryCloneFailed with useful context.",
+          "A missing or inaccessible remote repository raises RepositoryNotFound where distinguishable.",
+          "A ZIP archive with multiple top-level directories or no cookiecutter.json is rejected.",
+          "The directory option selects a subdirectory inside a repository without escaping the repository root."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.repository",
+            "symbol": "determine_repo_dir",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.repository",
+            "symbol": "expand_abbreviations",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.repository",
+            "symbol": "is_repo_url",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.repository",
+            "symbol": "is_zip_file",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.vcs",
+            "symbol": "clone",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.vcs",
+            "symbol": "identify_repo",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.vcs",
+            "symbol": "is_vcs_installed",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.find",
+            "symbol": "find_template",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.exceptions",
+            "symbol": "UnknownRepoType",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.exceptions",
+            "symbol": "VCSNotInstalled",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.exceptions",
+            "symbol": "RepositoryNotFound",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.exceptions",
+            "symbol": "RepositoryCloneFailed",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.exceptions",
+            "symbol": "InvalidZipRepository",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write behavioural tests for source detection, abbreviation expansion, local repository resolution, VCS clone command behaviour, ZIP extraction and template directory discovery using temporary files and mocks. Do not edit source.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "cookiecutter/repository.py",
+            "cookiecutter/vcs.py",
+            "cookiecutter/zipfile.py",
+            "cookiecutter/find.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement template source acquisition from the design documents, building on the frozen foundation contracts and preserving the documented exceptions and return semantics.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "cookiecutter/repository.py",
+            "cookiecutter/vcs.py",
+            "cookiecutter/zipfile.py",
+            "cookiecutter/find.py",
+            "cookiecutter/utils.py",
+            "cookiecutter/exceptions.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "reviewer_spec_auditor",
+          "title": "Specification auditor",
+          "mandate": "Review repository, VCS, ZIP and find modules against the PRD and architecture for quiet deviations such as unsupported shorthand forms, wrong cleanup flags, missing checkout handling or wrong exception types. Report only.",
+          "role": "spec_auditor",
+          "slot_id": "reviewer",
+          "focus_paths": [
+            "cookiecutter/repository.py",
+            "cookiecutter/vcs.py",
+            "cookiecutter/zipfile.py",
+            "cookiecutter/find.py"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Fix the reviewer and gate findings for template source resolution only, without implementing prompting, generation or CLI orchestration.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "cookiecutter/repository.py",
+            "cookiecutter/vcs.py",
+            "cookiecutter/zipfile.py",
+            "cookiecutter/find.py",
+            "cookiecutter/utils.py",
+            "cookiecutter/exceptions.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "prompt_replay_hooks",
+      "title": "User interaction, replay files and hook execution",
+      "objective": "Implement prompting for cookiecutter.json variables, dynamic defaults, nested template selection, replay dump/load, and hook discovery/execution with Python and shell scripts.",
+      "risk_rationale": "This milestone delivers the input and lifecycle-extension feature group. Its gate can exercise prompt functions with mocked console input, replay functions against temporary JSON files, and hook functions in temporary template/project directories. It does not require file generation beyond simple hook working directories, so defects in type coercion, replay serialization or hook failure handling are caught before the generator depends on them.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "test_first",
+      "depends_on": [
+        "foundation_config_environment_contracts",
+        "template_source_resolution"
+      ],
+      "focus_paths": [
+        "cookiecutter/prompt.py",
+        "cookiecutter/replay.py",
+        "cookiecutter/hooks.py",
+        "cookiecutter/environment.py",
+        "cookiecutter/utils.py",
+        "cookiecutter/exceptions.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "prompt_for_config returns a cookiecutter context using defaults in no-input mode and user-provided values in interactive mode.",
+          "String, number, boolean, choice list and dictionary variables are prompted and converted according to the documented type semantics.",
+          "render_variable evaluates Jinja2 default expressions against previously resolved cookiecutter values using the strict environment.",
+          "Human-readable prompt labels are honoured when provided by the context.",
+          "choose_nested_template selects among nested templates and respects no-input defaults.",
+          "Replay dump and load store and retrieve generation contexts under the configured replay directory.",
+          "Hooks are discovered by hook name, rendered with context where applicable, executed in the documented working directory, and failures raise FailedHookException."
+        ],
+        "corner_cases": [
+          "Invalid dictionary JSON entered at a dict prompt is rejected and re-prompts or raises a prompt validation error.",
+          "Boolean prompts accept documented yes/no aliases case-insensitively.",
+          "Choice prompts reject values outside the available options.",
+          "Dynamic defaults that reference undefined variables raise UndefinedVariableInTemplate.",
+          "Missing hooks are treated as no-ops.",
+          "A failing Python or shell hook stops execution and reports FailedHookException.",
+          "Hook files with unsupported names are ignored by valid_hook."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.prompt",
+            "symbol": "prompt_for_config",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.prompt",
+            "symbol": "read_user_variable",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.prompt",
+            "symbol": "read_user_choice",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.prompt",
+            "symbol": "read_user_yes_no",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.prompt",
+            "symbol": "read_user_dict",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.prompt",
+            "symbol": "render_variable",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.prompt",
+            "symbol": "choose_nested_template",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.prompt",
+            "symbol": "JsonPrompt",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.prompt",
+            "symbol": "YesNoPrompt",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.replay",
+            "symbol": "dump",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.replay",
+            "symbol": "load",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.hooks",
+            "symbol": "run_hook_from_repo_dir",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.hooks",
+            "symbol": "run_hook",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.hooks",
+            "symbol": "find_hook",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.hooks",
+            "symbol": "valid_hook",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.exceptions",
+            "symbol": "FailedHookException",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write executable tests for prompting type handling, dynamic defaults, replay persistence and hook discovery/execution/failure from the design documents. Do not edit source.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "cookiecutter/prompt.py",
+            "cookiecutter/replay.py",
+            "cookiecutter/hooks.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "builder_implementer",
+          "title": "Implementer",
+          "mandate": "Implement prompt, replay and hook behaviour according to the PRD and UML while using the frozen strict environment, utility and exception contracts.",
+          "role": "implementer",
+          "slot_id": "builder",
+          "focus_paths": [
+            "cookiecutter/prompt.py",
+            "cookiecutter/replay.py",
+            "cookiecutter/hooks.py",
+            "cookiecutter/utils.py",
+            "cookiecutter/exceptions.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "If the gate fails, correct only the reported prompt, replay or hook behaviours without changing repository acquisition or project generation semantics.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "cookiecutter/prompt.py",
+            "cookiecutter/replay.py",
+            "cookiecutter/hooks.py",
+            "cookiecutter/utils.py",
+            "cookiecutter/exceptions.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "project_generation_engine",
+      "title": "Project generation engine: context decoding, rendering, copy-only paths, filesystem writes and generation hooks",
+      "objective": "Implement cookiecutter.json context loading and project file generation from a resolved repository: render directory and file names/content, honour _copy_without_render, skip or overwrite existing files according to options, run pre/post generation hooks, and clean up on failure.",
+      "risk_rationale": "This milestone delivers the core project rendering behaviour. Its gate can use temporary local templates and previously implemented prompt/hooks/environment modules to verify generated directories and files, strict undefined-variable failures, copy-only preservation and hook cleanup without invoking the high-level cookiecutter API or CLI. If wrong, all public entry points would appear wired but produce incorrect project trees.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "parallel_audit",
+      "depends_on": [
+        "foundation_config_environment_contracts",
+        "template_source_resolution",
+        "prompt_replay_hooks"
+      ],
+      "focus_paths": [
+        "cookiecutter/generate.py",
+        "cookiecutter/find.py",
+        "cookiecutter/hooks.py",
+        "cookiecutter/environment.py",
+        "cookiecutter/utils.py",
+        "cookiecutter/exceptions.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "generate_context decodes cookiecutter.json into a context dictionary and merges default_context and extra_context with the documented precedence.",
+          "Invalid JSON in cookiecutter.json raises ContextDecodingException.",
+          "generate_files identifies the single templated project directory and returns the generated project path.",
+          "Directory names, file names and text file contents render Jinja2 expressions using the cookiecutter context.",
+          "Binary files are copied without text rendering.",
+          "_copy_without_render patterns copy matching files or directories verbatim.",
+          "pre_gen_project and post_gen_project hooks run in the generated project directory when hooks are accepted.",
+          "Existing output directories honour overwrite_if_exists and skip_if_file_exists options.",
+          "Generation failures remove partial output unless keep_project_on_failure is enabled."
+        ],
+        "corner_cases": [
+          "A template with no templated input directory raises NonTemplatedInputDirException or UnknownTemplateDirException as appropriate.",
+          "A rendered directory name that becomes empty raises EmptyDirNameException.",
+          "A target output directory that already exists raises OutputDirExistsException when overwrite is disabled.",
+          "Undefined variables in paths or file contents raise UndefinedVariableInTemplate with context.",
+          "Nested directories and files render consistently on Windows, macOS and Linux path separators.",
+          "Hook failure during pre_gen_project or post_gen_project stops generation and performs documented cleanup.",
+          "skip_if_file_exists preserves an existing file while still creating missing files."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.generate",
+            "symbol": "generate_context",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.generate",
+            "symbol": "generate_files",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.generate",
+            "symbol": "generate_file",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.generate",
+            "symbol": "is_copy_only_path",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.exceptions",
+            "symbol": "ContextDecodingException",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.exceptions",
+            "symbol": "OutputDirExistsException",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.exceptions",
+            "symbol": "EmptyDirNameException",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.exceptions",
+            "symbol": "NonTemplatedInputDirException",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.exceptions",
+            "symbol": "UnknownTemplateDirException",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write black-box generation tests using temporary cookiecutter templates to cover context decoding, rendering, copy-only files, overwrite/skip behaviours, hook execution and cleanup. Do not edit source.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "cookiecutter/generate.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement the project generation engine according to the design documents, relying on already frozen prompt, hook, environment, utility and exception contracts.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "cookiecutter/generate.py",
+            "cookiecutter/find.py",
+            "cookiecutter/hooks.py",
+            "cookiecutter/utils.py",
+            "cookiecutter/exceptions.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "spec_review_spec_auditor",
+          "title": "Specification auditor",
+          "mandate": "Audit generate.py against PRD and architecture for quiet deviations in rendering order, hook timing, cleanup, copy-only handling and output directory options. Report only.",
+          "role": "spec_auditor",
+          "slot_id": "spec_review",
+          "focus_paths": [
+            "cookiecutter/generate.py",
+            "cookiecutter/find.py"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "contract_review_contract_critic",
+          "title": "Contract critic",
+          "mandate": "Audit that the generation engine uses previously frozen prompt, hook, environment, repository and exception contracts without changing their public interfaces or expected exception types. Report only.",
+          "role": "contract_critic",
+          "slot_id": "contract_review",
+          "focus_paths": [
+            "cookiecutter/generate.py",
+            "cookiecutter/hooks.py",
+            "cookiecutter/environment.py",
+            "cookiecutter/exceptions.py"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Apply only fixes required by the auditors and gate for the generation engine, preserving frozen contracts from earlier milestones.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "cookiecutter/generate.py",
+            "cookiecutter/find.py",
+            "cookiecutter/hooks.py",
+            "cookiecutter/utils.py",
+            "cookiecutter/exceptions.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "public_api_cli_integration",
+      "title": "Public API and CLI integration",
+      "objective": "Wire all modules into the documented public Python API and command-line interface: cookiecutter.main.cookiecutter(), click CLI options, __main__ entry point, installed-template listing, logging/verbosity, replay/no-input modes, hook acceptance control and end-to-end generation.",
+      "risk_rationale": "This final integration milestone delivers the outward-facing public contract and verifies that all previously built feature modules work together. Its gate can run the full visible check_tests suite plus end-to-end API and CLI invocations against local templates, replay files and temporary configs, catching integration defects such as missing imports, wrong option plumbing, incompatible defaults or cleanup mistakes.",
+      "gate_level": "integration",
+      "split_reason": "feature_module",
+      "template_id": "parallel_audit",
+      "depends_on": [
+        "foundation_config_environment_contracts",
+        "template_source_resolution",
+        "prompt_replay_hooks",
+        "project_generation_engine"
+      ],
+      "focus_paths": [
+        "cookiecutter/main.py",
+        "cookiecutter/cli.py",
+        "cookiecutter/__main__.py",
+        "cookiecutter/__init__.py",
+        "cookiecutter/config.py",
+        "cookiecutter/repository.py",
+        "cookiecutter/prompt.py",
+        "cookiecutter/replay.py",
+        "cookiecutter/generate.py",
+        "cookiecutter/hooks.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "cookiecutter.main.cookiecutter generates a project from a local template with no_input=True and extra_context overrides.",
+          "cookiecutter.main.cookiecutter rejects mutually exclusive no_input=True and replay=True with InvalidModeException.",
+          "The main API loads user configuration, resolves template repositories, runs pre_prompt hooks when accepted, builds or loads context, dumps replay data and calls the generation engine.",
+          "Replay mode and custom replay_file use prior context without interactive prompts.",
+          "The CLI exposes documented options and invokes the same API with equivalent behaviour.",
+          "validate_extra_context parses key=value CLI overrides into an OrderedDict and rejects malformed values with click.BadParameter.",
+          "version_msg includes Cookiecutter version, installation location and Python version.",
+          "list_installed_templates scans configured cookiecutters_dir and reports templates containing cookiecutter.json.",
+          "python -m cookiecutter dispatches to the CLI entry point.",
+          "Verbose/debug options configure logging without breaking generation."
+        ],
+        "corner_cases": [
+          "accept_hooks controls whether pre_prompt, pre_gen_project and post_gen_project hooks execute.",
+          "keep_project_on_failure preserves failed generation output only when requested.",
+          "output_dir, directory, checkout, overwrite_if_exists and skip_if_file_exists are passed through to the owning modules unchanged.",
+          "A CLI run with --list-installed exits cleanly after listing templates and does not require a template argument.",
+          "Malformed extra_context arguments fail before project generation begins.",
+          "Errors raised by lower-level modules are reported clearly by the CLI without masking their documented types in the Python API."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.main",
+            "symbol": "cookiecutter",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.main",
+            "symbol": "_patch_import_path_for_repo",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.cli",
+            "symbol": "main",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.cli",
+            "symbol": "version_msg",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.cli",
+            "symbol": "validate_extra_context",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.cli",
+            "symbol": "list_installed_templates",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "cookiecutter.cli",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "cookiecutter.main",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "cookiecutter.exceptions",
+            "symbol": "InvalidModeException",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write end-to-end tests for the Python API, click CLI, python -m entry point, replay/no-input modes, extra context parsing, installed template listing and hook acceptance using local temporary templates. Do not edit source.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "cookiecutter/main.py",
+            "cookiecutter/cli.py",
+            "cookiecutter/__main__.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Wire the completed modules into the public cookiecutter() API and click CLI, preserving documented import paths and passing all options to their owning modules with the correct defaults.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "cookiecutter/main.py",
+            "cookiecutter/cli.py",
+            "cookiecutter/__main__.py",
+            "cookiecutter/__init__.py",
+            "cookiecutter/log.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "spec_review_spec_auditor",
+          "title": "Specification auditor",
+          "mandate": "Audit the public API and CLI against the PRD usage examples, architecture sequence diagram and documented options for missing behaviours or wrong defaults. Report only.",
+          "role": "spec_auditor",
+          "slot_id": "spec_review",
+          "focus_paths": [
+            "cookiecutter/main.py",
+            "cookiecutter/cli.py",
+            "cookiecutter/__main__.py"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "contract_review_contract_critic",
+          "title": "Contract critic",
+          "mandate": "Audit that final integration does not break frozen symbols or semantics from config, repository, prompt, replay, hooks and generation milestones. Report only.",
+          "role": "contract_critic",
+          "slot_id": "contract_review",
+          "focus_paths": [
+            "cookiecutter/main.py",
+            "cookiecutter/cli.py",
+            "cookiecutter/config.py",
+            "cookiecutter/repository.py",
+            "cookiecutter/prompt.py",
+            "cookiecutter/replay.py",
+            "cookiecutter/generate.py",
+            "cookiecutter/hooks.py"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Apply final integration fixes from both audits and remove any scratch files or undocumented duplicate package surfaces so the shipped repository matches the declared file tree and public contract.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "cookiecutter"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    }
+  ]
+}

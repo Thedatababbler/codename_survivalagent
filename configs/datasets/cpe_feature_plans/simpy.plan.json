@@ -1,0 +1,979 @@
+{
+  "generator": "llm",
+  "split_policy": "feature",
+  "rationale": "The implementation is split feature-first into four dependency-ordered modules: the event/environment substrate, capacity resources, matter/object resources, and final public integration with realtime/util helpers. Core events and Environment are first because every process and resource imports their contracts. Resource types are separated by documented feature group so each gate can exercise real behavior independently before later resource families exist. The last milestone wires the package-level API, realtime environment, utilities, and verifies the full public contract.",
+  "split": true,
+  "milestones": [
+    {
+      "milestone_id": "core_events_environment",
+      "title": "Core events, processes, exceptions, and simulation environment",
+      "objective": "Implement the foundational SimPy event model, process execution, conditions, interrupts, scheduling queue, and Environment run/step/peek behavior.",
+      "risk_rationale": "This milestone delivers the substrate imported by every later module: Event state transitions, Process generator resumption, Environment scheduling, priorities, exceptions, and condition events. Its gate can verify standalone simulations using only core.py, events.py, and exceptions.py: timeouts advance env.now, processes yield events and return values, failed events propagate unless defused, interrupts are thrown into generators, and AllOf/AnyOf produce ConditionValue results. If this contract is wrong, all resources and realtime execution will be built against incorrect scheduling semantics.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "test_first",
+      "depends_on": [],
+      "focus_paths": [
+        "simpy/core.py",
+        "simpy/events.py",
+        "simpy/exceptions.py",
+        "simpy/py.typed"
+      ],
+      "acceptance": {
+        "criteria": [
+          "Environment can be constructed with a custom initial time and exposes the current simulation time through now.",
+          "Environment.schedule(), step(), peek(), and run() process events in simulation-time order with priority and FIFO tie-breaking.",
+          "Environment.run() supports running until no events remain, until a simulation time, and until a specific event or process succeeds.",
+          "Event.succeed(), Event.fail(), Event.trigger(), callbacks, ok, value, triggered, processed, and defused behave as documented.",
+          "Timeout rejects negative delays and succeeds automatically after the requested delay.",
+          "Process wraps generator functions, tracks target, name, is_alive, active_process, return values, and interruption with Interrupt(cause).",
+          "AllOf and AnyOf combine events and expose occurred event values through ConditionValue."
+        ],
+        "corner_cases": [
+          "run() on an empty schedule terminates cleanly while step() raises EmptySchedule.",
+          "zero-delay timeouts preserve deterministic ordering.",
+          "negative timeout delays raise ValueError.",
+          "accessing Event.ok or Event.value before triggering raises the appropriate error instead of returning a misleading value.",
+          "failed events re-raise their exception unless defused is set.",
+          "interrupting a terminated process is rejected.",
+          "a process yielding a non-event fails with a useful exception."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "simpy.exceptions",
+            "symbol": "SimPyException",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "simpy.exceptions",
+            "symbol": "Interrupt",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "simpy.core",
+            "symbol": "BoundClass",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "simpy.core",
+            "symbol": "EmptySchedule",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "simpy.core",
+            "symbol": "StopSimulation",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "simpy.core",
+            "symbol": "Environment",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "simpy.core",
+            "symbol": "Infinity",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "simpy.core",
+            "symbol": "URGENT",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "simpy.core",
+            "symbol": "NORMAL",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "simpy.events",
+            "symbol": "Event",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "simpy.events",
+            "symbol": "Timeout",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "simpy.events",
+            "symbol": "Initialize",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "simpy.events",
+            "symbol": "Interruption",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "simpy.events",
+            "symbol": "Process",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "simpy.events",
+            "symbol": "ConditionValue",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "simpy.events",
+            "symbol": "Condition",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "simpy.events",
+            "symbol": "AllOf",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "simpy.events",
+            "symbol": "AnyOf",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "simpy.events",
+            "symbol": "_describe_frame",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write a frozen executable test suite for core scheduling, event state transitions, process execution, conditions, interrupts, and exception propagation using only the PRD, architecture, and UML documents. Do not modify source files.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "simpy/core.py",
+            "simpy/events.py",
+            "simpy/exceptions.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "builder_contract_author",
+          "title": "Contract author",
+          "mandate": "Implement the foundational contracts in simpy.exceptions, simpy.events, and simpy.core exactly as documented, including constants, descriptors, event lifecycle, process resumption, interruption, condition events, and Environment scheduling/run semantics.",
+          "role": "contract_author",
+          "slot_id": "builder",
+          "focus_paths": [
+            "simpy/core.py",
+            "simpy/events.py",
+            "simpy/exceptions.py",
+            "simpy/py.typed"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Read the failing gate report for the core/events milestone and fix only the named contract or behavioral failures without adding later resource or realtime features.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "simpy/core.py",
+            "simpy/events.py",
+            "simpy/exceptions.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "shared_capacity_resources",
+      "title": "Base resources and capacity-based Resource variants",
+      "objective": "Implement BaseResource, generic Put/Get events, Resource, PriorityResource, PreemptiveResource, request/release events, sorted queues, and preemption metadata.",
+      "risk_rationale": "This milestone delivers the documented limited-capacity resource feature group independently of containers and stores. Its gate can verify request/release behavior with Environment and Process from the previous milestone: capacity limits, waiting queues, context-manager cancellation/release, priority ordering, and preemption interrupts. If this module is wrong, car-wash/server simulations and later resource subclasses will inherit incorrect queue and request semantics.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "test_first",
+      "depends_on": [
+        "core_events_environment"
+      ],
+      "focus_paths": [
+        "simpy/resources/base.py",
+        "simpy/resources/resource.py",
+        "simpy/resources/__init__.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "BaseResource stores env, capacity, put_queue, get_queue and triggers queued Put/Get events according to subclass hooks.",
+          "Put and Get events act as context managers and cancel untriggered requests on exceptional exit.",
+          "Resource enforces capacity, tracks users, exposes count and queue, and releases usage slots through Release events.",
+          "Resource.request() and Resource.release() work in with-statements to automatically release resources.",
+          "PriorityResource orders pending requests by priority and request time.",
+          "PreemptiveResource interrupts lower-priority users when a higher-priority preempting request arrives and supplies Preempted metadata."
+        ],
+        "corner_cases": [
+          "capacity less than or equal to zero is rejected.",
+          "release of a request not currently using the resource does not corrupt users or queues.",
+          "canceling an already triggered request is harmless.",
+          "equal priorities preserve deterministic FIFO ordering by request time.",
+          "non-preempting requests do not preempt current users.",
+          "preemption records the preempting process, resource, and usage_since time."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "simpy.resources.base",
+            "symbol": "Put",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "simpy.resources.base",
+            "symbol": "Get",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "simpy.resources.base",
+            "symbol": "BaseResource",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "simpy.resources.resource",
+            "symbol": "SortedQueue",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "simpy.resources.resource",
+            "symbol": "Request",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "simpy.resources.resource",
+            "symbol": "Release",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "simpy.resources.resource",
+            "symbol": "PriorityRequest",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "simpy.resources.resource",
+            "symbol": "Preempted",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "simpy.resources.resource",
+            "symbol": "Resource",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "simpy.resources.resource",
+            "symbol": "PriorityResource",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "simpy.resources.resource",
+            "symbol": "PreemptiveResource",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "simpy.resources",
+            "symbol": "Resource",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "simpy.resources",
+            "symbol": "PriorityResource",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "simpy.resources",
+            "symbol": "PreemptiveResource",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write a frozen executable test suite for BaseResource and capacity resources using the already frozen Environment/Event contracts. Cover request/release, context managers, priority ordering, and preemption. Do not modify source files.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "simpy/resources/base.py",
+            "simpy/resources/resource.py",
+            "simpy/resources/__init__.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "builder_implementer",
+          "title": "Implementer",
+          "mandate": "Implement simpy.resources.base and simpy.resources.resource from the design documents, preserving the core/events contracts from the previous milestone and exporting resource classes from simpy.resources.",
+          "role": "implementer",
+          "slot_id": "builder",
+          "focus_paths": [
+            "simpy/resources/base.py",
+            "simpy/resources/resource.py",
+            "simpy/resources/__init__.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Read the failing gate report for capacity resources and fix only the named queueing, context-manager, release, priority, or preemption failures without changing frozen core/event behavior.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "simpy/resources/base.py",
+            "simpy/resources/resource.py",
+            "simpy/resources/__init__.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "container_and_store_resources",
+      "title": "Container, Store, PriorityStore, and FilterStore resources",
+      "objective": "Implement matter-level containers and object stores on top of BaseResource, including put/get event subclasses, capacity constraints, priority item wrapping, and filtered retrieval.",
+      "risk_rationale": "This milestone delivers the documented container and store feature groups, which share BaseResource but are behaviorally separate from limited-capacity Resource users. Its gate can exercise them with only the earlier Environment and BaseResource contracts: container levels, blocked puts/gets, FIFO stores, priority stores, filter predicates, and capacity limits. Later public integration is not required to verify these modules at their direct import paths.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "test_first",
+      "depends_on": [
+        "core_events_environment",
+        "shared_capacity_resources"
+      ],
+      "focus_paths": [
+        "simpy/resources/container.py",
+        "simpy/resources/store.py",
+        "simpy/resources/__init__.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "Container validates capacity and initial level, exposes level, and supports put(amount) and get(amount) events.",
+          "ContainerPut blocks when the amount would exceed capacity and ContainerGet blocks when insufficient level is available.",
+          "Store supports configurable capacity, FIFO put/get of arbitrary objects, and blocked put/get behavior.",
+          "PriorityStore retrieves the smallest priority values first and supports PriorityItem to wrap unorderable payloads.",
+          "FilterStore.get(filter) retrieves the first queued item satisfying the predicate without disturbing nonmatching items.",
+          "Container and store events interoperate with processes and callbacks through the BaseResource event mechanism."
+        ],
+        "corner_cases": [
+          "negative or zero container put/get amounts are rejected.",
+          "initial container level below zero or above capacity is rejected.",
+          "store capacity less than or equal to zero is rejected unless documented as unlimited.",
+          "getting from an empty store blocks until a matching item arrives.",
+          "putting into a full store blocks until space is available.",
+          "PriorityItem with equal priorities does not require payloads to be orderable.",
+          "FilterStore preserves FIFO order among matching and nonmatching items."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "simpy.resources.container",
+            "symbol": "Container",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "simpy.resources.container",
+            "symbol": "ContainerPut",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "simpy.resources.container",
+            "symbol": "ContainerGet",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "simpy.resources.store",
+            "symbol": "Store",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "simpy.resources.store",
+            "symbol": "StorePut",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "simpy.resources.store",
+            "symbol": "StoreGet",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "simpy.resources.store",
+            "symbol": "PriorityItem",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "simpy.resources.store",
+            "symbol": "PriorityStore",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "simpy.resources.store",
+            "symbol": "FilterStore",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "simpy.resources.store",
+            "symbol": "FilterStoreGet",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "simpy.resources",
+            "symbol": "Container",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "simpy.resources",
+            "symbol": "Store",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "simpy.resources",
+            "symbol": "PriorityStore",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "simpy.resources",
+            "symbol": "FilterStore",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "simpy.resources",
+            "symbol": "PriorityItem",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write a frozen executable test suite for Container, Store, PriorityStore, FilterStore, and PriorityItem using the frozen BaseResource and Environment contracts. Do not modify source files.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "simpy/resources/container.py",
+            "simpy/resources/store.py",
+            "simpy/resources/__init__.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "builder_implementer",
+          "title": "Implementer",
+          "mandate": "Implement simpy.resources.container and simpy.resources.store from the design documents, including event subclasses, validation, capacity behavior, priority ordering, and filtered retrieval, and update simpy.resources exports.",
+          "role": "implementer",
+          "slot_id": "builder",
+          "focus_paths": [
+            "simpy/resources/container.py",
+            "simpy/resources/store.py",
+            "simpy/resources/__init__.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Read the failing gate report for container/store resources and fix only the named validation, capacity, queueing, ordering, or filtering failures without changing frozen core or capacity-resource contracts.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "simpy/resources/container.py",
+            "simpy/resources/store.py",
+            "simpy/resources/__init__.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "public_api_realtime_and_utilities",
+      "title": "Realtime execution, utilities, package exports, and full integration",
+      "objective": "Implement RealtimeEnvironment, utility helpers, package-level re-exports, documented resources package exports, py.typed marker, and verify the complete public SimPy contract through the root import paths.",
+      "risk_rationale": "This final milestone integrates modules that already work at their direct paths and exposes the documented public surface. Its gate verifies realtime scheduling and utility helpers independently, then grades the full public contract through import simpy and simpy.resources. This catches integration risks that earlier gates cannot see: missing root exports, resources hidden from the package API, realtime step behavior diverging from Environment, and utility helpers misusing Process/Interrupt contracts.",
+      "gate_level": "integration",
+      "split_reason": "feature_module",
+      "template_id": "parallel_audit",
+      "depends_on": [
+        "core_events_environment",
+        "shared_capacity_resources",
+        "container_and_store_resources"
+      ],
+      "focus_paths": [
+        "simpy/rt.py",
+        "simpy/util.py",
+        "simpy/__init__.py",
+        "simpy/resources/__init__.py",
+        "simpy/test.py",
+        "simpy/py.typed"
+      ],
+      "acceptance": {
+        "criteria": [
+          "RealtimeEnvironment subclasses Environment, exposes factor and strict, syncs wall-clock reference time, sleeps until scaled event times, and raises RuntimeError in strict mode when processing falls behind.",
+          "start_delayed(env, generator, delay) starts a generator as a process only after a positive delay and returns the helper process.",
+          "subscribe_at(event) interrupts the currently active process when the subscribed event occurs and rejects already processed events.",
+          "The root simpy package exports Environment, events, exceptions, RealtimeEnvironment, resources, stores, containers, and utility-visible classes at documented import paths.",
+          "The simpy.resources package exports all documented resource classes and event helper classes.",
+          "Usage examples from the PRD run through import simpy without direct private-module imports.",
+          "The repository remains pure Python with no runtime dependency imports outside the standard library."
+        ],
+        "corner_cases": [
+          "RealtimeEnvironment with factor less than or equal to zero is rejected.",
+          "RealtimeEnvironment.sync() handles delays between construction and run without causing false strict-mode failures.",
+          "RealtimeEnvironment.step() on an empty schedule raises EmptySchedule consistently with Environment.",
+          "start_delayed rejects zero and negative delays.",
+          "subscribe_at rejects events that have already occurred.",
+          "package re-exports do not shadow or wrap classes in ways that break isinstance checks against direct module classes.",
+          "import simpy succeeds in a clean interpreter before any submodule is imported explicitly."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "simpy.rt",
+            "symbol": "RealtimeEnvironment",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "simpy.util",
+            "symbol": "start_delayed",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "simpy.util",
+            "symbol": "subscribe_at",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "simpy",
+            "symbol": "_compile_toc",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "simpy",
+            "symbol": "Environment",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "simpy",
+            "symbol": "RealtimeEnvironment",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "simpy",
+            "symbol": "Event",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "simpy",
+            "symbol": "Timeout",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "simpy",
+            "symbol": "Process",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "simpy",
+            "symbol": "AllOf",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "simpy",
+            "symbol": "AnyOf",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "simpy",
+            "symbol": "Interrupt",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "simpy",
+            "symbol": "Resource",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "simpy",
+            "symbol": "PriorityResource",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "simpy",
+            "symbol": "PreemptiveResource",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "simpy",
+            "symbol": "Container",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "simpy",
+            "symbol": "Store",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "simpy",
+            "symbol": "PriorityStore",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "simpy",
+            "symbol": "FilterStore",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "simpy",
+            "symbol": "PriorityItem",
+            "required_levels": [
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write a frozen executable integration test suite for RealtimeEnvironment, util helpers, root package exports, resources package exports, and PRD usage examples through import simpy. Do not modify source files.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "simpy/rt.py",
+            "simpy/util.py",
+            "simpy/__init__.py",
+            "simpy/resources/__init__.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement simpy.rt and simpy.util, wire simpy.__init__ and simpy.resources.__init__ to expose the documented public API, preserve direct-module class identities, and ensure PRD examples work through import simpy.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "simpy/rt.py",
+            "simpy/util.py",
+            "simpy/__init__.py",
+            "simpy/resources/__init__.py",
+            "simpy/test.py",
+            "simpy/py.typed"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "spec_review_spec_auditor",
+          "title": "Specification auditor",
+          "mandate": "Read the completed repository against PRD.md, architecture_design.md, directory_tree.txt, and UML documents; report any missing realtime, utility, resource export, root export, or usage-example behavior without editing.",
+          "role": "spec_auditor",
+          "slot_id": "spec_review",
+          "focus_paths": [
+            "simpy"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "contract_review_contract_critic",
+          "title": "Contract critic",
+          "mandate": "Review the final changes against the frozen contracts from the core, resource, and container/store milestones; report any broken import path, changed symbol identity, narrowed signature, or altered behavior without editing.",
+          "role": "contract_critic",
+          "slot_id": "contract_review",
+          "focus_paths": [
+            "simpy"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Apply only the fixes named by the integration gate and the two audit reports, preserving all previously frozen contracts while making the full public simpy API and realtime/util behavior pass.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "simpy"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    }
+  ]
+}

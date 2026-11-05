@@ -1,0 +1,692 @@
+{
+  "generator": "llm",
+  "split_policy": "feature",
+  "rationale": "The functionality is split into four feature modules: shared contracts and data, parsing and conversion, style/equivalence handling, and public packaging/integration. Foundations are frozen before consumers import them, while each intermediate milestone exposes independently testable behavior. The final milestone wires the public API, CLI, setup metadata, and cross-module behavior and is the only full-contract integration gate.",
+  "split": true,
+  "milestones": [
+    {
+      "milestone_id": "shared_contracts_and_pinyin_data",
+      "title": "Shared contracts, constants, exceptions, and pinyin data",
+      "objective": "Implement the stable substrate imported by all later modules: style and tone constants, data structures, exception types, built-in character and phrase pronunciation storage, and custom dictionary registration primitives.",
+      "risk_rationale": "This milestone delivers the cross-module byte-free contracts and pronunciation data model first. Its gate can instantiate the data structures, inspect exact constants, resolve representative characters and phrases, and register overrides without requiring parser, style, CLI, or public API wiring.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "gate_then_repair",
+      "depends_on": [],
+      "focus_paths": [
+        "pypinyin/constants.py",
+        "pypinyin/exceptions.py",
+        "pypinyin/pinyin_dict.py",
+        "pypinyin/phrases_dict.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "The package exposes named style constants for normal, initials, finals, tone, tone-number, bopomofo, and Wade-Giles output.",
+          "Character and phrase lookup returns pronunciation candidates with tone information for representative simplified and traditional Chinese input.",
+          "Phrase entries take precedence over individual-character entries when a matching phrase is available.",
+          "Custom single-character and phrase pronunciations can be registered and subsequently retrieved.",
+          "Malformed registrations raise the documented package exception instead of corrupting the dictionaries."
+        ],
+        "corner_cases": [
+          "Empty strings and unknown characters return an explicit no-match result rather than raising an unrelated exception.",
+          "A phrase containing polyphonic characters preserves all candidate pronunciations.",
+          "Traditional characters and their supported simplified equivalents can coexist without overwriting unrelated entries.",
+          "Duplicate custom registrations are deterministic."
+        ],
+        "checks": [
+          {
+            "type": "export",
+            "module": "pypinyin.constants",
+            "symbol": "NORMAL",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "pypinyin.constants",
+            "symbol": "INITIALS",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "pypinyin.constants",
+            "symbol": "FINALS",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "pypinyin.constants",
+            "symbol": "TONE",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "pypinyin.constants",
+            "symbol": "TONE3",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "pypinyin.constants",
+            "symbol": "BOPOMOFO",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "pypinyin.constants",
+            "symbol": "WADEGILES",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "pypinyin.pinyin_dict",
+            "symbol": "get_pinyin",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "pypinyin.phrases_dict",
+            "symbol": "get_phrase_pinyin",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "pypinyin.pinyin_dict",
+            "symbol": "register_custom_pinyin",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "pypinyin.phrases_dict",
+            "symbol": "register_custom_phrase",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "pypinyin.exceptions",
+            "symbol": "PinyinError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write and freeze executable tests for constants, lookup precedence, polyphonic candidates, custom registrations, invalid registrations, and empty or unknown inputs using only the design documents.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "pypinyin/constants.py",
+            "pypinyin/pinyin_dict.py",
+            "pypinyin/phrases_dict.py",
+            "pypinyin/exceptions.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_contract_author",
+          "title": "Contract author",
+          "mandate": "Implement the shared constants, exception hierarchy, pronunciation data structures, built-in representative data, phrase-over-character lookup, and validated custom registration APIs without depending on later parser or style modules.",
+          "role": "contract_author",
+          "slot_id": "author",
+          "focus_paths": [
+            "pypinyin/constants.py",
+            "pypinyin/exceptions.py",
+            "pypinyin/pinyin_dict.py",
+            "pypinyin/phrases_dict.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Use the acceptance failure report to repair only the shared-contract or data behavior it identifies, preserving exported names and signatures.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "pypinyin/constants.py",
+            "pypinyin/exceptions.py",
+            "pypinyin/pinyin_dict.py",
+            "pypinyin/phrases_dict.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "parser_and_core_conversion",
+      "title": "Expression parsing and core Chinese-to-pinyin conversion",
+      "objective": "Implement parsing of mixed Chinese, traditional Chinese, punctuation, Latin text, digits, and special characters, plus phrase-aware conversion and the required pinyin_comvert() strategy entry point.",
+      "risk_rationale": "This milestone owns the core conversion behavior that later style adapters consume. Its gate can parse and convert representative text directly against the frozen dictionaries, including phrase matching, non-Chinese preservation, polyphones, and the required converter symbol, without requiring equivalence logic or CLI packaging.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "test_first",
+      "depends_on": [
+        "shared_contracts_and_pinyin_data"
+      ],
+      "focus_paths": [
+        "pypinyin/core.py",
+        "pypinyin/converter.py",
+        "pypinyin/standard.py",
+        "pypinyin/seg/__init__.py",
+        "pypinyin/seg/simpleseg.py",
+        "pypinyin/seg/mmseg.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "parse() extracts Chinese text and preserves punctuation, whitespace, Latin characters, digits, and special symbols in stable order.",
+          "convert() returns one output item per converted character or preserved non-Chinese segment according to the documented interface.",
+          "convert('你好', style='tone') produces ['nǐ', 'hǎo'] for the representative example.",
+          "Phrase-aware conversion resolves documented phrases before falling back to character lookup.",
+          "pinyin_comvert() exists in converter.py and supports multiple conversion strategies while returning a deterministic result.",
+          "Traditional Chinese input is accepted by the same public conversion path."
+        ],
+        "corner_cases": [
+          "Empty input returns an empty result.",
+          "Input consisting only of punctuation or special characters is preserved without invented pinyin.",
+          "Unknown Chinese characters produce the documented fallback behavior.",
+          "Mixed text does not merge adjacent non-Chinese symbols into unrelated pinyin tokens.",
+          "Polyphonic characters expose the selected pronunciation or candidate behavior documented by the conversion API."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "pypinyin.core",
+            "symbol": "parse",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "pypinyin.core",
+            "symbol": "convert",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "pypinyin.converter",
+            "symbol": "pinyin_comvert",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "pypinyin.standard",
+            "symbol": "standardize",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "pypinyin.seg.simpleseg",
+            "symbol": "segment",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "pypinyin.core",
+            "symbol": "DEFAULT_STYLE",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Create a frozen behavioral suite for parse(), convert(), phrase precedence, mixed-content preservation, traditional input, empty and unknown input, and pinyin_comvert() strategy selection.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "pypinyin/core.py",
+            "pypinyin/converter.py",
+            "pypinyin/standard.py",
+            "pypinyin/seg"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "builder_implementer",
+          "title": "Implementer",
+          "mandate": "Implement the parser, segmentation seam, standardization, core conversion API, and pinyin_comvert() from the documents and frozen shared contracts; do not rely on the hidden suite.",
+          "role": "implementer",
+          "slot_id": "builder",
+          "focus_paths": [
+            "pypinyin/core.py",
+            "pypinyin/converter.py",
+            "pypinyin/standard.py",
+            "pypinyin/seg"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Repair exactly the acceptance failures in parser or core conversion behavior while retaining the frozen dictionary and constants contracts.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "pypinyin/core.py",
+            "pypinyin/converter.py",
+            "pypinyin/standard.py",
+            "pypinyin/seg"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "styles_and_equivalence",
+      "title": "Pinyin styles, phonetic conversion, and equivalence verification",
+      "objective": "Implement tone-mark and tone-number handling, initials and finals extraction, Bopomofo and Wade-Giles output, symbol normalization, and equivalence comparison for equivalent pinyin expressions.",
+      "risk_rationale": "This milestone owns the independent representation layer over core syllables. Its gate can compare and convert known syllables directly, verifying nǐ versus ni3, separated initials and finals, tone differences, simplified symbols, polyphone alternatives, and style outputs without needing CLI or packaging integration.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "test_first",
+      "depends_on": [
+        "parser_and_core_conversion"
+      ],
+      "focus_paths": [
+        "pypinyin/phonetic_symbol.py",
+        "pypinyin/style/__init__.py",
+        "pypinyin/style/_constants.py",
+        "pypinyin/style/_tone_convert.py",
+        "pypinyin/style/_utils.py",
+        "pypinyin/style/initials.py",
+        "pypinyin/style/finals.py",
+        "pypinyin/style/tone.py",
+        "pypinyin/style/bopomofo.py",
+        "pypinyin/style/wadegiles.py",
+        "pypinyin/equivalence.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "Style conversion supports normal pinyin, initials, finals, tone marks, tone numbers, Bopomofo, and Wade-Giles representations.",
+          "Tone-mark and tone-number forms compare equivalent when the syllable and tone match, including nǐ and ni3.",
+          "Initial-plus-final forms compare equivalent to their combined syllable when the normalized syllable matches.",
+          "Symbol simplification and normalization handle documented apostrophes, spacing, ü/v conventions, case, and tone placement.",
+          "Equivalence can account for documented polyphonic or heteronym candidates without treating unrelated tones as equal.",
+          "Tone conversion preserves neutral or unspecified tone semantics according to the documented contract."
+        ],
+        "corner_cases": [
+          "Tone 0 or neutral-tone input is not confused with first tone.",
+          "Initial-only and final-only inputs do not compare equal to an unrelated complete syllable.",
+          "Bopomofo and Wade-Giles output remain deterministic for unsupported or unknown syllables.",
+          "Combining Unicode tone marks and precomposed tone characters normalize consistently.",
+          "Empty expressions compare equal only under the documented empty-input rule."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "pypinyin.phonetic_symbol",
+            "symbol": "normalize_pinyin",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "pypinyin.phonetic_symbol",
+            "symbol": "pinyin_equivalent",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "pypinyin.style.initials",
+            "symbol": "to_initials",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "pypinyin.style.finals",
+            "symbol": "to_finals",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "pypinyin.style.tone",
+            "symbol": "to_tone",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "pypinyin.style.tone",
+            "symbol": "to_tone_number",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "pypinyin.style.bopomofo",
+            "symbol": "to_bopomofo",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "pypinyin.style.wadegiles",
+            "symbol": "to_wadegiles",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "pypinyin.style._constants",
+            "symbol": "TONE_MARKS",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Freeze executable tests for every documented style, tone-mark versus tone-number equivalence, initials plus finals, Unicode normalization, polyphones, neutral tone, and unsupported syllable behavior.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "pypinyin/phonetic_symbol.py",
+            "pypinyin/style",
+            "pypinyin/equivalence.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "builder_implementer",
+          "title": "Implementer",
+          "mandate": "Implement style adapters and equivalence normalization on top of the frozen core conversion contracts, including exact handling for nǐ versus ni3 and separated initials and finals.",
+          "role": "implementer",
+          "slot_id": "builder",
+          "focus_paths": [
+            "pypinyin/phonetic_symbol.py",
+            "pypinyin/style",
+            "pypinyin/equivalence.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Fix only the style or equivalence failures named by the acceptance gate, without changing the core conversion signatures or shared constants.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "pypinyin/phonetic_symbol.py",
+            "pypinyin/style",
+            "pypinyin/equivalence.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "public_api_cli_and_packaging_integration",
+      "title": "Unified public API, CLI, setup metadata, and end-to-end integration",
+      "objective": "Expose the documented functions and constants from pypinyin.__init__, provide terminal entry points, complete setup.py metadata and dependencies, and integrate parsing, conversion, styles, equivalence, and custom dictionaries into the full public contract.",
+      "risk_rationale": "This final milestone delivers outward-facing reachability and validates the complete workflow. Its gate imports every documented public symbol from its promised path, exercises CLI and function interfaces, verifies setup metadata and required dependencies, and runs end-to-end examples so packaging or re-export defects cannot hide behind passing private-module tests.",
+      "gate_level": "integration",
+      "split_reason": "feature_module",
+      "template_id": "review_then_fix",
+      "depends_on": [
+        "styles_and_equivalence"
+      ],
+      "focus_paths": [
+        "pypinyin/__init__.py",
+        "pypinyin/__main__.py",
+        "pypinyin/runner.py",
+        "setup.py",
+        "setup.cfg",
+        "README.rst"
+      ],
+      "acceptance": {
+        "criteria": [
+          "from pypinyin import parse, convert, pinyin_comvert, pinyin_equivalent succeeds and exposes the documented version.",
+          "The same core functionality is reachable from the documented submodule import paths.",
+          "The CLI accepts parse, convert, style, and equivalence operations with clear machine-readable output and nonzero status for invalid requests.",
+          "setup.py is installable and declares jieba==0.42.1, typing-extensions==4.12.2, and chardet==5.2.0 among its dependencies.",
+          "The end-to-end example convert(parse('你好'), style='tone') returns ['nǐ', 'hǎo'].",
+          "Custom character and phrase libraries affect subsequent public API conversions.",
+          "The package imports successfully in a clean interpreter without relying on repository-relative execution order."
+        ],
+        "corner_cases": [
+          "Package-root imports and submodule imports expose the same callable behavior.",
+          "CLI empty input, malformed JSON or arguments, unknown styles, and invalid equivalence requests return stable errors.",
+          "Version metadata is present even when optional documentation files are absent.",
+          "Repeated imports do not duplicate registrations or mutate conversion results.",
+          "Installation metadata does not omit package submodules or required data files."
+        ],
+        "checks": [
+          {
+            "type": "import",
+            "module": "pypinyin",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "pypinyin",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "pypinyin",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "pypinyin",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "pypinyin",
+            "symbol": "__version__",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "pypinyin.runner",
+            "symbol": "main",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "setup",
+            "symbol": "get_meta",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "setup",
+            "symbol": "long_description",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "setup",
+            "symbol": "INSTALL_REQUIRES",
+            "required_levels": [
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write the frozen end-to-end suite for package-root imports, submodule imports, CLI requests and errors, setup metadata and dependencies, custom-library effects, and the documented parse/convert example.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "pypinyin/__init__.py",
+            "pypinyin/__main__.py",
+            "pypinyin/runner.py",
+            "setup.py",
+            "setup.cfg"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Wire all frozen modules into the documented package-root API, implement the CLI entry point, complete setup.py metadata and dependency declarations, and verify the full public workflow.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "pypinyin/__init__.py",
+            "pypinyin/__main__.py",
+            "pypinyin/runner.py",
+            "setup.py",
+            "setup.cfg"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "reviewer_contract_critic",
+          "title": "Contract critic",
+          "mandate": "Review package-root exports, CLI signatures, setup metadata, dependency constants, and cross-module calls against all earlier frozen contracts; report every compatibility or reachability defect without editing.",
+          "role": "contract_critic",
+          "slot_id": "reviewer",
+          "focus_paths": [
+            "pypinyin/__init__.py",
+            "pypinyin/__main__.py",
+            "pypinyin/runner.py",
+            "setup.py",
+            "setup.cfg"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Apply only the reviewer and integration-gate fixes needed to restore the complete public contract, preserving all earlier module symbols and behavior.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "pypinyin/__init__.py",
+            "pypinyin/__main__.py",
+            "pypinyin/runner.py",
+            "setup.py",
+            "setup.cfg"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    }
+  ]
+}

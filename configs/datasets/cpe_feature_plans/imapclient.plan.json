@@ -1,0 +1,1155 @@
+{
+  "generator": "llm",
+  "split_policy": "feature",
+  "rationale": "The repository is split feature-first into five milestones ordered by dependency: shared contracts and encoding/date utilities first, response parsing second, transport/session/auth third, high-level mailbox/message operations fourth, and public packaging/configuration integration last. This avoids a single long run where parser, transport, and public API defects are only found at the end; each milestone owns behavior that can be tested without later milestones by using direct function calls or mocked IMAP connections. The final milestone integrates already-frozen internals at the documented import paths and validates the full public contract.",
+  "split": true,
+  "milestones": [
+    {
+      "milestone_id": "shared_contracts_and_utilities",
+      "title": "Shared exceptions, data contracts, date/time, UTF-7, and utility primitives",
+      "objective": "Build the foundational modules imported by parsers and the client: exception hierarchy, fixed-offset timezone handling, IMAP date formatting/parsing helpers, IMAP modified UTF-7 encoding/decoding, response data classes, typing aliases, small utility helpers, and version metadata.",
+      "risk_rationale": "This milestone delivers the shared contracts that later parser and client modules import. Its gate can verify behavior directly by importing modules and exercising pure functions/classes without any network or IMAPClient implementation. If these contracts are wrong, downstream code will parse into the wrong shapes, raise incompatible exceptions, or encode mailbox names/dates incorrectly while still appearing internally consistent.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "test_first",
+      "depends_on": [],
+      "focus_paths": [
+        "imapclient/exceptions.py",
+        "imapclient/fixed_offset.py",
+        "imapclient/datetime_util.py",
+        "imapclient/imap_utf7.py",
+        "imapclient/response_types.py",
+        "imapclient/typing_imapclient.py",
+        "imapclient/util.py",
+        "imapclient/version.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "Exception classes exist with the documented inheritance relationship rooted at IMAPClientError.",
+          "FixedOffset implements tzinfo behavior, including signed +HHMM/-HHMM names, zero DST, and system offset construction.",
+          "IMAP INTERNALDATE bytes parse to datetime objects and datetimes format back to IMAP-compatible date strings.",
+          "Search date formatting returns ASCII bytes in DD-Mon-YYYY form.",
+          "IMAP modified UTF-7 round-trips Unicode mailbox names, preserves printable ASCII, encodes ampersands as &-, and returns non-string/non-bytes inputs unchanged as documented.",
+          "Response data structures expose the documented attributes and tuple/list behavior for later parser and client use."
+        ],
+        "corner_cases": [
+          "Positive, negative, zero, and fractional-hour timezone offsets.",
+          "Naive datetimes versus timezone-aware datetimes.",
+          "Mailbox names containing only ASCII, only non-ASCII, mixed ASCII/non-ASCII, ampersands, empty strings, and bytes input.",
+          "Optional or NIL-like response fields represented as None in response type constructors.",
+          "Utility conversion helpers handling bytes, str, int, tuples, lists, and empty collections where documented."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.exceptions",
+            "symbol": "IMAPClientError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.exceptions",
+            "symbol": "CapabilityError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.exceptions",
+            "symbol": "LoginError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.exceptions",
+            "symbol": "IllegalStateError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.exceptions",
+            "symbol": "InvalidCriteriaError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.exceptions",
+            "symbol": "ProtocolError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.fixed_offset",
+            "symbol": "FixedOffset",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.datetime_util",
+            "symbol": "parse_to_datetime",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.datetime_util",
+            "symbol": "datetime_to_native",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.datetime_util",
+            "symbol": "datetime_to_INTERNALDATE",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.datetime_util",
+            "symbol": "format_criteria_date",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.imap_utf7",
+            "symbol": "encode",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.imap_utf7",
+            "symbol": "decode",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.imap_utf7",
+            "symbol": "base64_utf7_encode",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.imap_utf7",
+            "symbol": "base64_utf7_decode",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.response_types",
+            "symbol": "Address",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.response_types",
+            "symbol": "Envelope",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.response_types",
+            "symbol": "BodyData",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.response_types",
+            "symbol": "SearchIds",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write a unittest suite from the design documents for exceptions, FixedOffset, datetime_util, imap_utf7, response_types, typing aliases, version metadata, and utility primitives. Do not edit source code.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "imapclient/exceptions.py",
+            "imapclient/fixed_offset.py",
+            "imapclient/datetime_util.py",
+            "imapclient/imap_utf7.py",
+            "imapclient/response_types.py",
+            "imapclient/typing_imapclient.py",
+            "imapclient/util.py",
+            "imapclient/version.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "builder_contract_author",
+          "title": "Contract author",
+          "mandate": "Implement the shared substrate exactly as documented: exception classes, timezone/date helpers, modified UTF-7 codec, response data structures, typing helpers, utilities, and version exports. Keep behavior standalone and avoid depending on later client or parser code.",
+          "role": "contract_author",
+          "slot_id": "builder",
+          "focus_paths": [
+            "imapclient/exceptions.py",
+            "imapclient/fixed_offset.py",
+            "imapclient/datetime_util.py",
+            "imapclient/imap_utf7.py",
+            "imapclient/response_types.py",
+            "imapclient/typing_imapclient.py",
+            "imapclient/util.py",
+            "imapclient/version.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "If the milestone gate fails, repair only the shared contract and utility behavior named in the failure report without introducing parser, transport, or public API work.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "imapclient/exceptions.py",
+            "imapclient/fixed_offset.py",
+            "imapclient/datetime_util.py",
+            "imapclient/imap_utf7.py",
+            "imapclient/response_types.py",
+            "imapclient/typing_imapclient.py",
+            "imapclient/util.py",
+            "imapclient/version.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "response_lexing_and_parsing",
+      "title": "IMAP response lexer and parser",
+      "objective": "Implement tokenization and parsing of IMAP server responses into Python primitives and the response_types contracts from the previous milestone.",
+      "risk_rationale": "This milestone delivers the response-processing feature group independent of live network transport. Its gate can feed raw IMAP response bytes/literals into the lexer/parser and verify structured outputs directly. If wrong, every later fetch, search, envelope, status, quota, and namespace operation will return malformed Python objects even when transport commands succeed.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "test_first",
+      "depends_on": [
+        "shared_contracts_and_utilities"
+      ],
+      "focus_paths": [
+        "imapclient/response_lexer.py",
+        "imapclient/response_parser.py",
+        "imapclient/response_types.py",
+        "imapclient/exceptions.py",
+        "imapclient/datetime_util.py",
+        "imapclient/typing_imapclient.py",
+        "imapclient/util.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "Lexer tokenizes atoms, quoted strings, parenthesized lists, NIL, literals, escaped characters, and nested structures from byte streams.",
+          "TokenSource exposes iteration and current literal handling as documented.",
+          "Response parser converts FETCH, ENVELOPE, FLAGS, BODY/BODYSTRUCTURE, SEARCH, STATUS, NAMESPACE, QUOTA, and untagged response forms into documented Python types.",
+          "Parser uses Address, Envelope, BodyData, and SearchIds from response_types rather than private incompatible shapes.",
+          "Malformed or incomplete responses raise ProtocolError or a documented parsing error rather than silently returning wrong data."
+        ],
+        "corner_cases": [
+          "Empty parenthesized lists and NIL values.",
+          "Quoted strings with escaped quotes and backslashes.",
+          "Literals containing 8-bit bytes and embedded spaces.",
+          "Nested BODYSTRUCTURE and multipart responses.",
+          "ENVELOPE responses with missing addresses or missing dates.",
+          "SEARCH responses with MODSEQ metadata.",
+          "Unexpected EOF, unbalanced parentheses, and invalid literal lengths."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.response_lexer",
+            "symbol": "Lexer",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.response_lexer",
+            "symbol": "TokenSource",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.response_lexer",
+            "symbol": "LiteralHandlingIter",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.response_lexer",
+            "symbol": "PushableIterator",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "imapclient.response_parser",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "imapclient.response_parser",
+            "symbol": "parse_response",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "imapclient.response_parser",
+            "symbol": "parse_fetch_response",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "imapclient.response_parser",
+            "symbol": "parse_message_list",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write a unittest suite from the design documents for response_lexer and response_parser behavior using raw IMAP byte responses and literals. Do not edit source code.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "imapclient/response_lexer.py",
+            "imapclient/response_parser.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "builder_implementer",
+          "title": "Implementer",
+          "mandate": "Implement the lexer and parser feature group using the frozen response_types, datetime, exception, and utility contracts. Keep tests independent of live sockets or IMAPClient.",
+          "role": "implementer",
+          "slot_id": "builder",
+          "focus_paths": [
+            "imapclient/response_lexer.py",
+            "imapclient/response_parser.py",
+            "imapclient/response_types.py",
+            "imapclient/exceptions.py",
+            "imapclient/datetime_util.py",
+            "imapclient/typing_imapclient.py",
+            "imapclient/util.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "If the gate fails, fix only the parser/lexer behavior identified in the report while preserving the frozen shared contracts.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "imapclient/response_lexer.py",
+            "imapclient/response_parser.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "transport_session_and_authentication",
+      "title": "Transport, TLS, session lifecycle, capabilities, and authentication",
+      "objective": "Implement imaplib-based plain/TLS transports plus the IMAPClient construction, context management, login/logout, SASL/OAuth authentication, STARTTLS, capability handling, ID, namespace, NOOP, socket access, and shutdown behavior using mocked IMAP backends.",
+      "risk_rationale": "This milestone delivers connection/session behavior without requiring folder or message manipulation to exist. Its gate can instantiate clients with mocked imaplib classes, verify command dispatch, timeout propagation, capability checks, exception mapping, context cleanup, and authentication payloads. If wrong, later high-level operations will be built on an unusable or insecure session layer.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "review_then_fix",
+      "depends_on": [
+        "shared_contracts_and_utilities",
+        "response_lexing_and_parsing"
+      ],
+      "focus_paths": [
+        "imapclient/imap4.py",
+        "imapclient/tls.py",
+        "imapclient/imapclient.py",
+        "imapclient/exceptions.py",
+        "imapclient/response_parser.py",
+        "imapclient/util.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "IMAP4WithTimeout opens plain sockets through imaplib-compatible behavior and applies configured connection timeouts.",
+          "IMAP4_TLS wraps sockets with a provided or default SSLContext and implements read, readline, send, open, and shutdown.",
+          "IMAPClient initializes with documented host, port, ssl, stream, ssl_context, timeout, use_uid, folder_encode, and normalise_times attributes.",
+          "IMAPClient works as a context manager and always attempts clean shutdown/logout on exit.",
+          "login, plain_login, oauth2_login, oauthbearer_login, sasl_login, logout, starttls, capabilities, has_capability, enable, id_, namespace, noop, socket, and shutdown dispatch documented IMAP commands and convert failures into documented exceptions.",
+          "require_capability prevents unsupported capability-dependent methods from running."
+        ],
+        "corner_cases": [
+          "Separate connect/read timeouts and a single numeric timeout value.",
+          "SSL enabled, SSL disabled, STARTTLS after plain connection, custom SSLContext, and stream-based connections.",
+          "Repeated capabilities calls using cached capabilities where appropriate.",
+          "Authentication failure, abort, read-only, and protocol-level imaplib errors.",
+          "Missing capabilities for STARTTLS, ID, NAMESPACE, and ENABLE.",
+          "Logout called more than once or after a failed connection."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.imap4",
+            "symbol": "IMAP4WithTimeout",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.tls",
+            "symbol": "IMAP4_TLS",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.imapclient",
+            "symbol": "IMAPClient",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.imapclient",
+            "symbol": "SocketTimeout",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.imapclient",
+            "symbol": "Namespace",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.imapclient",
+            "symbol": "require_capability",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.imapclient",
+            "symbol": "debug_trunc",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.imapclient",
+            "symbol": "utf7_decode_sequence",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write a unittest suite from the design documents for imap4, tls, and IMAPClient session/authentication behavior using fake sockets and fake imaplib objects. Do not edit source code.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "imapclient/imap4.py",
+            "imapclient/tls.py",
+            "imapclient/imapclient.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement transport, TLS, session lifecycle, capabilities, and authentication behavior in imaplib-based modules while preserving the frozen parser and utility contracts.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "imapclient/imap4.py",
+            "imapclient/tls.py",
+            "imapclient/imapclient.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "reviewer_contract_critic",
+          "title": "Contract critic",
+          "mandate": "Review the transport/session implementation for deviations from the frozen exception, parser, response type, datetime, UTF-7, and utility contracts. Report mismatches without editing.",
+          "role": "contract_critic",
+          "slot_id": "reviewer",
+          "focus_paths": [
+            "imapclient/imap4.py",
+            "imapclient/tls.py",
+            "imapclient/imapclient.py",
+            "imapclient/exceptions.py",
+            "imapclient/response_parser.py",
+            "imapclient/response_types.py"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Apply the review and gate failure report, fixing only transport/session/authentication defects and preserving previously frozen contracts.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "imapclient/imap4.py",
+            "imapclient/tls.py",
+            "imapclient/imapclient.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "mailbox_message_and_extension_operations",
+      "title": "Mailbox, message, flag, Gmail, quota, ACL, sort/thread, append, expunge, and IDLE operations",
+      "objective": "Complete IMAPClient's high-level command surface for folder management, searching, sorting, threading, fetching, appending, copying/moving, flag and Gmail label management, ACLs, quotas, IDLE, and message identifier normalization.",
+      "risk_rationale": "This milestone delivers the main user-visible IMAP command behavior on top of the frozen session/parser layer. Its gate can use TestableIMAPClient or mocked IMAP backends to assert exact commands, UID versus sequence behavior, response parsing, folder encoding, and exception handling without final package/config integration. If wrong, the library may connect successfully but issue invalid commands or return incorrectly shaped results for its core use cases.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "review_then_fix",
+      "depends_on": [
+        "shared_contracts_and_utilities",
+        "response_lexing_and_parsing",
+        "transport_session_and_authentication"
+      ],
+      "focus_paths": [
+        "imapclient/imapclient.py",
+        "imapclient/testable_imapclient.py",
+        "imapclient/response_parser.py",
+        "imapclient/imap_utf7.py",
+        "imapclient/datetime_util.py",
+        "imapclient/util.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "Folder operations list, list subscribed, xlist, create, delete, rename, subscribe, unsubscribe, select, close, unselect, exists checks, special folder lookup, and status use documented commands and return parsed Python types.",
+          "Search, Gmail raw search, sort, thread, fetch, and fetch modifiers normalize criteria/selectors and parse server responses correctly.",
+          "Message manipulation methods append, multiappend, copy, move, expunge, uid_expunge, and delete_messages issue documented commands and handle UID mode transparently.",
+          "Flag and Gmail label methods get, add, remove, set, delete, and silent variants normalize inputs and return parsed responses where documented.",
+          "ACL and quota methods getacl, setacl, get_quota, get_quota_root, and set_quota return Quota and MailboxQuotaRoots structures.",
+          "IDLE methods idle, idle_check, and idle_done implement state transitions and nonblocking response collection.",
+          "Helper functions for criteria, sort criteria, text lists, message IDs, pairs/triplets, literals, and untagged responses behave as documented."
+        ],
+        "corner_cases": [
+          "UID mode enabled versus disabled.",
+          "Message IDs supplied as an int, list, tuple, generator, bytes range, string range, empty list, and nested invalid input.",
+          "Criteria supplied as strings, bytes, integers, dates, datetimes, nested lists, non-ASCII text with charset, and empty criteria.",
+          "Folder names requiring modified UTF-7 encoding and folder_encode disabled.",
+          "Silent flag/label operations returning no untagged responses.",
+          "MOVE capability missing and COPY plus delete fallback where documented.",
+          "IDLE called twice, idle_check before idle, idle_done before idle, and server timeout responses.",
+          "Quota responses containing multiple resources and roots."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.imapclient",
+            "symbol": "Quota",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.imapclient",
+            "symbol": "MailboxQuotaRoots",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.imapclient",
+            "symbol": "_parse_quota",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.imapclient",
+            "symbol": "_quote",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.imapclient",
+            "symbol": "_normalise_search_criteria",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.imapclient",
+            "symbol": "_normalise_sort_criteria",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.imapclient",
+            "symbol": "normalise_text_list",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.imapclient",
+            "symbol": "seq_to_parenstr",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.imapclient",
+            "symbol": "seq_to_parenstr_upper",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.imapclient",
+            "symbol": "join_message_ids",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.imapclient",
+            "symbol": "_maybe_int_to_bytes",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.imapclient",
+            "symbol": "_parse_untagged_response",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.imapclient",
+            "symbol": "as_pairs",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.imapclient",
+            "symbol": "as_triplets",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.imapclient",
+            "symbol": "_is8bit",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.imapclient",
+            "symbol": "_iter_with_last",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.testable_imapclient",
+            "symbol": "TestableIMAPClient",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write a unittest suite from the design documents for high-level IMAPClient command methods and helper functions using mocked server responses and no real network. Do not edit source code.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "imapclient/imapclient.py",
+            "imapclient/testable_imapclient.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement high-level mailbox, message, flag, Gmail, ACL, quota, sort/thread, append, expunge, and IDLE operations using the frozen session and parser layers.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "imapclient/imapclient.py",
+            "imapclient/testable_imapclient.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "reviewer_spec_auditor",
+          "title": "Specification auditor",
+          "mandate": "Compare the implemented high-level IMAPClient command surface against the PRD, architecture design, and UML. Report missing methods, wrong command semantics, wrong return shapes, and helper deviations without editing.",
+          "role": "spec_auditor",
+          "slot_id": "reviewer",
+          "focus_paths": [
+            "imapclient/imapclient.py",
+            "imapclient/testable_imapclient.py",
+            "PRD.md",
+            "architecture_design.md",
+            "UML_class.md",
+            "UML_class_pyreverse.md"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Fix the review findings and gate failures for high-level operations only, preserving earlier frozen transport, parser, and shared contracts.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "imapclient/imapclient.py",
+            "imapclient/testable_imapclient.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "public_api_config_and_full_integration",
+      "title": "Public package exports, configuration, interactive entry point, dependency hygiene, and full integration",
+      "objective": "Wire the package-level public API, implement configuration and OAuth token helpers, create-client-from-config, interactive console entry point, dependency/package hygiene, and run the full documented contract across all modules.",
+      "risk_rationale": "This final milestone delivers the outward-facing layer and verifies the whole library as consumers use it. Its gate can import documented symbols from package roots, parse config files, create mocked clients from configuration, exercise interactive entry wiring, and run the visible integration suite. If wrong, the internal modules may work but installation users cannot import or configure the library through the documented public contract.",
+      "gate_level": "integration",
+      "split_reason": "feature_module",
+      "template_id": "parallel_audit",
+      "depends_on": [
+        "shared_contracts_and_utilities",
+        "response_lexing_and_parsing",
+        "transport_session_and_authentication",
+        "mailbox_message_and_extension_operations"
+      ],
+      "focus_paths": [
+        "imapclient/__init__.py",
+        "imapclient/config.py",
+        "imapclient/interact.py",
+        "imapclient/version.py",
+        "imapclient/imapclient.py",
+        "imapclient/testable_imapclient.py",
+        "imapclient/tls.py",
+        "imapclient/imap4.py",
+        "imapclient/response_parser.py",
+        "imapclient/response_lexer.py",
+        "imapclient/response_types.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "The package root exports IMAPClient and documented public classes/exceptions at the documented import paths.",
+          "config.getenv reads imapclient_-prefixed environment variables and returns defaults when unset.",
+          "get_config_defaults and get_string_config_defaults return complete connection defaults with booleans and None converted appropriately for configparser.",
+          "parse_config_file reads INI files into argparse.Namespace objects including DEFAULT and alternate named sections.",
+          "refresh_oauth2_token and get_oauth2_token implement documented OAuth2 token refresh and cache behavior using standard-library HTTP facilities.",
+          "create_client_from_config constructs IMAPClient with configured host, port, ssl, timeout, stream, username/password or OAuth settings and optionally logs in.",
+          "python -m imapclient.interact accepts documented host/user/config arguments and exposes a connected client as c for interactive use.",
+          "The repository imports cleanly with no external runtime dependencies beyond the Python standard library and passes visible check_tests plus milestone behavioral tests."
+        ],
+        "corner_cases": [
+          "Environment variables overriding file/default values.",
+          "Missing config values, alternate sections, boolean strings with varying case, None-like empty values, and numeric ports/timeouts.",
+          "OAuth token cache hit versus cache miss and failed refresh response.",
+          "create_client_from_config with login disabled, password login, OAuth2 login, SSL context options, and command stream options.",
+          "Importing from imapclient package root before importing private modules.",
+          "Interactive argument parsing with config file and command-line overrides.",
+          "Clean shutdown after exceptions during configured login."
+        ],
+        "checks": [
+          {
+            "type": "import",
+            "module": "imapclient",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "imapclient",
+            "symbol": "IMAPClient",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "imapclient",
+            "symbol": "SocketTimeout",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "imapclient",
+            "symbol": "IMAPClientError",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "imapclient",
+            "symbol": "CapabilityError",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "imapclient",
+            "symbol": "LoginError",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "imapclient",
+            "symbol": "IllegalStateError",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "imapclient",
+            "symbol": "InvalidCriteriaError",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "imapclient",
+            "symbol": "ProtocolError",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.config",
+            "symbol": "getenv",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.config",
+            "symbol": "get_config_defaults",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.config",
+            "symbol": "parse_config_file",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.config",
+            "symbol": "get_string_config_defaults",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.config",
+            "symbol": "refresh_oauth2_token",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.config",
+            "symbol": "get_oauth2_token",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "imapclient.config",
+            "symbol": "create_client_from_config",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "imapclient.interact",
+            "required_levels": [
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write a unittest integration suite from the design documents for package root imports, config parsing/client creation, OAuth token caching, interactive entry wiring, and representative end-to-end mocked IMAPClient use. Do not edit source code.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "imapclient/__init__.py",
+            "imapclient/config.py",
+            "imapclient/interact.py",
+            "imapclient/version.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Wire public exports, configuration helpers, OAuth token refresh/cache, create_client_from_config, interactive console entry point, and ensure all modules import cleanly through documented paths.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "imapclient/__init__.py",
+            "imapclient/config.py",
+            "imapclient/interact.py",
+            "imapclient/version.py",
+            "imapclient/imapclient.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "spec_review_spec_auditor",
+          "title": "Specification auditor",
+          "mandate": "Audit the integrated repository against the PRD, architecture design, UML, directory tree, and usage examples. Report missing public behavior, incorrect import paths, config/interactive gaps, and any unsupported documented feature without editing.",
+          "role": "spec_auditor",
+          "slot_id": "spec_review",
+          "focus_paths": [
+            "PRD.md",
+            "architecture_design.md",
+            "directory_tree.txt",
+            "UML_class.md",
+            "UML_class_pyreverse.md",
+            "imapclient"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "contract_review_contract_critic",
+          "title": "Contract critic",
+          "mandate": "Audit the final integration against all symbols and contracts frozen by earlier milestones, especially package-root re-exports, parser/type shapes, exception classes, and IMAPClient method availability. Report violations without editing.",
+          "role": "contract_critic",
+          "slot_id": "contract_review",
+          "focus_paths": [
+            "imapclient/__init__.py",
+            "imapclient/config.py",
+            "imapclient/imapclient.py",
+            "imapclient/response_parser.py",
+            "imapclient/response_types.py",
+            "imapclient/exceptions.py"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Apply audit and gate findings, remove any files outside the documented tree or scratch artifacts, and make the shipped public surface match the documented repository while preserving all frozen contracts.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "imapclient"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    }
+  ]
+}

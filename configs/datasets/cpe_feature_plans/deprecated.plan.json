@@ -1,0 +1,419 @@
+{
+  "generator": "llm",
+  "split_policy": "feature",
+  "rationale": "The project naturally separates into three feature modules ordered by dependency: the core runtime deprecation decorator in deprecated.classic, the Sphinx docstring integration that builds on the core adapter, and the final package-level public surface/integration. This avoids one long run where Sphinx or package export defects could hide core warning defects, while keeping tightly coupled behavior such as ClassicAdapter wrapping and the classic deprecated factory in the same milestone.",
+  "split": true,
+  "milestones": [
+    {
+      "milestone_id": "classic_runtime_deprecation",
+      "title": "Classic runtime deprecation decorator",
+      "objective": "Implement deprecated.classic with ClassicAdapter and the deprecated decorator factory for functions, methods, and classes, including warning message construction and runtime DeprecationWarning emission through wrapt.",
+      "risk_rationale": "This milestone delivers the shared runtime substrate that later Sphinx integration imports and extends. Its gate can verify it alone by importing deprecated.classic, decorating standalone functions, instance methods, static/class methods, and classes, then asserting calls preserve return values while emitting the configured warning category/message/action. If this contract is wrong, SphinxAdapter will inherit broken wrapping or warning behavior.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "test_first",
+      "depends_on": [],
+      "focus_paths": [
+        "deprecated/classic.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "deprecated.classic.ClassicAdapter is implemented as a wrapt.AdapterFactory-compatible adapter with constructor parameters reason, version, action, category, and extra_stacklevel.",
+          "deprecated.classic.deprecated can be used as a decorator factory with documented keyword arguments and returns wrapped callables/classes.",
+          "Decorated functions and methods execute their original body and return the original result.",
+          "Calling a decorated function or method emits a warning using the configured category and includes the deprecated object name, version when supplied, and reason when supplied.",
+          "Decorating a class emits a warning when the class is instantiated while preserving normal construction behavior.",
+          "The adapter supports an adapter_cls override through deprecated(..., adapter_cls=...)."
+        ],
+        "corner_cases": [
+          "Empty reason and empty version still produce a usable warning message.",
+          "Custom warning category subclasses of Warning are honored.",
+          "extra_stacklevel is accepted and does not break warning emission.",
+          "Methods receive self/class arguments correctly after wrapping.",
+          "Decorated callables preserve usable metadata such as __name__ and __doc__ as far as wrapt supports."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "deprecated.classic",
+            "symbol": "ClassicAdapter",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "deprecated.classic",
+            "symbol": "deprecated",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write an executable test suite for deprecated.classic from the PRD, architecture design, and UML only. Cover runtime warnings, message content, functions, methods, classes, custom categories, and adapter_cls behavior. Do not edit source files.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "deprecated/classic.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "builder_implementer",
+          "title": "Implementer",
+          "mandate": "Implement deprecated.classic exactly as documented: ClassicAdapter using wrapt, message generation for functions/methods/classes, class __new__ patching or equivalent instantiation warning behavior, and the deprecated decorator factory with all documented parameters.",
+          "role": "implementer",
+          "slot_id": "builder",
+          "focus_paths": [
+            "deprecated/classic.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Repair only failures reported by the milestone acceptance gate for deprecated.classic, preserving the public symbols and behavior already implemented.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "deprecated/classic.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "sphinx_docstring_decorators",
+      "title": "Sphinx docstring integration decorators",
+      "objective": "Implement deprecated.sphinx with SphinxAdapter plus versionadded, versionchanged, and deprecated decorators that inject Sphinx directives into docstrings and, for deprecated, also emit runtime warnings through the classic adapter.",
+      "risk_rationale": "This milestone delivers the documentation integration feature group that depends on the frozen classic runtime adapter but can be verified without final package re-exports. Its gate can import deprecated.sphinx directly, decorate functions/classes, inspect generated docstrings for correct directives, and call sphinx.deprecated-decorated objects to verify warning behavior. Defects here would otherwise appear as documentation-only regressions that the classic runtime tests cannot catch.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "review_then_fix",
+      "depends_on": [
+        "classic_runtime_deprecation"
+      ],
+      "focus_paths": [
+        "deprecated/sphinx.py",
+        "deprecated/classic.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "deprecated.sphinx.SphinxAdapter subclasses or otherwise extends ClassicAdapter behavior as documented.",
+          "versionadded(version=..., reason=...) appends a '.. versionadded:: VERSION' directive to the decorated object docstring and does not emit runtime warnings.",
+          "versionchanged(version=..., reason=...) appends a '.. versionchanged:: VERSION' directive to the decorated object docstring and does not emit runtime warnings.",
+          "deprecated.sphinx.deprecated appends a '.. deprecated:: VERSION' directive to the docstring and emits a runtime deprecation warning when the decorated callable/class is used.",
+          "Generated docstrings remain visible through help() by being assigned to __doc__ on the decorated object.",
+          "SphinxAdapter.get_deprecated_msg strips Sphinx cross-reference syntax from warning messages while leaving readable text."
+        ],
+        "corner_cases": [
+          "Objects with no original docstring receive a directive-only docstring.",
+          "Objects with an existing one-line or multi-line docstring retain the original content plus the directive.",
+          "Long reasons are wrapped according to line_length without losing words.",
+          "Empty reason is accepted for all three Sphinx decorators.",
+          "The deprecated Sphinx decorator forwards runtime warning keyword arguments such as category, action, and extra_stacklevel to the classic behavior.",
+          "Sphinx role syntax such as :func:`name`, :py:func:`name`, and similar cross references does not leak raw markup into runtime warnings."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "deprecated.sphinx",
+            "symbol": "SphinxAdapter",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "deprecated.sphinx",
+            "symbol": "versionadded",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "deprecated.sphinx",
+            "symbol": "versionchanged",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "deprecated.sphinx",
+            "symbol": "deprecated",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write an executable test suite for deprecated.sphinx from the design documents only. Cover directive insertion, docstring preservation, no-warning behavior for versionadded/versionchanged, warning behavior for sphinx.deprecated, line wrapping, and Sphinx cross-reference cleanup. Do not edit source files.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "deprecated/sphinx.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement deprecated.sphinx using the frozen deprecated.classic contract. Build SphinxAdapter, directive docstring insertion, versionadded, versionchanged, and deprecated exactly as documented.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "deprecated/sphinx.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "reviewer_spec_auditor",
+          "title": "Specification auditor",
+          "mandate": "Read the implemented deprecated.sphinx against the PRD, architecture design, and UML. Report deviations in directive formatting, warning behavior, constructor signatures, line wrapping, or inheritance from ClassicAdapter without editing files.",
+          "role": "spec_auditor",
+          "slot_id": "reviewer",
+          "focus_paths": [
+            "deprecated/sphinx.py",
+            "deprecated/classic.py"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Fix the reported Sphinx integration deviations and any acceptance-gate failures while preserving the classic runtime contract frozen by the prior milestone.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "deprecated/sphinx.py",
+            "deprecated/classic.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "public_package_integration",
+      "title": "Public package exports and full integration",
+      "objective": "Wire the package entry point, metadata, and public import paths so the documented API works end-to-end from deprecated and deprecated.sphinx, then validate the full public contract.",
+      "risk_rationale": "This final milestone integrates the already implemented feature modules into the documented package surface. Its gate verifies the full public contract: package metadata, root-level deprecated import, direct submodule imports, runtime warnings, Sphinx docstring behavior, and compatibility with the visible repository tests. This catches breakage where modules work in isolation but consumers cannot import or use the documented API.",
+      "gate_level": "integration",
+      "split_reason": "feature_module",
+      "template_id": "parallel_audit",
+      "depends_on": [
+        "classic_runtime_deprecation",
+        "sphinx_docstring_decorators"
+      ],
+      "focus_paths": [
+        "deprecated/__init__.py",
+        "deprecated/classic.py",
+        "deprecated/sphinx.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "from deprecated import deprecated imports the classic runtime decorator documented as the package entry point.",
+          "deprecated.__version__, deprecated.__author__, and deprecated.__date__ exist as package metadata.",
+          "from deprecated.sphinx import deprecated, versionadded, versionchanged imports the Sphinx decorators.",
+          "The classic and Sphinx decorators interoperate without import cycles or shadowing problems.",
+          "Visible check_tests and milestone integration tests pass in a clean interpreter environment.",
+          "The shipped tree contains only the documented deprecated package modules needed by the project."
+        ],
+        "corner_cases": [
+          "Importing deprecated does not require importing Sphinx or optional documentation tooling beyond documented dependencies.",
+          "The root deprecated symbol is the classic decorator, not the Sphinx deprecated decorator.",
+          "Submodule imports continue to work after package __init__ wiring.",
+          "Repeated imports do not mutate docstrings or warning behavior unexpectedly.",
+          "Package metadata are strings and do not mask callable exports."
+        ],
+        "checks": [
+          {
+            "type": "export",
+            "module": "deprecated",
+            "symbol": "__version__",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "deprecated",
+            "symbol": "__author__",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "deprecated",
+            "symbol": "__date__",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "deprecated",
+            "symbol": "deprecated",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "deprecated.classic",
+            "symbol": "ClassicAdapter",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "deprecated.classic",
+            "symbol": "deprecated",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "deprecated.sphinx",
+            "symbol": "SphinxAdapter",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "deprecated.sphinx",
+            "symbol": "deprecated",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "deprecated.sphinx",
+            "symbol": "versionadded",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "deprecated.sphinx",
+            "symbol": "versionchanged",
+            "required_levels": [
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write an executable integration test suite from the design documents only. Cover root package imports, metadata exports, submodule imports, end-to-end classic warning behavior, end-to-end Sphinx docstring directives, and the distinction between root deprecated and deprecated.sphinx.deprecated. Do not edit source files.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "deprecated/__init__.py",
+            "deprecated/classic.py",
+            "deprecated/sphinx.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Wire deprecated/__init__.py and package-level exports to match the documented public API. Ensure metadata exists, root deprecated points to deprecated.classic.deprecated, and all modules import cleanly together.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "deprecated/__init__.py",
+            "deprecated/classic.py",
+            "deprecated/sphinx.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "spec_review_spec_auditor",
+          "title": "Specification auditor",
+          "mandate": "Audit the integrated package against PRD.md, architecture_design.md, UML.md, and directory_tree.txt. Report missing exports, wrong public import paths, metadata omissions, behavior/documentation mismatches, or extra shipped files without editing.",
+          "role": "spec_auditor",
+          "slot_id": "spec_review",
+          "focus_paths": [
+            "deprecated"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "contract_review_contract_critic",
+          "title": "Contract critic",
+          "mandate": "Audit the integration against frozen contracts from the classic and Sphinx milestones. Report any changed signatures, moved symbols, import cycles, or behavior regressions without editing.",
+          "role": "contract_critic",
+          "slot_id": "contract_review",
+          "focus_paths": [
+            "deprecated/__init__.py",
+            "deprecated/classic.py",
+            "deprecated/sphinx.py"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Fix integration, public export, metadata, and contract-regression issues reported by the auditors or acceptance gate. Keep the shipped surface aligned with the documented file tree.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "deprecated/__init__.py",
+            "deprecated/classic.py",
+            "deprecated/sphinx.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    }
+  ]
+}

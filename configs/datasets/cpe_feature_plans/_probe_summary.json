@@ -1,0 +1,1220 @@
+{
+  "bplustree": {
+    "modules": 8,
+    "loc": 1509,
+    "milestones": [
+      {
+        "id": "serialization_entry_contracts",
+        "split_reason": "feature_module",
+        "template": "test_first",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the byte-level contract for keys, values, overflow references, and child references. Later nodes, memory pages, WAL recovery, and tree operations all depend on these exact lengths and serializer semantics. Its gate can verify serializer round trips, fixed-size dump/load behavior, entry ordering, and utility iteration without node, memory, or tree code.",
+        "agents": 3,
+        "criteria": [
+          "TreeConf is a namedtuple-like configuration object with page_size, order, key_size, value_size, and serializer fields.",
+          "IntSerializer, StrSerializer, UUIDSerializer, and DatetimeUTCSerializer serialize to exactly key_size bytes and deserialize back to equivalent Python objects.",
+          "Record dumps and loads fixed-length key/value entries and supports overflow_page references for out-of-line values."
+        ]
+      },
+      {
+        "id": "node_hierarchy",
+        "split_reason": "feature_module",
+        "template": "review_then_fix",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the in-page tree structure: sorted entry management, node capacity rules, split support, node type conversion, and node dump/load. Its gate can construct nodes directly with TreeConf and Record/Reference objects, then verify ordering, splitting, removal, and page serialization without FileMemory or BPlusTree.",
+        "agents": 4,
+        "criteria": [
+          "Node.from_page_data reconstructs the correct concrete node type from serialized page bytes.",
+          "RecordNode implementations store Record entries and ReferenceNode implementations store Reference entries.",
+          "insert_entry maintains sorted order and rejects or replaces duplicates according to the documented node behavior needed by tree insertion."
+        ]
+      },
+      {
+        "id": "file_memory_wal",
+        "split_reason": "feature_module",
+        "template": "review_then_fix",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the persistence subsystem used by the tree but testable independently: raw page I/O, node I/O, metadata storage, cache behavior, write-ahead logging, commit/rollback, and checkpointing. Its gate can create temporary files, write pages and nodes, close and reopen FileMemory, and verify recovery without requiring BPlusTree algorithms.",
+        "agents": 4,
+        "criteria": [
+          "FileMemory opens or creates the data file and exposes get_page, set_page, get_node, set_node, get_metadata, set_metadata, perform_checkpoint, close, read_transaction, and write_transaction.",
+          "WAL records dirty pages, makes committed pages readable before checkpoint, supports rollback of uncommitted writes, and checkpoints committed pages to the data file.",
+          "Metadata persists root_node_page and TreeConf across close and reopen."
+        ]
+      },
+      {
+        "id": "tree_core_operations",
+        "split_reason": "feature_module",
+        "template": "parallel_audit",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the main B+ tree behavior while still being scoped to bplustree.tree rather than package-wide export integration. Its gate can instantiate BPlusTree from bplustree.tree, insert and retrieve records, force leaf and parent splits with small order values, store overflow values, delete records, iterate ranges, close and reopen files, and verify persistence.",
+        "agents": 5,
+        "criteria": [
+          "BPlusTree initializes a new empty tree when no metadata exists and loads an existing tree when metadata is present.",
+          "insert stores bytes values and raises ValueError on duplicate keys unless replace=True.",
+          "get returns the stored value or the supplied default when absent."
+        ]
+      },
+      {
+        "id": "public_package_integration",
+        "split_reason": "feature_module",
+        "template": "parallel_audit",
+        "role": "integration",
+        "risk_rationale": "This milestone integrates all previously implemented modules into the documented package surface. Its gate verifies the full public contract from consumer import paths, including BPlusTree and serializers from bplustree, persistent operations across close/reopen, visible check_tests, and cross-module interoperability. Defects here are integration failures rather than isolated algorithm or byte-format issues.",
+        "agents": 5,
+        "criteria": [
+          "bplustree.__init__ contains import/export wiring only and exposes the documented public API.",
+          "Consumers can import BPlusTree and serializer classes from bplustree and use them without private-module knowledge.",
+          "The full visible check_tests suite passes."
+        ]
+      }
+    ],
+    "rationale": "Split into five feature modules following the documented dependency layers: shared constants/serializers/entry byte contracts first, node structures next, persistence/WAL next, tree algorithms next, and final public-package integration last. Each milestone owns behavior that can be tested immediately without relying on later milestones, while the final milestone grades the complete public contract and import surface."
+  },
+  "cookiecutter": {
+    "modules": 18,
+    "loc": 2805,
+    "milestones": [
+      {
+        "id": "foundation_config_environment_contracts",
+        "split_reason": "feature_module",
+        "template": "test_first",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the contracts that downstream modules import: exception classes, configuration defaults and path expansion semantics, and the strict Jinja environment with built-in filters/extensions. Its gate can verify these behaviours directly by importing modules, loading temporary YAML config files, rendering Jinja snippets, and checking that undefined variables and unknown extensions raise the documented exceptions, without any repository acquisition, prompting, generation or CLI integration.",
+        "agents": 3,
+        "criteria": [
+          "Importing cookiecutter exposes a non-empty __version__ read from VERSION.txt.",
+          "All documented Cookiecutter exceptions inherit from CookiecutterException, and UndefinedVariableInTemplate preserves message, original Jinja error and context in its string form.",
+          "get_user_config and get_config return merged configuration dictionaries with replay_dir and cookiecutters_dir expanded for environment variables and user home directories."
+        ]
+      },
+      {
+        "id": "template_source_resolution",
+        "split_reason": "feature_module",
+        "template": "review_then_fix",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the source-acquisition feature group. Its gate can verify repository classification, abbreviation expansion, local directory detection, ZIP extraction, VCS command selection and error handling using temporary local repositories/files and mocked subprocess/network calls, without needing prompting, rendering or the final CLI. If this module is wrong, downstream generation receives the wrong repo_dir or cleanup contract and cannot reliably find cookiecutter.json.",
+        "agents": 4,
+        "criteria": [
+          "Repository URLs, local directories and ZIP files are correctly identified.",
+          "GitHub, GitLab and Bitbucket shorthand forms expand through configured abbreviations.",
+          "determine_repo_dir returns a usable repository directory and cleanup flag for local paths, cloned VCS repositories and extracted ZIP archives."
+        ]
+      },
+      {
+        "id": "prompt_replay_hooks",
+        "split_reason": "feature_module",
+        "template": "test_first",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the input and lifecycle-extension feature group. Its gate can exercise prompt functions with mocked console input, replay functions against temporary JSON files, and hook functions in temporary template/project directories. It does not require file generation beyond simple hook working directories, so defects in type coercion, replay serialization or hook failure handling are caught before the generator depends on them.",
+        "agents": 3,
+        "criteria": [
+          "prompt_for_config returns a cookiecutter context using defaults in no-input mode and user-provided values in interactive mode.",
+          "String, number, boolean, choice list and dictionary variables are prompted and converted according to the documented type semantics.",
+          "render_variable evaluates Jinja2 default expressions against previously resolved cookiecutter values using the strict environment."
+        ]
+      },
+      {
+        "id": "project_generation_engine",
+        "split_reason": "feature_module",
+        "template": "parallel_audit",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the core project rendering behaviour. Its gate can use temporary local templates and previously implemented prompt/hooks/environment modules to verify generated directories and files, strict undefined-variable failures, copy-only preservation and hook cleanup without invoking the high-level cookiecutter API or CLI. If wrong, all public entry points would appear wired but produce incorrect project trees.",
+        "agents": 5,
+        "criteria": [
+          "generate_context decodes cookiecutter.json into a context dictionary and merges default_context and extra_context with the documented precedence.",
+          "Invalid JSON in cookiecutter.json raises ContextDecodingException.",
+          "generate_files identifies the single templated project directory and returns the generated project path."
+        ]
+      },
+      {
+        "id": "public_api_cli_integration",
+        "split_reason": "feature_module",
+        "template": "parallel_audit",
+        "role": "integration",
+        "risk_rationale": "This final integration milestone delivers the outward-facing public contract and verifies that all previously built feature modules work together. Its gate can run the full visible check_tests suite plus end-to-end API and CLI invocations against local templates, replay files and temporary configs, catching integration defects such as missing imports, wrong option plumbing, incompatible defaults or cleanup mistakes.",
+        "agents": 5,
+        "criteria": [
+          "cookiecutter.main.cookiecutter generates a project from a local template with no_input=True and extra_context overrides.",
+          "cookiecutter.main.cookiecutter rejects mutually exclusive no_input=True and replay=True with InvalidModeException.",
+          "The main API loads user configuration, resolves template repositories, runs pre_prompt hooks when accepted, builds or loads context, dumps replay data and calls the generation engine."
+        ]
+      }
+    ],
+    "rationale": "The implementation is split feature-first into five dependency-ordered milestones: shared contracts and rendering/config substrate first, template source acquisition next, user input/replay/hooks next, the file generation engine next, and the public API/CLI integration last. This catches defects at the module that owns them: configuration and Jinja contracts can be tested without repositories, repository resolution can be tested without rendering projects, prompting/hooks/replay can be tested without the generator, generation can be tested through local templates without the CLI, and the final milestone verifies the complete documented public contract."
+  },
+  "csvs-to-sqlite": {
+    "modules": 3,
+    "loc": 816,
+    "milestones": [
+      {
+        "id": "csv_loading_and_transforms",
+        "split_reason": "feature_module",
+        "template": "test_first",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the data-ingestion and dataframe-transformation contract that all later database features consume. Its gate can verify it alone by calling utility functions directly with temporary CSV files and pandas DataFrames, without needing SQLite table creation, lookup extraction, FTS, or the CLI.",
+        "agents": 3,
+        "criteria": [
+          "csvs_from_paths returns a deterministic mapping from derived table names to CSV file paths for individual files, recursive directories, and URL inputs.",
+          "PathOrURL accepts URL strings without local filesystem validation while preserving normal click.Path behaviour for local paths.",
+          "load_csv reads CSV and TSV files using the requested separator and quoting mode, tries documented encodings, raises LoadCsvError when loading fails, supports skip_errors for rows with too many fields, supports shape-based column filtering, and supports just_strings."
+        ]
+      },
+      {
+        "id": "sqlite_schema_and_writes",
+        "split_reason": "feature_module",
+        "template": "test_first",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the core SQLite persistence contract used by extraction, FTS, and the CLI. Its gate can verify it independently by creating in-memory SQLite databases and pandas DataFrames, then inspecting sqlite_master, PRAGMA output, inserted rows, primary keys, and indexes without requiring lookup table extraction or command-line orchestration.",
+        "agents": 3,
+        "criteria": [
+          "table_exists and drop_table correctly inspect and remove SQLite tables.",
+          "get_create_table_sql generates CREATE TABLE SQL for DataFrame columns with INTEGER, REAL, and TEXT inference, applies sql_type_overrides, returns the generated SQL and ordered column list, and includes primary key definitions when requested.",
+          "to_sql_with_foreign_keys creates tables, inserts all DataFrame rows, includes declared foreign key constraints, respects primary keys and type overrides, and can create indexes for foreign key columns when requested."
+        ]
+      },
+      {
+        "id": "lookup_extraction_and_fts",
+        "split_reason": "feature_module",
+        "template": "review_then_fix",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the advanced relational features that sit between raw table writes and the CLI. Its gate can verify it with in-memory SQLite databases and DataFrames by checking lookup rows, stable IDs, rewritten foreign-key columns, optional lookup FTS tables, and generated FTS search results, without needing the final command-line wrapper.",
+        "agents": 4,
+        "criteria": [
+          "LookupTable.ensure_table_exists creates a lookup table with id INTEGER PRIMARY KEY and a text value column, and creates an associated FTS table when requested.",
+          "LookupTable.id_for_value returns the same ID for repeated values, inserts new values exactly once, handles cached and uncached paths, and populates lookup FTS rows when enabled.",
+          "refactor_dataframes parses extraction specifications in simple and expanded forms, creates/reuses lookup tables, and replaces matching DataFrame columns with integer foreign key IDs across all supplied DataFrames."
+        ]
+      },
+      {
+        "id": "cli_full_integration",
+        "split_reason": "feature_module",
+        "template": "parallel_audit",
+        "role": "integration",
+        "risk_rationale": "This final milestone integrates all frozen modules into the public command. Its gate verifies the full public contract by invoking the Click CLI against temporary files and databases, covering option parsing, multi-file and directory inputs, table naming, replacement, schema customization, extraction, dates, FTS, indexes, fixed columns, filename columns, and just-strings behaviour.",
+        "agents": 5,
+        "criteria": [
+          "csvs_to_sqlite.cli.cli is a Click command implementing the documented usage csvs-to-sqlite [OPTIONS] PATHS... DBNAME.",
+          "The CLI converts one or more CSV files into SQLite tables named from filenames by default and from --table for single-file imports.",
+          "The CLI recursively imports CSV files from directory inputs and handles URL/path parameters through PathOrURL."
+        ]
+      }
+    ],
+    "rationale": "The work is split into four feature modules in dependency order: foundational CSV/path/transformation utilities, SQLite table-writing primitives, normalization and full-text-search features, and finally the Click CLI that integrates every utility into the documented public command. This avoids one long end-to-end milestone while ensuring every non-final milestone has behaviour that can be exercised directly through csvs_to_sqlite.utils before the CLI exists."
+  },
+  "deprecated": {
+    "modules": 3,
+    "loc": 597,
+    "milestones": [
+      {
+        "id": "classic_runtime_deprecation",
+        "split_reason": "feature_module",
+        "template": "test_first",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the shared runtime substrate that later Sphinx integration imports and extends. Its gate can verify it alone by importing deprecated.classic, decorating standalone functions, instance methods, static/class methods, and classes, then asserting calls preserve return values while emitting the configured warning category/message/action. If this contract is wrong, SphinxAdapter will inherit broken wrapping or warning behavior.",
+        "agents": 3,
+        "criteria": [
+          "deprecated.classic.ClassicAdapter is implemented as a wrapt.AdapterFactory-compatible adapter with constructor parameters reason, version, action, category, and extra_stacklevel.",
+          "deprecated.classic.deprecated can be used as a decorator factory with documented keyword arguments and returns wrapped callables/classes.",
+          "Decorated functions and methods execute their original body and return the original result."
+        ]
+      },
+      {
+        "id": "sphinx_docstring_decorators",
+        "split_reason": "feature_module",
+        "template": "review_then_fix",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the documentation integration feature group that depends on the frozen classic runtime adapter but can be verified without final package re-exports. Its gate can import deprecated.sphinx directly, decorate functions/classes, inspect generated docstrings for correct directives, and call sphinx.deprecated-decorated objects to verify warning behavior. Defects here would otherwise appear as documentation-only regressions that the classic runtime tests cannot catch.",
+        "agents": 4,
+        "criteria": [
+          "deprecated.sphinx.SphinxAdapter subclasses or otherwise extends ClassicAdapter behavior as documented.",
+          "versionadded(version=..., reason=...) appends a '.. versionadded:: VERSION' directive to the decorated object docstring and does not emit runtime warnings.",
+          "versionchanged(version=..., reason=...) appends a '.. versionchanged:: VERSION' directive to the decorated object docstring and does not emit runtime warnings."
+        ]
+      },
+      {
+        "id": "public_package_integration",
+        "split_reason": "feature_module",
+        "template": "parallel_audit",
+        "role": "integration",
+        "risk_rationale": "This final milestone integrates the already implemented feature modules into the documented package surface. Its gate verifies the full public contract: package metadata, root-level deprecated import, direct submodule imports, runtime warnings, Sphinx docstring behavior, and compatibility with the visible repository tests. This catches breakage where modules work in isolation but consumers cannot import or use the documented API.",
+        "agents": 5,
+        "criteria": [
+          "from deprecated import deprecated imports the classic runtime decorator documented as the package entry point.",
+          "deprecated.__version__, deprecated.__author__, and deprecated.__date__ exist as package metadata.",
+          "from deprecated.sphinx import deprecated, versionadded, versionchanged imports the Sphinx decorators."
+        ]
+      }
+    ],
+    "rationale": "The project naturally separates into three feature modules ordered by dependency: the core runtime deprecation decorator in deprecated.classic, the Sphinx docstring integration that builds on the core adapter, and the final package-level public surface/integration. This avoids one long run where Sphinx or package export defects could hide core warning defects, while keeping tightly coupled behavior such as ClassicAdapter wrapping and the classic deprecated factory in the same milestone."
+  },
+  "djangorestframework-simplejwt": {
+    "modules": 30,
+    "loc": 2014,
+    "milestones": [
+      {
+        "id": "settings_crypto_foundation",
+        "split_reason": "feature_module",
+        "template": "test_first",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the cross-module contracts that every later token, serializer, and authentication feature imports. Its gate can verify it alone by configuring Django settings and directly exercising TokenBackend.encode/decode, error translation, leeway handling, algorithm/key selection, and utility functions without any token classes or API views. If this layer is wrong, downstream modules can all agree on an incorrect claim name, lifetime, algorithm, or exception contract and still appear internally consistent.",
+        "agents": 3,
+        "criteria": [
+          "The package imports cleanly in a configured Django environment with Django REST Framework and PyJWT installed.",
+          "api_settings exposes documented SIMPLE_JWT defaults and respects user overrides from Django settings.",
+          "TokenBackend can encode and decode valid JWT payloads with HMAC algorithms and enforces expiration, audience, issuer, and signature verification when requested."
+        ]
+      },
+      {
+        "id": "token_object_lifecycle",
+        "split_reason": "feature_module",
+        "template": "test_first",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the token object model that serializers, authentication, and blacklist persistence all depend on. Its gate can verify it directly by constructing token classes, converting them to strings, decoding them through the frozen backend, checking claims, and deriving access tokens, without requiring DRF authentication classes or API endpoints. A defect here would cause every later feature to issue or accept structurally wrong JWTs.",
+        "agents": 3,
+        "criteria": [
+          "New AccessToken, RefreshToken, SlidingToken, and UntypedToken instances populate configured token type, exp, iat, and jti claims as documented.",
+          "Token.for_user adds the configured user id claim using the configured user id field and claim name.",
+          "Stringifying a token produces a signed JWT that the frozen TokenBackend can decode."
+        ]
+      },
+      {
+        "id": "request_authentication",
+        "split_reason": "feature_module",
+        "template": "review_then_fix",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the request authentication feature independently of token obtain/refresh endpoints. Its gate can create signed tokens with earlier token classes and authenticate synthetic DRF requests, verifying header parsing and user resolution without any serializers or views. A defect here would make all issued tokens unusable or insecure even if generation works.",
+        "agents": 4,
+        "criteria": [
+          "JWTAuthentication.authenticate returns None when no Authorization header is present and returns a user/token tuple for a valid bearer token.",
+          "JWTAuthentication.get_header and get_raw_token honour configured AUTH_HEADER_NAME and AUTH_HEADER_TYPES.",
+          "JWTAuthentication.get_validated_token accepts any configured token class and reports structured invalid-token details when all fail."
+        ]
+      },
+      {
+        "id": "serializers_and_views",
+        "split_reason": "feature_module",
+        "template": "test_first",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the outward-facing API layer for generation, refresh, sliding refresh, and verify flows, excluding blacklist persistence. Its gate can use Django users and DRF APIRequestFactory/APIClient to post to the views and verify response status codes and payloads without the blacklist app. A defect here would prevent clients from obtaining or refreshing otherwise-valid tokens.",
+        "agents": 3,
+        "criteria": [
+          "TokenObtainPairSerializer authenticates username/password credentials and returns refresh and access token strings for active users.",
+          "TokenObtainSlidingSerializer authenticates credentials and returns a sliding token string.",
+          "TokenRefreshSerializer validates a refresh token and returns a new access token, respecting refresh rotation and blacklist settings when available later."
+        ]
+      },
+      {
+        "id": "blacklist_and_full_integration",
+        "split_reason": "feature_module",
+        "template": "parallel_audit",
+        "role": "integration",
+        "risk_rationale": "This final milestone delivers the remaining documented feature group and integrates all earlier modules under the full public contract. Its gate can verify blacklist models and migrations in a Django test database, programmatic token.blacklist(), API blacklist endpoint, expired-token flushing, admin read-only behaviour, and end-to-end obtain/refresh/verify/authenticate flows together. It is last because blacklist hooks depend on token classes and serializers/views, and because final grading must confirm the whole library works as a package.",
+        "agents": 5,
+        "criteria": [
+          "Installing rest_framework_simplejwt.token_blacklist creates OutstandingToken and BlacklistedToken tables with the documented fields, relationships, metadata, and migrations.",
+          "RefreshToken.for_user and SlidingToken.for_user create outstanding token records when the blacklist app is installed.",
+          "RefreshToken.blacklist and SlidingToken.blacklist create BlacklistedToken records and make future validation fail."
+        ]
+      }
+    ],
+    "rationale": "The repository is split feature-first along the documented Simple JWT layers: shared configuration/crypto contracts first, then token objects, then request authentication, then serializers/views, and finally blacklist persistence plus full public integration. Each non-final milestone exposes behaviour that can be tested immediately without later layers: token backend encode/decode does not need serializers, token classes do not need DRF views, authentication can be exercised with constructed requests and tokens, serializers/views can be tested with Django/DRF request factories, and the final milestone wires database-backed blacklisting and verifies the full documented public contract."
+  },
+  "flask": {
+    "modules": 24,
+    "loc": 9308,
+    "milestones": [
+      {
+        "id": "core_contracts_and_context_primitives",
+        "split_reason": "feature_module",
+        "template": "review_then_fix",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the cross-module contracts that later Flask modules depend on. Its gate can verify behavior without routing or the CLI by instantiating Config, Request, Response, JSON providers, session objects, and app/request context primitives directly. If these contracts are wrong, downstream modules will either import the wrong symbols or agree on incompatible request, response, session, and JSON semantics.",
+        "agents": 4,
+        "criteria": [
+          "Config supports dictionary behavior, from_mapping, from_object, from_pyfile, from_file, from_envvar, from_prefixed_env, and get_namespace according to the documented Flask configuration behavior.",
+          "Request and Response wrappers expose Flask-specific request metadata, JSON helpers, response status/header/body handling, and remain compatible with Werkzeug request and response APIs.",
+          "Context globals current_app, g, request, session, and app_ctx/request_ctx behavior are implemented with context-local isolation and raise useful errors outside active contexts."
+        ]
+      },
+      {
+        "id": "routing_scaffold_and_blueprints",
+        "split_reason": "feature_module",
+        "template": "test_first",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the route and blueprint registry that Flask request dispatch, URL generation, and CLI route listing will consume later. Its gate can verify it alone by constructing sans-IO apps and blueprints, registering rules and callbacks, and inspecting Werkzeug URL maps and stored handler registries without needing full WSGI dispatch.",
+        "agents": 3,
+        "criteria": [
+          "Scaffold decorators register routes, before/after/teardown callbacks, URL preprocessors/defaults, context processors, template filters/tests/globals, and error handlers.",
+          "Sans-IO App owns configuration, URL map, endpoint view function registry, blueprint registry, error handler structures, shell context processors, and static route metadata.",
+          "Blueprint supports route declaration before registration, deferred setup functions, nested blueprint registration, URL prefixes, subdomains, name prefixes, static files, CLI group metadata, and blueprint-scoped callbacks."
+        ]
+      },
+      {
+        "id": "flask_wsgi_request_lifecycle",
+        "split_reason": "feature_module",
+        "template": "parallel_audit",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the core behavior users exercise with @app.route and a WSGI request. Its gate can verify it without templating or CLI by creating Flask instances, registering views and handlers, pushing contexts, invoking wsgi_app, calling test_request_context, dispatching routes, and inspecting responses.",
+        "agents": 5,
+        "criteria": [
+          "Flask can be instantiated with documented import name, static, template, instance, host, subdomain, and root path parameters.",
+          "@app.route registers view functions that dispatch through WSGI and return correct responses for strings, bytes, dicts, lists, tuples, Response objects, generators, and WSGI callables where documented.",
+          "Request and application contexts are pushed and popped correctly during wsgi_app, app_context, request_context, and test_request_context."
+        ]
+      },
+      {
+        "id": "templating_helpers_testing_and_views",
+        "split_reason": "feature_module",
+        "template": "gate_then_repair",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers user-facing features that rely on a working Flask app but are separable from the CLI. Its gate can verify behavior using a Flask instance and test client from the previous milestone, by rendering templates, serving files, using class-based views, flashing messages, and exercising test utilities directly.",
+        "agents": 3,
+        "criteria": [
+          "Jinja environments are created with Flask globals, filters, tests, autoescaping rules, app and blueprint template loaders, and context processors.",
+          "render_template, render_template_string, stream_template, and stream_template_string render with request, session, config, g, user context variables, and template inheritance.",
+          "send_file, send_from_directory, safe_join behavior, static file serving, cache max-age lookup, etag/conditional handling, and attachment naming work through the documented helpers and app methods."
+        ]
+      },
+      {
+        "id": "cli_public_api_and_full_integration",
+        "split_reason": "feature_module",
+        "template": "parallel_audit",
+        "role": "integration",
+        "risk_rationale": "This final milestone delivers the outward-facing contract that users import and execute. Its gate verifies the full public package by importing documented symbols from flask, invoking python -m flask and flask CLI commands through Click runners, discovering apps from modules/files/factories/environment variables, and running the visible integration tests across all previously built modules.",
+        "agents": 5,
+        "criteria": [
+          "The flask CLI supports --app, --debug, --env-file, --version, --help, and the run, routes, and shell commands with documented options.",
+          "Application discovery loads app, application, create_app, make_app, factory calls with literal arguments, dotted imports, filesystem paths, app.py, wsgi.py, and FLASK_APP.",
+          "Debug mode, dotenv loading, environment variable precedence, host, port, reload, debugger, threads, certificate, extra-files, and exclude-pattern options are parsed and passed to the development server correctly."
+        ]
+      }
+    ],
+    "rationale": "The Flask implementation is split into five feature modules ordered by dependency: shared contracts and data primitives first, routing and blueprint registration next, the WSGI request lifecycle after that, higher-level rendering/helper/testing features next, and the CLI plus public package integration last. Each milestone owns behavior that can be exercised immediately with machine tests, while the final milestone verifies that all modules are reachable through the documented public contract."
+  },
+  "imapclient": {
+    "modules": 17,
+    "loc": 3531,
+    "milestones": [
+      {
+        "id": "shared_contracts_and_utilities",
+        "split_reason": "feature_module",
+        "template": "test_first",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the shared contracts that later parser and client modules import. Its gate can verify behavior directly by importing modules and exercising pure functions/classes without any network or IMAPClient implementation. If these contracts are wrong, downstream code will parse into the wrong shapes, raise incompatible exceptions, or encode mailbox names/dates incorrectly while still appearing internally consistent.",
+        "agents": 3,
+        "criteria": [
+          "Exception classes exist with the documented inheritance relationship rooted at IMAPClientError.",
+          "FixedOffset implements tzinfo behavior, including signed +HHMM/-HHMM names, zero DST, and system offset construction.",
+          "IMAP INTERNALDATE bytes parse to datetime objects and datetimes format back to IMAP-compatible date strings."
+        ]
+      },
+      {
+        "id": "response_lexing_and_parsing",
+        "split_reason": "feature_module",
+        "template": "test_first",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the response-processing feature group independent of live network transport. Its gate can feed raw IMAP response bytes/literals into the lexer/parser and verify structured outputs directly. If wrong, every later fetch, search, envelope, status, quota, and namespace operation will return malformed Python objects even when transport commands succeed.",
+        "agents": 3,
+        "criteria": [
+          "Lexer tokenizes atoms, quoted strings, parenthesized lists, NIL, literals, escaped characters, and nested structures from byte streams.",
+          "TokenSource exposes iteration and current literal handling as documented.",
+          "Response parser converts FETCH, ENVELOPE, FLAGS, BODY/BODYSTRUCTURE, SEARCH, STATUS, NAMESPACE, QUOTA, and untagged response forms into documented Python types."
+        ]
+      },
+      {
+        "id": "transport_session_and_authentication",
+        "split_reason": "feature_module",
+        "template": "review_then_fix",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers connection/session behavior without requiring folder or message manipulation to exist. Its gate can instantiate clients with mocked imaplib classes, verify command dispatch, timeout propagation, capability checks, exception mapping, context cleanup, and authentication payloads. If wrong, later high-level operations will be built on an unusable or insecure session layer.",
+        "agents": 4,
+        "criteria": [
+          "IMAP4WithTimeout opens plain sockets through imaplib-compatible behavior and applies configured connection timeouts.",
+          "IMAP4_TLS wraps sockets with a provided or default SSLContext and implements read, readline, send, open, and shutdown.",
+          "IMAPClient initializes with documented host, port, ssl, stream, ssl_context, timeout, use_uid, folder_encode, and normalise_times attributes."
+        ]
+      },
+      {
+        "id": "mailbox_message_and_extension_operations",
+        "split_reason": "feature_module",
+        "template": "review_then_fix",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the main user-visible IMAP command behavior on top of the frozen session/parser layer. Its gate can use TestableIMAPClient or mocked IMAP backends to assert exact commands, UID versus sequence behavior, response parsing, folder encoding, and exception handling without final package/config integration. If wrong, the library may connect successfully but issue invalid commands or return incorrectly shaped results for its core use cases.",
+        "agents": 4,
+        "criteria": [
+          "Folder operations list, list subscribed, xlist, create, delete, rename, subscribe, unsubscribe, select, close, unselect, exists checks, special folder lookup, and status use documented commands and return parsed Python types.",
+          "Search, Gmail raw search, sort, thread, fetch, and fetch modifiers normalize criteria/selectors and parse server responses correctly.",
+          "Message manipulation methods append, multiappend, copy, move, expunge, uid_expunge, and delete_messages issue documented commands and handle UID mode transparently."
+        ]
+      },
+      {
+        "id": "public_api_config_and_full_integration",
+        "split_reason": "feature_module",
+        "template": "parallel_audit",
+        "role": "integration",
+        "risk_rationale": "This final milestone delivers the outward-facing layer and verifies the whole library as consumers use it. Its gate can import documented symbols from package roots, parse config files, create mocked clients from configuration, exercise interactive entry wiring, and run the visible integration suite. If wrong, the internal modules may work but installation users cannot import or configure the library through the documented public contract.",
+        "agents": 5,
+        "criteria": [
+          "The package root exports IMAPClient and documented public classes/exceptions at the documented import paths.",
+          "config.getenv reads imapclient_-prefixed environment variables and returns defaults when unset.",
+          "get_config_defaults and get_string_config_defaults return complete connection defaults with booleans and None converted appropriately for configparser."
+        ]
+      }
+    ],
+    "rationale": "The repository is split feature-first into five milestones ordered by dependency: shared contracts and encoding/date utilities first, response parsing second, transport/session/auth third, high-level mailbox/message operations fourth, and public packaging/configuration integration last. This avoids a single long run where parser, transport, and public API defects are only found at the end; each milestone owns behavior that can be tested without later milestones by using direct function calls or mocked IMAP connections. The final milestone integrates already-frozen internals at the documented import paths and validates the full public contract."
+  },
+  "parsel": {
+    "modules": 5,
+    "loc": 1128,
+    "milestones": [
+      {
+        "id": "query_translation_and_xpath_functions",
+        "split_reason": "feature_module",
+        "template": "test_first",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the cross-module query substrate. The gate can verify it alone by importing parsel.csstranslator and parsel.xpathfuncs, converting CSS selectors into XPath strings, and registering/evaluating XPath extension functions directly with lxml. If this contract is wrong, every later CSS selector and has-class XPath query can be built against an incompatible translation shape.",
+        "agents": 3,
+        "criteria": [
+          "CSS selectors convert to XPath using cssselect-compatible translators.",
+          "The non-standard ::text pseudo-element appends text-node selection to the generated XPath.",
+          "The non-standard ::attr(name) pseudo-element appends attribute selection to the generated XPath."
+        ]
+      },
+      {
+        "id": "html_xml_selector_core",
+        "split_reason": "feature_module",
+        "template": "review_then_fix",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the core selector model for lxml-backed documents. Its gate can verify it without JSON by constructing HTML/XML Selector instances, running XPath and CSS queries, chaining SelectorList operations, extracting strings, applying regexes, managing namespaces, and dropping elements. If wrong, downstream JSON and public integration would inherit broken Selector semantics or incompatible SelectorList behaviour.",
+        "agents": 4,
+        "criteria": [
+          "Selector can parse HTML text, XML text, and byte bodies into the correct lxml root type.",
+          "Selector.xpath() returns a SelectorList of Selector objects and supports chaining.",
+          "Selector.css() converts through the frozen translator and returns the same results as equivalent XPath."
+        ]
+      },
+      {
+        "id": "json_jmespath_support",
+        "split_reason": "feature_module",
+        "template": "test_first",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the JSON feature group on top of the existing Selector substrate. Its gate can verify it without final package integration by importing parsel.selector.Selector directly, querying JSON strings and extracted script text with JMESPath, and checking SelectorList flattening. If wrong, multi-format support and chained HTML-to-JSON workflows will fail even if HTML/XML selection is correct.",
+        "agents": 3,
+        "criteria": [
+          "Selector detects valid JSON text as type json when no explicit type overrides it.",
+          "Selector(type='json') parses JSON text and byte bodies into Python JSON roots.",
+          "Selector.jmespath() returns a SelectorList whose items can be extracted with get() and getall()."
+        ]
+      },
+      {
+        "id": "public_api_integration",
+        "split_reason": "feature_module",
+        "template": "parallel_audit",
+        "role": "integration",
+        "risk_rationale": "This final milestone delivers the outward-facing integrated library contract. The gate verifies the repository exactly as users consume it, especially from parsel import Selector, package re-exports, typed marker presence, and end-to-end workflows that combine all prior modules. Earlier milestones can pass through private module imports while this catches missing public wiring, packaging omissions, accidental debris, or cross-module regressions.",
+        "agents": 5,
+        "criteria": [
+          "from parsel import Selector and from parsel import SelectorList work as documented.",
+          "The package root exposes the documented selector classes and removal exceptions needed by consumers.",
+          "The complete PRD usage example works end to end, including CSS ::text, XPath regex extraction, chained link extraction, and HTML script text followed by JMESPath."
+        ]
+      }
+    ],
+    "rationale": "The work is split feature-first into four dependency-ordered modules: shared query contracts first, HTML/XML selector behaviour second, JSON/JMESPath support third, and final public-package integration last. This catches defects at the module that owns them: CSS pseudo-element translation and XPath functions can be verified without Selector; HTML/XML selection and extraction can be verified without JSON; JSON handling can be verified after the core Selector substrate exists; the final milestone validates documented import paths and end-to-end examples across all formats."
+  },
+  "portalocker": {
+    "modules": 9,
+    "loc": 1958,
+    "milestones": [
+      {
+        "id": "shared_contracts",
+        "split_reason": "feature_module",
+        "template": "test_first",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the symbols every later module must agree on: lock flag names/values, exception hierarchy, file argument types, and package metadata. Its gate can verify these independently by importing the contracts, checking exception inheritance and attributes, checking flag composition, and confirming version discovery works without any platform locker or high-level Lock implementation.",
+        "agents": 3,
+        "criteria": [
+          "portalocker.constants.LockFlags is an enum.IntFlag with EXCLUSIVE, SHARED, NON_BLOCKING, and UNBLOCK members.",
+          "Package-level LOCK_EX, LOCK_SH, LOCK_NB, and LOCK_UN are exported and correspond to the documented LockFlags members.",
+          "BaseLockException stores fh and exposes LOCK_FAILED/strerror-compatible lock failure information; LockException, AlreadyLocked, and FileToLarge inherit according to the UML."
+        ]
+      },
+      {
+        "id": "platform_locking_engine",
+        "split_reason": "feature_module",
+        "template": "test_first",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the core OS-facing lock/unlock behavior that Lock, RLock, semaphores, and atomic utilities depend on. Its gate can verify it alone by locking real temporary files on the current platform, exercising non-blocking contention, unlock behavior, fd handling, and exception mapping without any high-level context-manager utilities.",
+        "agents": 3,
+        "criteria": [
+          "portalocker.portalocker exposes BaseLocker, platform locker classes, lock(), unlock(), LockCallable, and UnlockCallable.",
+          "portalocker.lock(file, flags) and portalocker.unlock(file) work on file handles and integer file descriptors supported by the current platform.",
+          "Exclusive locks prevent a second non-blocking exclusive acquisition on the same file from another handle/process and raise AlreadyLocked or LockException as documented."
+        ]
+      },
+      {
+        "id": "high_level_file_utilities",
+        "split_reason": "feature_module",
+        "template": "review_then_fix",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the user-facing file-lock utilities built on the already-frozen low-level engine. Its gate can verify behavior without Redis or CLI by using temporary files and subprocess/thread contention: context-manager acquire/release, timeout loops, reentrant counting, automatic cleanup, bounded semaphore capacity, and atomic write visibility.",
+        "agents": 4,
+        "criteria": [
+          "LockBase implements context-manager behavior and timeout retry generation for subclasses.",
+          "Lock opens the target file, acquires the requested lock flags, returns the file handle from acquire/__enter__, and releases/closes it reliably.",
+          "RLock allows repeated acquisition of the same lock object in the same process and only releases the underlying lock when the acquisition count reaches zero."
+        ]
+      },
+      {
+        "id": "redis_distributed_locking",
+        "split_reason": "feature_module",
+        "template": "review_then_fix",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the separate distributed-locking extension. Its gate can verify it alone by importing the module with redis installed or with a fake redis client, checking Pub/Sub acquisition/release protocol, timeout behavior, client naming, and safe optional-dependency failure, without needing CLI integration.",
+        "agents": 4,
+        "criteria": [
+          "portalocker.redis exposes PubSubWorkerThread and RedisLock.",
+          "RedisLock subclasses/uses LockBase-compatible acquire, release, __enter__, and __exit__ semantics.",
+          "RedisLock can be constructed with an explicit connection or redis_kwargs and lazily creates/reuses a Redis connection as documented."
+        ]
+      },
+      {
+        "id": "public_api_cli_integration",
+        "split_reason": "feature_module",
+        "template": "parallel_audit",
+        "role": "integration",
+        "risk_rationale": "This final milestone integrates modules that were verified in isolation and delivers the full public contract: documented import paths, re-exports, command-line combine behavior, and clean repository/package execution. Its gate can run the visible test suite plus full integration checks across core, utilities, optional Redis handling, version metadata, and CLI behavior.",
+        "agents": 5,
+        "criteria": [
+          "All documented public symbols are importable from their documented modules, especially package-root constants, exceptions, low-level functions, high-level utilities, and RedisLock when redis support is available.",
+          "Top-level import portalocker remains dependency-safe and does not require redis or platform-inappropriate Windows/POSIX modules.",
+          "python -m portalocker exposes the documented combine subcommand through main(argv)."
+        ]
+      }
+    ],
+    "rationale": "Split feature-first into five dependency-ordered modules: shared contracts first, then the platform locking engine, then high-level file utilities, then the optional Redis distributed lock, and finally public API/CLI integration. Each non-final milestone exposes behavior that can be tested immediately from the documented modules while freezing contracts that later milestones import."
+  },
+  "pyjwt": {
+    "modules": 12,
+    "loc": 2690,
+    "milestones": [
+      {
+        "id": "crypto_contracts_and_algorithms",
+        "split_reason": "feature_module",
+        "template": "test_first",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the shared contracts every higher layer imports: exception classes, utility encoders/decoders, Algorithm subclasses, and the default algorithm registry. Its gate can verify HMAC and none signing behaviour, invalid-key rejection, JWK oct serialization, and the optional cryptography algorithm registry without needing JWS, JWT, or JWKS clients. If this is wrong, every later token parser/signature verifier will either import the wrong symbols or agree on insecure signing semantics.",
+        "agents": 3,
+        "criteria": [
+          "The documented exception hierarchy exists and specific JWT errors inherit from the documented base classes.",
+          "HMACAlgorithm prepares str and bytes keys, rejects PEM/SSH asymmetric-looking keys, signs with HMAC, and verifies with constant-time comparison semantics.",
+          "NoneAlgorithm accepts only None keys, produces an empty signature, and never reports successful verification."
+        ]
+      },
+      {
+        "id": "jwk_models_and_cache",
+        "split_reason": "feature_module",
+        "template": "review_then_fix",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the key-management data model separate from token signing and remote fetching. Its gate can instantiate JWKs directly from dictionaries/JSON, verify key id/type/use/algorithm selection, reject malformed key sets, and test cache expiry with no JWS, JWT, or HTTP client. If wrong, later JWS and JWKS code will verify signatures with the wrong algorithm or stale/malformed keys.",
+        "agents": 4,
+        "criteria": [
+          "PyJWK.from_dict and PyJWK.from_json create usable key wrappers for supported oct JWKs and expose key, key_type, key_id, public_key_use, algorithm_name, and Algorithm attributes.",
+          "PyJWK chooses algorithms from explicit constructor input, JWK alg fields, and kty/crv defaults according to the design, and rejects unsupported combinations.",
+          "PyJWKSet.from_dict and PyJWKSet.from_json parse a JWKS keys list into PyJWK objects and raise PyJWKSetError for malformed sets."
+        ]
+      },
+      {
+        "id": "jws_compact_serialization",
+        "split_reason": "feature_module",
+        "template": "test_first",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers JWS behaviour independently of JWT claims: byte payloads can be encoded, decoded, and signature-checked with algorithms and PyJWKs already built. Its gate can verify compact token structure, header parsing, allowed-algorithm enforcement, invalid signature handling, and detached-payload handling without needing JWT claim validation or JWKS HTTP retrieval. If wrong, JWT will inherit insecure or incompatible signing behaviour.",
+        "agents": 3,
+        "criteria": [
+          "PyJWS.encode produces three-segment compact JWS strings for bytes payloads with valid JSON headers and base64url encoding.",
+          "PyJWS.decode and decode_complete verify signatures when requested, enforce the supplied allowed algorithms list, and return bytes payloads or complete header/payload/signature dictionaries as documented.",
+          "get_unverified_header parses headers without verifying signatures and rejects malformed compact tokens."
+        ]
+      },
+      {
+        "id": "jwt_claims_api",
+        "split_reason": "feature_module",
+        "template": "review_then_fix",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the core user-facing JWT feature without remote JWKS lookup or package-root integration. Its gate can create signed tokens with HMAC, decode them through PyJWT, and verify all documented claim validators and options using local keys. If wrong, applications will accept expired, premature, wrong-audience, or wrong-issuer tokens even though lower-level JWS signatures work.",
+        "agents": 4,
+        "criteria": [
+          "PyJWT.encode accepts dictionary payloads, JSON-serializes them, handles datetime registered claims by converting to NumericDate, and returns compact JWT strings.",
+          "PyJWT.decode returns payload dictionaries after signature verification and claim validation, while decode_complete returns header, payload, and signature metadata.",
+          "Options can disable signature and individual claim verification as documented."
+        ]
+      },
+      {
+        "id": "jwks_client_and_public_integration",
+        "split_reason": "feature_module",
+        "template": "parallel_audit",
+        "role": "integration",
+        "risk_rationale": "This final milestone integrates previously verified modules into the full public contract. It delivers remote JWKS fetching/caching, get_signing_key_from_jwt, documented package imports, helper metadata, and end-to-end decode with a selected JWK. Its gate can mock a JWKS endpoint, issue local JWTs with kid headers, fetch/select/cache signing keys, import all public symbols from jwt, and run the visible integration suite. Defects here are integration defects rather than algorithm, JWK, JWS, or claim-validation defects already frozen earlier.",
+        "agents": 5,
+        "criteria": [
+          "PyJWKClient.fetch_data retrieves JSON from the configured URI using headers, timeout, and SSL context options and converts connection failures into PyJWKClientConnectionError.",
+          "get_jwk_set uses JWKSetCache when enabled, refreshes when requested or expired, and returns PyJWKSet objects.",
+          "get_signing_keys filters usable signing keys and get_signing_key finds by kid, refreshes once on miss, and raises PyJWKClientError if still absent."
+        ]
+      }
+    ],
+    "rationale": "Split into five feature modules ordered by dependency: shared contracts and algorithms first, JWK data/key wrappers next, JWS compact signing on top of those, JWT claim validation on top of JWS, and finally JWKS remote-key retrieval plus package-root integration. Each non-final milestone exposes behaviour that can be exercised directly without later milestones, while the last milestone validates the full public PyJWT contract and documented import surface."
+  },
+  "python-hl7": {
+    "modules": 11,
+    "loc": 2434,
+    "milestones": [
+      {
+        "id": "shared_contracts_utilities",
+        "split_reason": "feature_module",
+        "template": "test_first",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the shared non-container contracts used by later modules. Its gate can verify Accessor parsing/key generation, exception hierarchy, HL7 type detection, file splitting helpers, message-control-id generation, and DTM-to-datetime conversion without any parser or container implementation. If these contracts are wrong, later container and parser code will build against incompatible accessor semantics or date/utility behavior.",
+        "agents": 3,
+        "criteria": [
+          "Accessor can be constructed from explicit 1-based segment, field, repeat, component, and subcomponent numbers and returns the documented key string.",
+          "Accessor.parse_key accepts both prefixed forms such as PID.F1.R1.C2.S2 and compact numeric forms such as PID.1.1.2.2, applying documented defaults.",
+          "Utility classifiers identify single HL7 messages, batches, and files by their documented leading segments."
+        ]
+      },
+      {
+        "id": "hierarchical_containers",
+        "split_reason": "feature_module",
+        "template": "review_then_fix",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the core in-memory data model independently of the parser by allowing tests to manually construct messages, segments, fields, repetitions, and components. Its gate can verify indexing, separators, symbolic access via Accessor, mutation, ACK generation, and batch/file header/trailer validation without later parsing or networking. If this model is wrong, all parsed data and public navigation APIs downstream will be wrong even if parsing succeeds.",
+        "agents": 4,
+        "criteria": [
+          "Container subclasses inherit list behavior and preserve their subclass type on slicing.",
+          "Sequence callable indexing provides HL7-compatible 1-based get and set operations.",
+          "Segment callable indexing accounts for the segment identifier so field numbers match HL7 field numbers."
+        ]
+      },
+      {
+        "id": "parsing_batch_file_support",
+        "split_reason": "feature_module",
+        "template": "parallel_audit",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the parser feature group that builds on the frozen containers. Its gate can parse documented sample messages and batches/files end-to-end into the existing container classes, verify round-trip stringification, hierarchy levels, separator handling, and custom factory creation without networking or final package re-export work. Parser defects are caught here rather than hidden behind public imports or transport APIs.",
+        "agents": 5,
+        "criteria": [
+          "parse parses a single pipe-delimited HL7 v2.x message into Message, Segment, Field, Repetition, and Component objects at the documented hierarchy levels.",
+          "parse_hl7 accepts str and bytes input, decodes bytes using the requested encoding, validates HL7-like input, and dispatches to message, batch, or file parsing as appropriate.",
+          "parse_batch parses BHS/BTS-wrapped batches into Batch objects containing Message objects and preserves optional batch header/trailer."
+        ]
+      },
+      {
+        "id": "mllp_transport",
+        "split_reason": "feature_module",
+        "template": "review_then_fix",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the transport feature group separately from parsing and container construction. Its gate can verify MLLP framing, socket send/receive behavior, CLI stream extraction, and asyncio reader/writer behavior using local in-memory streams or loopback sockets, without needing final package-level exports. If framing or stream semantics are wrong, downstream network users fail even when parsing is correct.",
+        "agents": 4,
+        "criteria": [
+          "MLLPClient opens a blocking socket connection, supports context-manager close behavior, sends framed messages, and returns server responses.",
+          "MLLPClient.send_message accepts bytes, str, and Message-like objects and encodes/framed them using the configured encoding.",
+          "read_stream yields individual HL7 payloads stripped of MLLP start/end framing and supports both EB and FF style separators as documented."
+        ]
+      },
+      {
+        "id": "public_api_integration",
+        "split_reason": "feature_module",
+        "template": "parallel_audit",
+        "role": "integration",
+        "risk_rationale": "This final milestone integrates modules that were verified in isolation and is graded against the full public contract. Its gate verifies consumers can import documented symbols from package-level paths and exercise complete end-to-end workflows such as hl7.parse(sample), symbolic navigation, ACK generation, datetime parsing, and MLLP framing. This catches wiring, re-export, packaging, and cross-module interoperability defects that individual module gates cannot see.",
+        "agents": 5,
+        "criteria": [
+          "The package root imports cleanly in a clean Python 3.9+ environment with no external runtime dependencies.",
+          "Documented root-level public API symbols are importable from hl7 as well as their implementation modules.",
+          "The PRD sample message parses via hl7.parse, returns hl7.Message, supports list indexing, HL7 callable indexing, segment lookup, symbolic accessor lookup, and string round-trip."
+        ]
+      }
+    ],
+    "rationale": "Split feature-first into five dependency-ordered milestones: shared contracts/utilities first, then the hierarchical container model, then parsers built on those containers, then transport/MLLP modules, and finally package-level integration. This catches defects at the module that owns them: accessor/datetime/util contract errors before containers depend on them, container/indexing/stringification errors before parsing hides them, parser defects before networking uses parsed messages, and public export/wiring defects only at the final integration gate."
+  },
+  "rsa": {
+    "modules": 14,
+    "loc": 2949,
+    "milestones": [
+      {
+        "id": "math_encoding_substrate",
+        "split_reason": "feature_module",
+        "template": "test_first",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the shared low-level contracts used by key generation, serialization, encryption, and signing. Its gate can verify it independently by exercising numeric functions, CRT/inverse behaviour, transform round trips, PEM round trips, ASN.1 class availability, prime predicates, and low-level RSA integer exponentiation without requiring key classes, PKCS#1 padding, or CLI commands. If these contracts are wrong, downstream modules can all appear internally consistent while producing incompatible bytes or mathematically invalid RSA results.",
+        "agents": 3,
+        "criteria": [
+          "common.bit_size, byte_size, ceil_div, extended_gcd, inverse, and crt return mathematically correct results for representative positive, zero, and boundary inputs.",
+          "common.inverse raises NotRelativePrimeError carrying a, b, and d when no modular inverse exists.",
+          "transform converts between bytes and integers without losing leading-zero semantics required by RSA block sizing."
+        ]
+      },
+      {
+        "id": "key_generation_and_serialization",
+        "split_reason": "feature_module",
+        "template": "review_then_fix",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the key model and serialization contract consumed by PKCS#1 operations and CLI tools. Its gate can verify key generation, component invariants, blinding/unblinding, dictionary-like key access, PEM/DER round trips, OpenSSL public-key parsing, multiprime metadata, and parallel-generation imports without requiring message padding or command-line tools. A defect here would make later encryption/signing either mathematically impossible or byte-incompatible with saved keys.",
+        "agents": 4,
+        "criteria": [
+          "PublicKey and PrivateKey expose the documented attributes and support __getitem__, equality, hashing, repr, and pickling-compatible behaviour.",
+          "newkeys generates usable public/private key pairs of requested size with default exponent 65537 and custom exponent support.",
+          "find_primes and find_p_q generate distinct primes whose product bit length satisfies the accurate parameter contract."
+        ]
+      },
+      {
+        "id": "pkcs1_crypto_operations",
+        "split_reason": "feature_module",
+        "template": "test_first",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the cryptographic operations that consume frozen key objects. Its gate can verify encrypt/decrypt and sign/verify end-to-end with generated keys, validate PKCS#1 v1.5 padding structure, check supported hash identifiers and ASN.1 prefixes, and test MGF1 determinism without any CLI or package entry-point wiring. If wrong, later CLI and public API can be wired correctly but perform insecure or incompatible cryptography.",
+        "agents": 3,
+        "criteria": [
+          "encrypt applies PKCS#1 v1.5 random nonzero padding with at least 8 padding bytes and decrypt reverses it for valid ciphertext.",
+          "decrypt raises DecryptionError for malformed blocks, wrong block type, missing separator, ciphertext of wrong size, or messages too long for the key.",
+          "sign signs bytes and file-like objects using the requested supported hash method."
+        ]
+      },
+      {
+        "id": "command_line_tools",
+        "split_reason": "feature_module",
+        "template": "review_then_fix",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the outward-facing command-line feature group that wraps already frozen key and PKCS#1 modules. Its gate can verify argument parsing, stdin/stdout and file I/O handling, key format options, operation class behaviour, generated key files, encryption/decryption command flow, signing/verifying command flow, and verify exit status using direct function invocation or subprocesses. It does not need final package re-export cleanup beyond importing rsa.cli.",
+        "agents": 4,
+        "criteria": [
+          "keygen parses the documented options and writes private and optional public keys in PEM or DER format.",
+          "CryptoOperation implements common parsing, key loading, input reading, output writing, and call workflow for cryptographic subcommands.",
+          "EncryptOperation encrypts bytes with a public key and DecryptOperation decrypts bytes with a private key."
+        ]
+      },
+      {
+        "id": "public_api_packaging_integration",
+        "split_reason": "feature_module",
+        "template": "parallel_audit",
+        "role": "integration",
+        "risk_rationale": "This final milestone integrates all completed feature modules into the public contract. Its gate is the full integration check: consumers must be able to import documented symbols from rsa and submodules, generate keys, save/load them, encrypt/decrypt, sign/verify, use multiprime and custom exponent options, run CLI entry points, and pass visible tests. This belongs last because it depends on every earlier module being complete and freezes the repository-facing surface rather than an internal subsystem.",
+        "agents": 5,
+        "criteria": [
+          "import rsa exposes the documented public API for newkeys, key classes, encrypt, decrypt, sign, verify, compute_hash, sign_hash, and public exceptions.",
+          "Documented usage examples work end to end from the package root.",
+          "Submodules listed in the architecture import successfully on Python 3.8+ with only pyasn1 as a runtime dependency."
+        ]
+      }
+    ],
+    "rationale": "The repository is split feature-first into five milestones ordered by dependency: mathematical/encoding substrate, key objects and key generation/storage, PKCS#1 cryptographic operations, command-line tools, and final public-package integration. This catches defects at the module that owns them: arithmetic and byte conversion bugs before keys depend on them, key serialization bugs before encryption/signing uses keys, PKCS#1 behaviour before CLI wraps it, and import/entry-point wiring last."
+  },
+  "simpy": {
+    "modules": 12,
+    "loc": 2184,
+    "milestones": [
+      {
+        "id": "core_events_environment",
+        "split_reason": "feature_module",
+        "template": "test_first",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the substrate imported by every later module: Event state transitions, Process generator resumption, Environment scheduling, priorities, exceptions, and condition events. Its gate can verify standalone simulations using only core.py, events.py, and exceptions.py: timeouts advance env.now, processes yield events and return values, failed events propagate unless defused, interrupts are thrown into generators, and AllOf/AnyOf produce ConditionValue results. If this contract is wrong, all resources and realtime execution will be built against incorrect scheduling semantics.",
+        "agents": 3,
+        "criteria": [
+          "Environment can be constructed with a custom initial time and exposes the current simulation time through now.",
+          "Environment.schedule(), step(), peek(), and run() process events in simulation-time order with priority and FIFO tie-breaking.",
+          "Environment.run() supports running until no events remain, until a simulation time, and until a specific event or process succeeds."
+        ]
+      },
+      {
+        "id": "shared_capacity_resources",
+        "split_reason": "feature_module",
+        "template": "test_first",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the documented limited-capacity resource feature group independently of containers and stores. Its gate can verify request/release behavior with Environment and Process from the previous milestone: capacity limits, waiting queues, context-manager cancellation/release, priority ordering, and preemption interrupts. If this module is wrong, car-wash/server simulations and later resource subclasses will inherit incorrect queue and request semantics.",
+        "agents": 3,
+        "criteria": [
+          "BaseResource stores env, capacity, put_queue, get_queue and triggers queued Put/Get events according to subclass hooks.",
+          "Put and Get events act as context managers and cancel untriggered requests on exceptional exit.",
+          "Resource enforces capacity, tracks users, exposes count and queue, and releases usage slots through Release events."
+        ]
+      },
+      {
+        "id": "container_and_store_resources",
+        "split_reason": "feature_module",
+        "template": "test_first",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the documented container and store feature groups, which share BaseResource but are behaviorally separate from limited-capacity Resource users. Its gate can exercise them with only the earlier Environment and BaseResource contracts: container levels, blocked puts/gets, FIFO stores, priority stores, filter predicates, and capacity limits. Later public integration is not required to verify these modules at their direct import paths.",
+        "agents": 3,
+        "criteria": [
+          "Container validates capacity and initial level, exposes level, and supports put(amount) and get(amount) events.",
+          "ContainerPut blocks when the amount would exceed capacity and ContainerGet blocks when insufficient level is available.",
+          "Store supports configurable capacity, FIFO put/get of arbitrary objects, and blocked put/get behavior."
+        ]
+      },
+      {
+        "id": "public_api_realtime_and_utilities",
+        "split_reason": "feature_module",
+        "template": "parallel_audit",
+        "role": "integration",
+        "risk_rationale": "This final milestone integrates modules that already work at their direct paths and exposes the documented public surface. Its gate verifies realtime scheduling and utility helpers independently, then grades the full public contract through import simpy and simpy.resources. This catches integration risks that earlier gates cannot see: missing root exports, resources hidden from the package API, realtime step behavior diverging from Environment, and utility helpers misusing Process/Interrupt contracts.",
+        "agents": 5,
+        "criteria": [
+          "RealtimeEnvironment subclasses Environment, exposes factor and strict, syncs wall-clock reference time, sleeps until scaled event times, and raises RuntimeError in strict mode when processing falls behind.",
+          "start_delayed(env, generator, delay) starts a generator as a process only after a positive delay and returns the helper process.",
+          "subscribe_at(event) interrupts the currently active process when the subscribed event occurs and rejects already processed events."
+        ]
+      }
+    ],
+    "rationale": "The implementation is split feature-first into four dependency-ordered modules: the event/environment substrate, capacity resources, matter/object resources, and final public integration with realtime/util helpers. Core events and Environment are first because every process and resource imports their contracts. Resource types are separated by documented feature group so each gate can exercise real behavior independently before later resource families exist. The last milestone wires the package-level API, realtime environment, utilities, and verifies the full public contract."
+  },
+  "tinydb": {
+    "modules": 10,
+    "loc": 2170,
+    "milestones": [
+      {
+        "id": "storage_and_utils_contracts",
+        "split_reason": "feature_module",
+        "template": "gate_then_repair",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the persistence substrate that every later module reads and writes through. Its gate can verify Storage, JSONStorage, MemoryStorage, LRUCache, FrozenDict, and with_typehint directly by instantiating storage backends and utilities without needing Query, Table, or TinyDB.",
+        "agents": 3,
+        "criteria": [
+          "MemoryStorage starts empty, returns None or an empty uninitialized state before writes, and returns the exact latest top-level database dictionary after write.",
+          "JSONStorage creates or opens a JSON file, reads valid persisted database dictionaries, writes updates atomically enough for immediate reread, and closes its file handle safely.",
+          "Storage defines the documented read, write, and close interface for custom storage implementations."
+        ]
+      },
+      {
+        "id": "query_language_and_operations",
+        "split_reason": "feature_module",
+        "template": "test_first",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the predicate and transformation layer that Table will later consume. Its gate can verify queries by applying them directly to plain Python mappings and verify operations by applying returned transformation functions to dictionaries, without requiring Table or TinyDB.",
+        "agents": 3,
+        "criteria": [
+          "Query field access builds reusable query objects for nested mapping paths.",
+          "Equality, inequality, less-than, less-or-equal, greater-than, and greater-or-equal comparisons return QueryInstance predicates.",
+          "Logical AND, OR, and NOT composition evaluates correctly and preserves cacheability where applicable."
+        ]
+      },
+      {
+        "id": "table_document_crud",
+        "split_reason": "feature_module",
+        "template": "test_first",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the core collection engine. Its gate can instantiate Table directly with MemoryStorage and Query objects, exercising document IDs, table serialization, CRUD, query cache invalidation, and updates without needing the TinyDB facade, middleware, JSON paths, or package re-exports.",
+        "agents": 3,
+        "criteria": [
+          "Document subclasses dict, preserves mapping contents, and exposes doc_id.",
+          "Table.insert and insert_multiple assign monotonically increasing integer document IDs and persist documents under string IDs in the storage table dictionary.",
+          "Table.all returns Document instances for every stored document in the table."
+        ]
+      },
+      {
+        "id": "public_database_middleware_integration",
+        "split_reason": "feature_module",
+        "template": "parallel_audit",
+        "role": "integration",
+        "risk_rationale": "This final milestone integrates the previously frozen modules into the documented public library. Its gate verifies the full consumer contract: imports from tinydb, TinyDB default-table delegation, named tables, table dropping, JSON persistence, caching middleware flushing, context-manager close behaviour, visible tests, and no external runtime dependencies.",
+        "agents": 5,
+        "criteria": [
+          "TinyDB initializes with the default JSONStorage or a caller-provided storage or middleware-wrapped storage.",
+          "TinyDB forwards default-table operations such as insert, search, get, update, remove, all, count, and len/iteration via __getattr__, __len__, and __iter__.",
+          "TinyDB.table returns cached Table instances for named tables and passes keyword arguments to the table constructor."
+        ]
+      }
+    ],
+    "rationale": "Split into four feature modules ordered by dependency: storage/util contracts first, query/operation predicates next, table CRUD on top of those contracts, and final database/public API/middleware integration. Each non-final milestone has executable behaviour that can be tested directly without later layers, while the final milestone verifies the documented consumer-facing TinyDB contract end to end."
+  },
+  "trailscraper": {
+    "modules": 13,
+    "loc": 890,
+    "milestones": [
+      {
+        "id": "core_contracts_and_utilities",
+        "split_reason": "feature_module",
+        "template": "test_first",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the shared contracts used by policy generation, guessing, CloudTrail parsing, and the CLI. Its gate can verify the IAM element behavior, JSON shape, statement merging, deterministic ordering, time parsing, iterator consumption, and botocore lookup functions directly without any CloudTrail log source or CLI commands. If these contracts are wrong, every downstream module can produce consistently wrong policies while still importing successfully.",
+        "agents": 3,
+        "criteria": [
+          "Action serializes as the IAM action string '<service-prefix>:<action-name>'.",
+          "Statement serializes to valid IAM JSON with Effect, Action, and Resource fields, preserving scalar-versus-list compatibility where appropriate.",
+          "Statement.merge combines statements with the same effect by deduplicating and sorting actions and resources."
+        ]
+      },
+      {
+        "id": "cloudtrail_records_and_policy_generation",
+        "split_reason": "feature_module",
+        "template": "review_then_fix",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the core transformation from observed CloudTrail events to IAM policy statements. Its gate can create raw CloudTrail JSON and gzipped log files locally, parse them into Records, filter by time and role, convert them to Statements, and aggregate a PolicyDocument without S3 downloaders, record-source adapters, guessing, or CLI. If wrong, downstream sources and CLI commands will faithfully transport incorrect actions/resources.",
+        "agents": 4,
+        "criteria": [
+          "Raw CloudTrail records parse into Record objects with event source, event name, resource ARNs, assumed role ARN, event time, and raw source preserved.",
+          "Malformed raw records are skipped without crashing parse_records.",
+          "Record.to_statement maps CloudTrail event source and event name to IAM Action and Resource fields, including documented special cases for S3, KMS, STS, and API Gateway."
+        ]
+      },
+      {
+        "id": "record_sources_and_downloads",
+        "split_reason": "feature_module",
+        "template": "review_then_fix",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers acquisition adapters that supply Records to the already-tested parser/generator. Its gate can use temporary directories, gzipped logs, and mocked boto3 clients to verify local loading, CloudTrail lookup_events pagination, S3 key construction/listing/download skipping, organization path support, date filtering, wait behavior, and parallel concurrency without the CLI or policy guessing. If wrong, the core generator may be correct but receive the wrong event set.",
+        "agents": 4,
+        "criteria": [
+          "LocalDirectoryRecordSource finds valid local CloudTrail log files, filters by timeframe using LogFile.contains_events_for_timeframe, loads records, and reports the most recent event timestamp.",
+          "CloudTrailAPIRecordSource calls CloudTrail lookup_events for the requested time range, follows pagination, parses returned CloudTrailEvent payloads, and returns Record objects.",
+          "S3 download logic builds AWSLogs key prefixes for account IDs, regions, date ranges, optional custom prefix, and optional organization IDs."
+        ]
+      },
+      {
+        "id": "policy_guessing",
+        "split_reason": "feature_module",
+        "template": "test_first",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the independent policy-enhancement feature that consumes PolicyDocument/Statement/Action contracts but does not require record sources, downloads, or CLI. Its gate can construct policy documents directly and verify guessed statements, prefix filters, known-action validation, original statement preservation, and wildcard resources. If wrong, users receive overly broad, missing, or invalid recommendations even when generation is correct.",
+        "agents": 3,
+        "criteria": [
+          "guess_statements returns a PolicyDocument containing all original statements plus additional guessed statements where related actions exist.",
+          "Guessed statements use Resource '*' as documented and do not mutate the original statement objects unexpectedly.",
+          "Allowed prefixes restrict guessed actions to requested verb prefixes such as Get, List, Describe, Delete, or Update."
+        ]
+      },
+      {
+        "id": "cli_and_end_to_end_integration",
+        "split_reason": "feature_module",
+        "template": "parallel_audit",
+        "role": "integration",
+        "risk_rationale": "This final milestone integrates all frozen modules behind the public trailscraper CLI contract. Its gate can run Click commands with isolated files, mocked AWS clients, and stdin/stdout pipelines to verify download, select, generate, guess, last-event-timestamp, --verbose, and --version behavior across the full repository. This is intentionally last because it depends on every prior feature module being importable and behaviorally stable.",
+        "agents": 5,
+        "criteria": [
+          "The trailscraper Click root group exposes --verbose, --version, --help, and the documented subcommands.",
+          "download command parses all documented options and invokes S3 download behavior with bucket, prefix, org IDs, account IDs, regions, log directory, parsed from/to times, wait flag, and parallelism.",
+          "select command can read from local logs or CloudTrail API, apply role/time filters, and emit JSON CloudTrail records suitable for piping."
+        ]
+      }
+    ],
+    "rationale": "Split into five feature modules ordered by dependency: shared IAM/time/botocore utilities first, CloudTrail parsing and policy generation next, AWS/local record acquisition next, policy guessing next, and CLI/public integration last. Each non-final milestone provides behavior that can be tested directly through Python APIs without relying on later CLI wiring; the final milestone verifies the documented command pipeline and public import surface."
+  },
+  "voluptuous": {
+    "modules": 8,
+    "loc": 3100,
+    "milestones": [
+      {
+        "id": "errors_markers_contracts",
+        "split_reason": "feature_module",
+        "template": "test_first",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the exception hierarchy, path-prepending behavior, sentinel objects, dictionary key marker classes, and extra-key policy constants. Its gate can verify construction, inheritance, repr/string behavior, path mutation, and exported constants without any compiled Schema behavior. If these contracts are wrong, every downstream validator will raise the wrong class, lose paths, or disagree on extra-key policy semantics.",
+        "agents": 3,
+        "criteria": [
+          "Invalid and MultipleInvalid preserve messages, error_type, paths, and support prepend/add operations.",
+          "All documented Invalid subclasses and SchemaError inherit from the expected base classes.",
+          "Marker subclasses Required, Optional, Exclusive, Inclusive, and Remove can be constructed, compared where applicable, and retain schema/default/group/message/description metadata."
+        ]
+      },
+      {
+        "id": "schema_compiler_core",
+        "split_reason": "feature_module",
+        "template": "review_then_fix",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the central validation engine and can be graded using only schemas made from literals, Python types, built-in callables, containers, and markers from the previous milestone. Later validators depend on Schema.__voluptuous_compile__ support and path/error semantics; if this layer is wrong, downstream validator tests may appear to fail even when individual validators are correct.",
+        "agents": 4,
+        "criteria": [
+          "Schema instances compile once and validate data through __call__ with recursive path-aware errors.",
+          "Dictionary schemas enforce Required and Optional keys, defaults, Exclusive and Inclusive groups, Remove markers, Extra wildcard matching, and PREVENT_EXTRA, ALLOW_EXTRA, and REMOVE_EXTRA policies.",
+          "List, tuple, set, and frozenset schemas validate contained values and preserve or return the documented collection type."
+        ]
+      },
+      {
+        "id": "validator_library",
+        "split_reason": "feature_module",
+        "template": "test_first",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the reusable validator library on top of the frozen Schema compiler. Its gate can verify each validator directly and inside Schema without depending on package-root re-exports or humanized reporting. If this module is wrong, downstream users get incorrect coercion, transformation, error classes, or composite-validator behavior even though structural Schema validation works.",
+        "agents": 3,
+        "criteria": [
+          "Coerce, Boolean, IsTrue, IsFalse, truth, and Maybe validate and transform according to documented behavior.",
+          "All, Any, Union, SomeOf, ExactSequence, and Unordered compose subvalidators correctly in direct calls and when compiled by Schema.",
+          "Match, Replace, Email, Url, FqdnUrl, IsFile, IsDir, PathExists, Range, Clamp, Length, Datetime, Date, In, NotIn, Contains, Unique, Equal, Number, Set, SetTo, DefaultTo, Lower, Upper, Capitalize, Title, and Strip behave as documented where present in the design/UML."
+        ]
+      },
+      {
+        "id": "utilities_and_humanize",
+        "split_reason": "feature_module",
+        "template": "gate_then_repair",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the auxiliary feature group separate from the core compiler and validator primitives: utility schema helpers and humanized error text. Its gate can verify utility callables through Schema and humanize output from constructed or real MultipleInvalid errors without relying on final package-root exports. If wrong, applications lose documented convenience transformations or receive misleading error messages despite validation itself working.",
+        "agents": 3,
+        "criteria": [
+          "Utility helpers documented or listed in UML are implemented and usable directly and through Schema.",
+          "humanize_error returns a readable single-error message including the failing path and value context where applicable.",
+          "humanize_errors returns readable messages for every error in a MultipleInvalid while preserving order."
+        ]
+      },
+      {
+        "id": "public_api_integration",
+        "split_reason": "feature_module",
+        "template": "parallel_audit",
+        "role": "integration",
+        "risk_rationale": "This final milestone integrates all implemented modules and verifies the full public contract: import paths, aliases, package-root exports, visible tests, and representative end-to-end validation flows. Earlier milestones can pass with correct private modules but missing public re-exports; this gate catches those integration failures and any cross-module regression.",
+        "agents": 5,
+        "criteria": [
+          "All documented public symbols import from voluptuous at the package root as well as from their owning modules where applicable.",
+          "The visible check_tests and repository tests pass without relying on held-out tests.",
+          "End-to-end examples from the PRD work: basic dictionary validation, Required and Optional markers, sequence alternatives, Date and Datetime parsing, All with Range, and MultipleInvalid path inspection."
+        ]
+      }
+    ],
+    "rationale": "The implementation is split by feature modules in dependency order: shared error/marker contracts first, then the Schema compiler/runtime, then reusable validators, then utilities and human-readable reporting, and finally public package integration. This catches defects at the module that owns them: exception/path behavior before validators raise errors, marker/extra contracts before Schema consumes them, Schema recursion/container handling before validators compile into it, and re-export/import-path problems only at the final public-contract gate."
+  },
+  "xmnlp": {
+    "modules": 24,
+    "loc": 1504,
+    "milestones": [
+      {
+        "id": "core_infrastructure",
+        "split_reason": "feature_module",
+        "template": "test_first",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the contracts that downstream pinyin, radical, lexical, summary, checker, sentiment, and sentence-vector modules import. Its gate can verify imports, path mutation, CPU-only BaseModel session construction through mocks, Module save/load round trips, Trie lookup behavior, BM25 scoring behavior, and parallel_handler execution without any later NLP feature existing.",
+        "agents": 3,
+        "criteria": [
+          "xmnlp.config.path exposes mutable model and resource path configuration including MODEL_DIR and default package data paths.",
+          "BaseModel initializes an ONNX Runtime InferenceSession using CPUExecutionProvider and defines an abstract predict contract.",
+          "Module.filelist yields files for both single-file and recursive-directory inputs."
+        ]
+      },
+      {
+        "id": "pinyin_radical_resources",
+        "split_reason": "feature_module",
+        "template": "test_first",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers standalone lookup features that depend only on Module and Trie. Its gate can train small temporary corpora, save/load generated resources, translate/extract radicals, and verify package-level pinyin/radical imports without lexical, neural, summary, or checker modules. Checker later depends on Pinyin for suggestion ranking, so mistakes here would propagate into spell correction.",
+        "agents": 3,
+        "criteria": [
+          "Pinyin trains from a UTF-8 corpus, stores mappings in a Trie, persists through Module.save, loads default or configured pickle resources, and translates Chinese text to a list of syllables.",
+          "Radical trains from a UTF-8 corpus, stores mappings in a dictionary/hash map, persists through Module.save, loads default or configured pickle resources, and returns a list of radicals.",
+          "Unknown characters are returned unchanged or with the documented fallback rather than crashing."
+        ]
+      },
+      {
+        "id": "lexical_analysis",
+        "split_reason": "feature_module",
+        "template": "review_then_fix",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the core lexical API that summary and the top-level package later rely on. Its gate can verify reverse maximum matching, jieba-format dictionary loading, user dictionary overrides, POS tags, BIO entity decoding with positions, and lazy model-path error handling using mocked models without needing sentiment, spell checking, sentence vectors, or final integration.",
+        "agents": 4,
+        "criteria": [
+          "Tokenization loads system and user dictionaries compatible with jieba-style word frequency tag lines.",
+          "Tokenization.seg performs reverse maximum matching and preserves non-Chinese spans, punctuation, emoji, and ASCII words.",
+          "Tokenization.tag returns (word, pos) tuples with dictionary POS tags and sensible defaults for unknown tokens."
+        ]
+      },
+      {
+        "id": "neural_feature_adapters",
+        "split_reason": "feature_module",
+        "template": "parallel_audit",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers model adapter features that share BaseModel, configuration, tokenizers, and lazy singleton loading but are otherwise independent of summary and final top-level wiring. Its gate can mock ONNX outputs and tokenizers to verify CPU inference calls, max-length validation, probability conversion, correction ranking, pinyin-assisted spell suggestions, cosine similarity, and top-k search.",
+        "agents": 5,
+        "criteria": [
+          "SentimentModel subclasses BaseModel and Sentiment.predict returns a two-float negative/positive probability tuple for text up to the documented length.",
+          "Sentiment package uses thread-safe lazy singleton loading and raises ValueError when MODEL_DIR is not configured.",
+          "DetectorModel and CorrectorModel subclass BaseModel and run prediction from token_ids and segment_ids arrays."
+        ]
+      },
+      {
+        "id": "public_api_summary_integration",
+        "split_reason": "feature_module",
+        "template": "parallel_audit",
+        "role": "integration",
+        "risk_rationale": "This final milestone delivers the outward-facing toolkit consumers use: import xmnlp, call set_model, seg/tag/ner/keyword/keyphrase/sentiment/pinyin/radical/checker, and use subpackage classes. Its gate verifies the full public contract and catches wiring mistakes between previously frozen modules, plus TextRank behavior that depends on lexical tokens and BM25.",
+        "agents": 5,
+        "criteria": [
+          "KeywordTextRank extracts top-k keyword and weight tuples using TextRank, stopword filtering, and optional allowed POS tags.",
+          "TextRank extracts top-k keyphrases/sentences using BM25 sentence similarity and returns strings in ranked order.",
+          "set_model updates the global model directory used by lazy model loaders."
+        ]
+      }
+    ],
+    "rationale": "The repository is split into five feature modules ordered by dependency: shared infrastructure first, lightweight data resources next, lexical analysis, model-backed inference features, and a final public API/integration layer. Each non-final milestone exposes behavior that can be tested without later milestones, while the last milestone verifies the complete documented xmnlp package surface."
+  },
+  "zxcvbn": {
+    "modules": 8,
+    "loc": 1402,
+    "milestones": [
+      {
+        "id": "data_and_matching_contracts",
+        "split_reason": "feature_module",
+        "template": "test_first",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the shared data layout and constants that matching and scoring must agree on: dictionary ranks, adjacency graph shape, l33t substitution tables, regex definitions, and public helper exports. Its gate can verify the data modules and helper functions directly by importing them, checking ranked dictionary construction, adding custom frequency lists, and confirming graph/list structures are usable without requiring full password scoring or CLI integration. If these contracts are wrong, downstream matchers and scoring will silently build around incompatible dictionary ranks or graph layouts.",
+        "agents": 3,
+        "criteria": [
+          "The zxcvbn package imports on Python 3.8+ with no external runtime dependencies.",
+          "Frequency list data is available as plain Python data through FREQUENCY_LISTS and contains the documented built-in categories for passwords, English/Wikipedia terms, female names, male names, surnames, and US TV/film references.",
+          "ADJACENCY_GRAPHS exposes keyboard graph data for qwerty, dvorak, keypad, and mac keypad style layouts in a shape that spatial matching and scoring can consume."
+        ]
+      },
+      {
+        "id": "pattern_matching_engine",
+        "split_reason": "feature_module",
+        "template": "test_first",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the pattern detection layer as a standalone module that returns match dictionaries with enough metadata for scoring and feedback later. Its gate can verify matcher behaviour directly by calling matching.py functions against passwords such as common dictionary words, reversed words, p@ssw0rd-style l33t, qwerty paths, repeated tokens, unicode/codepoint sequences, recent years, and dates. It does not need time estimates, feedback, the public zxcvbn function, or the CLI to catch defects owned by match detection.",
+        "agents": 3,
+        "criteria": [
+          "dictionary_match finds case-insensitive substrings in all ranked dictionaries and includes pattern, token, i, j, matched_word, rank, and dictionary_name metadata.",
+          "reverse_dictionary_match identifies reversed dictionary words and marks them as reversed while preserving original token positions.",
+          "l33t_match identifies dictionary words produced by supported substitutions and records sub/sub_display metadata without duplicating plain dictionary matches."
+        ]
+      },
+      {
+        "id": "scoring_and_time_estimates",
+        "split_reason": "feature_module",
+        "template": "review_then_fix",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the mathematical core that consumes match dictionaries and produces guesses, scores, and attack time estimates. Its gate can verify it directly with handcrafted match dictionaries and matcher-produced examples, without needing public API wiring, feedback text, or the CLI. Defects here would cause all downstream result scores and crack times to be confidently wrong even if pattern detection is correct.",
+        "agents": 4,
+        "criteria": [
+          "nCk computes exact binomial coefficients and handles boundary values such as k=0, k=n, and k>n.",
+          "calc_average_degree computes usable average degree values from adjacency graphs.",
+          "estimate_guesses dispatches by pattern type and annotates or returns guess estimates for bruteforce, dictionary, reverse, l33t, repeat, sequence, regex, date, and spatial matches."
+        ]
+      },
+      {
+        "id": "feedback_and_public_estimator",
+        "split_reason": "feature_module",
+        "template": "parallel_audit",
+        "role": "implementation",
+        "risk_rationale": "This milestone delivers the library API used by Python consumers. Its gate can verify direct imports from zxcvbn, result dictionary shape, user input handling, max_length behaviour, score/time fields, sequence data, calc_time, guesses_log10, and actionable feedback without requiring the CLI. If this layer is wrong, the lower-level engines may work but the documented import and result contract will still fail for application code.",
+        "agents": 5,
+        "criteria": [
+          "from zxcvbn import zxcvbn imports the documented callable.",
+          "zxcvbn(password, user_inputs=None, max_length=72) returns a dictionary containing password, guesses, guesses_log10, sequence, calc_time, crack_times_seconds, crack_times_display, score, and feedback.",
+          "User inputs are accepted as a list, sanitized to lowercase, and included in dictionary matching for that call."
+        ]
+      },
+      {
+        "id": "cli_packaging_and_full_integration",
+        "split_reason": "feature_module",
+        "template": "parallel_audit",
+        "role": "integration",
+        "risk_rationale": "This final milestone delivers the outward-facing command-line feature and validates the entire public contract end to end. Its gate can run the visible tests plus direct Python API calls, imports from documented modules, python -m zxcvbn, piped stdin usage, argparse user-input and max-length options, JSON output parsing, and no-extra-dependency/package-surface checks. As the integration milestone, it catches wiring defects between already frozen modules as well as CLI-specific behaviour.",
+        "agents": 5,
+        "criteria": [
+          "python -m zxcvbn reads a password from stdin, analyzes it through the public zxcvbn function, and writes valid JSON to stdout.",
+          "The CLI uses argparse from the standard library and supports --user-input multiple times and --max-length INTEGER.",
+          "When stdin is not available, the CLI prompts securely via getpass rather than echoing the password."
+        ]
+      }
+    ],
+    "rationale": "The implementation is split by feature module and dependency order: static data and shared matcher contracts first, then pattern detection, then guess/time estimation, then feedback plus the public Python API, and finally the CLI/package integration. Each non-final milestone exposes behaviour that can be tested immediately through its module functions without relying on later outward-facing layers. The last milestone verifies the full documented public contract including imports, command-line execution, JSON output, and cross-module wiring."
+  }
+}

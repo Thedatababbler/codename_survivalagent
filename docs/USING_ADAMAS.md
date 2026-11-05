@@ -146,7 +146,7 @@ AdaMAS 的门只判断通过或失败，DESIGN v0.2 需要它给出**每条用�
 ## 5. 开工前检查单
 
 - [x] 用户确认 DESIGN §15 的五处问题，以及 D8（2026-11-05）
-- [ ] 代理的 Chat Completions 探测通过（§3.5）
-- [ ] 沙盒自检通过（复制过来的 `require_sandbox`）
-- [ ] 本项目的正对照通过
+- [x] 代理的 Chat Completions 探测通过（§3.5；代理每次请求另加约 300 个 prompt token）
+- [x] 沙盒自检通过（`scripts/sandbox_selfcheck.py`，11 项）
+- [x] 本项目的正对照通过（`scripts/positive_control.py`，33 项；每次改流水线后重跑）
 - [ ] 第一次真实运行前，向用户报告预计额度并得到同意

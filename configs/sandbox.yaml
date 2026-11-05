@@ -1,0 +1,11 @@
+# Copied from AdaMAS configs/sandbox.yaml (34276d69), sandbox block only (AdaMAS-unit, 2026-11-05).
+# Sandbox-only rule (2026-10-11): sandbox.enforced is fixed at true; neither an experiment yaml nor
+# ADAMAS_SANDBOX_ENFORCED can turn it off (orchestra.sandbox.policy.enforced).
+sandbox:
+  enforced: true           # fixed (sandbox-only rule, 2026-10-11); a false value makes every run refuse to start
+  allow_loopback: true
+  allow_external_network: false
+  # user decision 2026-10-15: tasks whose dataset tests hard-code /tmp. Their gate tests (and held-out scoring, which
+  # already has free file access) may write /tmp; agents never may (orchestra.sandbox.gate_tmp).
+  gate_tmp:
+    bplustree: ["/tmp/bplustree-testfile*"]

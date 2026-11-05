@@ -1,0 +1,684 @@
+{
+  "generator": "llm",
+  "split_policy": "feature",
+  "rationale": "Split into four feature modules ordered by dependency: storage/util contracts first, query/operation predicates next, table CRUD on top of those contracts, and final database/public API/middleware integration. Each non-final milestone has executable behaviour that can be tested directly without later layers, while the final milestone verifies the documented consumer-facing TinyDB contract end to end.",
+  "split": true,
+  "milestones": [
+    {
+      "milestone_id": "storage_and_utils_contracts",
+      "title": "Storage backends and shared utilities",
+      "objective": "Implement the storage abstraction, JSON and memory storage backends, package typing marker, version metadata, and shared utility contracts used by later modules.",
+      "risk_rationale": "This milestone delivers the persistence substrate that every later module reads and writes through. Its gate can verify Storage, JSONStorage, MemoryStorage, LRUCache, FrozenDict, and with_typehint directly by instantiating storage backends and utilities without needing Query, Table, or TinyDB.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "gate_then_repair",
+      "depends_on": [],
+      "focus_paths": [
+        "tinydb/storages.py",
+        "tinydb/utils.py",
+        "tinydb/version.py",
+        "tinydb/py.typed"
+      ],
+      "acceptance": {
+        "criteria": [
+          "MemoryStorage starts empty, returns None or an empty uninitialized state before writes, and returns the exact latest top-level database dictionary after write.",
+          "JSONStorage creates or opens a JSON file, reads valid persisted database dictionaries, writes updates atomically enough for immediate reread, and closes its file handle safely.",
+          "Storage defines the documented read, write, and close interface for custom storage implementations.",
+          "LRUCache stores, retrieves, evicts least-recently-used entries when capacity is exceeded, and can be cleared.",
+          "FrozenDict behaves as an immutable mapping and rejects mutating dictionary methods.",
+          "with_typehint is importable and usable at runtime as the dynamic alias helper expected by database.py and the MyPy plugin."
+        ],
+        "corner_cases": [
+          "Reading a nonexistent or empty JSON file does not crash and yields an uninitialized database state.",
+          "Writing and reading nested table dictionaries preserves string document IDs and document payloads.",
+          "JSONStorage close can be called more than once without corrupting data.",
+          "LRUCache with zero, one, finite, and unlimited capacity handles get/set/clear predictably.",
+          "FrozenDict mutation attempts through update, pop, popitem, clear, setdefault, and item assignment fail."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "tinydb.storages",
+            "symbol": "Storage",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "tinydb.storages",
+            "symbol": "JSONStorage",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "tinydb.storages",
+            "symbol": "MemoryStorage",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "tinydb.utils",
+            "symbol": "LRUCache",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "tinydb.utils",
+            "symbol": "FrozenDict",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "tinydb.utils",
+            "symbol": "with_typehint",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "tinydb.version",
+            "symbol": "__version__",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write executable tests for storages and utilities from the design documents, covering Storage subclasses, JSON persistence, memory persistence, LRUCache, FrozenDict, with_typehint, version metadata, and py.typed presence.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "tinydb/storages.py",
+            "tinydb/utils.py",
+            "tinydb/version.py",
+            "tinydb/py.typed"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_contract_author",
+          "title": "Contract author",
+          "mandate": "Implement the shared storage and utility contracts exactly as documented, keeping them dependency-light and suitable for import by query, table, database, middleware, and MyPy plugin code.",
+          "role": "contract_author",
+          "slot_id": "author",
+          "focus_paths": [
+            "tinydb/storages.py",
+            "tinydb/utils.py",
+            "tinydb/version.py",
+            "tinydb/py.typed"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Repair only failures reported by the storage/utilities acceptance gate, preserving the frozen public contracts and avoiding changes outside this milestone's focus paths.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "tinydb/storages.py",
+            "tinydb/utils.py",
+            "tinydb/version.py",
+            "tinydb/py.typed"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "query_language_and_operations",
+      "title": "Query language and update operations",
+      "objective": "Implement executable query construction, logical composition, field traversal, regex/custom tests, collection predicates, and reusable update operation helpers.",
+      "risk_rationale": "This milestone delivers the predicate and transformation layer that Table will later consume. Its gate can verify queries by applying them directly to plain Python mappings and verify operations by applying returned transformation functions to dictionaries, without requiring Table or TinyDB.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "test_first",
+      "depends_on": [
+        "storage_and_utils_contracts"
+      ],
+      "focus_paths": [
+        "tinydb/queries.py",
+        "tinydb/operations.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "Query field access builds reusable query objects for nested mapping paths.",
+          "Equality, inequality, less-than, less-or-equal, greater-than, and greater-or-equal comparisons return QueryInstance predicates.",
+          "Logical AND, OR, and NOT composition evaluates correctly and preserves cacheability where applicable.",
+          "exists, matches, search, test, one_of, any, all, fragment, map, and noop behave according to the documented TinyDB query examples.",
+          "where-style field construction is available for the documented where(...).matches(...) and where(...).test(...) API.",
+          "QueryInstance objects are callable, hashable when cacheable, and report non-cacheable status for custom unhashable tests.",
+          "delete, add, subtract, set, increment, and decrement return update callables that mutate documents as documented."
+        ],
+        "corner_cases": [
+          "Missing fields make comparison, regex, and map predicates return False rather than raising unexpected exceptions.",
+          "Nested paths through non-mapping values fail predicates safely.",
+          "Regex flags are honored and invalid regex inputs surface normal Python regex errors.",
+          "any and all handle both literal item lists and query predicates over sequence field values.",
+          "Custom test functions that raise exceptions do not poison unrelated query instances.",
+          "Operations on missing fields follow normal dictionary/key or numeric error semantics rather than silently inventing incompatible data."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "tinydb.queries",
+            "symbol": "is_sequence",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "tinydb.queries",
+            "symbol": "QueryLike",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "tinydb.queries",
+            "symbol": "QueryInstance",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "tinydb.queries",
+            "symbol": "Query",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "tinydb.queries",
+            "symbol": "where",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "tinydb.operations",
+            "symbol": "delete",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "tinydb.operations",
+            "symbol": "add",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "tinydb.operations",
+            "symbol": "subtract",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "tinydb.operations",
+            "symbol": "set",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "tinydb.operations",
+            "symbol": "increment",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "tinydb.operations",
+            "symbol": "decrement",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write a frozen behavioural test suite for the query language and operations helpers using only plain mappings and direct function calls, including the PRD examples and edge predicates.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "tinydb/queries.py",
+            "tinydb/operations.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "builder_implementer",
+          "title": "Implementer",
+          "mandate": "Implement queries.py and operations.py from the design documents, importing only the already-frozen utility substrate where needed and not depending on Table or TinyDB.",
+          "role": "implementer",
+          "slot_id": "builder",
+          "focus_paths": [
+            "tinydb/queries.py",
+            "tinydb/operations.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Repair only failures named by the query/operations gate while preserving the frozen storage and utility contracts from the previous milestone.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "tinydb/queries.py",
+            "tinydb/operations.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "table_document_crud",
+      "title": "Table, Document, and CRUD behaviour",
+      "objective": "Implement document wrappers, table-level CRUD, query-backed search/cache behaviour, ID allocation, update/upsert/remove/truncate/count/contains, and table storage serialization.",
+      "risk_rationale": "This milestone delivers the core collection engine. Its gate can instantiate Table directly with MemoryStorage and Query objects, exercising document IDs, table serialization, CRUD, query cache invalidation, and updates without needing the TinyDB facade, middleware, JSON paths, or package re-exports.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "test_first",
+      "depends_on": [
+        "storage_and_utils_contracts",
+        "query_language_and_operations"
+      ],
+      "focus_paths": [
+        "tinydb/table.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "Document subclasses dict, preserves mapping contents, and exposes doc_id.",
+          "Table.insert and insert_multiple assign monotonically increasing integer document IDs and persist documents under string IDs in the storage table dictionary.",
+          "Table.all returns Document instances for every stored document in the table.",
+          "Table.search, get, count, and contains evaluate QueryLike predicates correctly.",
+          "Table.update supports both mapping updates and callable transformations, with optional condition or explicit doc_ids selection.",
+          "Table.update_multiple applies multiple field/condition pairs and returns affected document IDs.",
+          "Table.upsert updates matching documents or inserts a new document when none match.",
+          "Table.remove supports condition-based and explicit doc_ids removal and returns removed IDs.",
+          "Table.truncate clears only the owning table, not other tables in the same storage.",
+          "Table.clear_cache invalidates query cache, and mutating operations clear cached search results."
+        ],
+        "corner_cases": [
+          "Empty and uninitialized storage behaves as an empty table.",
+          "Multiple Table instances sharing one MemoryStorage and different names do not overwrite one another.",
+          "Inserting a non-mapping document is rejected.",
+          "Document IDs continue after existing persisted IDs, including after recreating a Table over nonempty storage.",
+          "get with no match returns None; get with explicit doc_ids returns matching documents according to the documented signature.",
+          "remove or update with missing doc_ids leaves data unchanged and returns an empty list.",
+          "Query cache does not return stale results after insert, update, remove, or truncate."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "tinydb.table",
+            "symbol": "Document",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "tinydb.table",
+            "symbol": "Table",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write a frozen behavioural suite for Table and Document using MemoryStorage and Query directly, covering all documented CRUD methods, ID allocation, serialization format, and cache invalidation.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "tinydb/table.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "builder_implementer",
+          "title": "Implementer",
+          "mandate": "Implement table.py against the frozen Storage, Query, and utility contracts, keeping Table independently usable without the TinyDB facade.",
+          "role": "implementer",
+          "slot_id": "builder",
+          "focus_paths": [
+            "tinydb/table.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Repair only failures named by the Table gate while preserving the frozen contracts of storages, utilities, queries, and operations.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "tinydb/table.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "public_database_middleware_integration",
+      "title": "TinyDB facade, middleware, public exports, and full integration",
+      "objective": "Implement the TinyDB database entry point, middleware chain, caching middleware, MyPy plugin entry point, package public API exports, and end-to-end behaviour across JSONStorage, MemoryStorage, Query, Table, and multiple tables.",
+      "risk_rationale": "This final milestone integrates the previously frozen modules into the documented public library. Its gate verifies the full consumer contract: imports from tinydb, TinyDB default-table delegation, named tables, table dropping, JSON persistence, caching middleware flushing, context-manager close behaviour, visible tests, and no external runtime dependencies.",
+      "gate_level": "integration",
+      "split_reason": "feature_module",
+      "template_id": "parallel_audit",
+      "depends_on": [
+        "storage_and_utils_contracts",
+        "query_language_and_operations",
+        "table_document_crud"
+      ],
+      "focus_paths": [
+        "tinydb/database.py",
+        "tinydb/middlewares.py",
+        "tinydb/mypy_plugin.py",
+        "tinydb/__init__.py",
+        "tinydb/storages.py",
+        "tinydb/table.py",
+        "tinydb/queries.py",
+        "tinydb/operations.py",
+        "tinydb/utils.py",
+        "tinydb/version.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "TinyDB initializes with the default JSONStorage or a caller-provided storage or middleware-wrapped storage.",
+          "TinyDB forwards default-table operations such as insert, search, get, update, remove, all, count, and len/iteration via __getattr__, __len__, and __iter__.",
+          "TinyDB.table returns cached Table instances for named tables and passes keyword arguments to the table constructor.",
+          "TinyDB.tables reflects table names stored in the backend, including an empty set for uninitialized storage.",
+          "TinyDB.drop_table removes one table from storage and the internal table cache; drop_tables clears all tables and cached Table objects.",
+          "TinyDB.close and context-manager exit close the storage exactly enough to flush and release resources safely.",
+          "Middleware wraps storage classes transparently and forwards unknown attributes to the underlying storage instance.",
+          "CachingMiddleware caches reads, batches writes, flushes after WRITE_CACHE_SIZE modifications, flushes on close, and delegates close to the wrapped storage.",
+          "The package root exports the documented public API including TinyDB, Query, where, Storage, JSONStorage, MemoryStorage, Table, Document, and __version__.",
+          "The MyPy plugin module exposes TinyDBPlugin and plugin and imports cleanly when MyPy is available or degrades safely when it is not a runtime dependency.",
+          "The integrated package runs using only the Python standard library at runtime."
+        ],
+        "corner_cases": [
+          "Using TinyDB with MemoryStorage requires no filesystem path.",
+          "Using TinyDB with CachingMiddleware(JSONStorage) persists pending writes after close even before the write threshold is reached.",
+          "Dropping a missing table does not corrupt other table data.",
+          "Calling close multiple times is safe.",
+          "Accessing an unknown TinyDB attribute that is not present on the default table raises AttributeError.",
+          "Opening an existing JSON database resumes document IDs correctly through Table.",
+          "Named tables and the default table can contain independent documents with overlapping document IDs."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "tinydb.database",
+            "symbol": "TinyDB",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "tinydb.database",
+            "symbol": "TableBase",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "tinydb.middlewares",
+            "symbol": "Middleware",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "tinydb.middlewares",
+            "symbol": "CachingMiddleware",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "tinydb.mypy_plugin",
+            "symbol": "TinyDBPlugin",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "tinydb.mypy_plugin",
+            "symbol": "plugin",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "tinydb",
+            "symbol": "TinyDB",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "tinydb",
+            "symbol": "Query",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "tinydb",
+            "symbol": "where",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "tinydb",
+            "symbol": "Table",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "tinydb",
+            "symbol": "Document",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "tinydb",
+            "symbol": "Storage",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "tinydb",
+            "symbol": "JSONStorage",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "tinydb",
+            "symbol": "MemoryStorage",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "tinydb",
+            "symbol": "__version__",
+            "required_levels": [
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write a frozen end-to-end integration suite from the PRD and UML covering public imports, TinyDB facade delegation, named tables, JSON persistence, MemoryStorage use, middleware caching, context management, and MyPy plugin importability.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "tinydb"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement database.py, middlewares.py, mypy_plugin.py, and __init__.py, wiring the previously frozen modules into the documented public TinyDB API without changing their established contracts except where integration requires compatible fixes.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "tinydb/database.py",
+            "tinydb/middlewares.py",
+            "tinydb/mypy_plugin.py",
+            "tinydb/__init__.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "spec_review_spec_auditor",
+          "title": "Specification auditor",
+          "mandate": "Audit the integrated package against PRD.md, architecture_design.md, UML.md, UML_pyreverse.md, and directory_tree.txt, reporting any missing documented behaviour, wrong public surface, or unsupported examples without editing files.",
+          "role": "spec_auditor",
+          "slot_id": "spec_review",
+          "focus_paths": [
+            "tinydb"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "contract_review_contract_critic",
+          "title": "Contract critic",
+          "mandate": "Audit the integration changes against all frozen contracts from the storage/utilities, query/operations, and table milestones, reporting regressions in symbols, signatures, serialization assumptions, or import paths without editing files.",
+          "role": "contract_critic",
+          "slot_id": "contract_review",
+          "focus_paths": [
+            "tinydb"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Fix the issues reported by the spec and contract auditors and any integration-gate failures, preserving the frozen module contracts and ensuring the full visible and acceptance checks pass.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "tinydb"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    }
+  ]
+}

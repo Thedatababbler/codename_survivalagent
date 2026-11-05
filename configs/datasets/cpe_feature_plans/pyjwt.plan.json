@@ -1,0 +1,928 @@
+{
+  "generator": "llm",
+  "split_policy": "feature",
+  "rationale": "Split into five feature modules ordered by dependency: shared contracts and algorithms first, JWK data/key wrappers next, JWS compact signing on top of those, JWT claim validation on top of JWS, and finally JWKS remote-key retrieval plus package-root integration. Each non-final milestone exposes behaviour that can be exercised directly without later milestones, while the last milestone validates the full public PyJWT contract and documented import surface.",
+  "split": true,
+  "milestones": [
+    {
+      "milestone_id": "crypto_contracts_and_algorithms",
+      "title": "Exceptions, utility contracts, and algorithm implementations",
+      "objective": "Build the foundational exception hierarchy, typed helper utilities, and Algorithm implementations for none, HMAC, and optional cryptography-backed RSA/EC/PSS/OKP algorithms, including JWK conversion where specified.",
+      "risk_rationale": "This milestone delivers the shared contracts every higher layer imports: exception classes, utility encoders/decoders, Algorithm subclasses, and the default algorithm registry. Its gate can verify HMAC and none signing behaviour, invalid-key rejection, JWK oct serialization, and the optional cryptography algorithm registry without needing JWS, JWT, or JWKS clients. If this is wrong, every later token parser/signature verifier will either import the wrong symbols or agree on insecure signing semantics.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "test_first",
+      "depends_on": [],
+      "focus_paths": [
+        "jwt/algorithms.py",
+        "jwt/exceptions.py",
+        "jwt/types.py",
+        "jwt/utils.py",
+        "jwt/warnings.py",
+        "jwt/py.typed"
+      ],
+      "acceptance": {
+        "criteria": [
+          "The documented exception hierarchy exists and specific JWT errors inherit from the documented base classes.",
+          "HMACAlgorithm prepares str and bytes keys, rejects PEM/SSH asymmetric-looking keys, signs with HMAC, and verifies with constant-time comparison semantics.",
+          "NoneAlgorithm accepts only None keys, produces an empty signature, and never reports successful verification.",
+          "HMAC JWK conversion round-trips oct keys through JSON string and dictionary forms.",
+          "get_default_algorithms returns none and HS256/HS384/HS512 without external dependencies and includes cryptography-backed algorithms only when cryptography is importable.",
+          "Algorithm.compute_hash_digest works for hash-backed algorithms and raises NotImplementedError when no hash algorithm exists."
+        ],
+        "corner_cases": [
+          "Empty HMAC key and empty message.",
+          "Non-JSON, wrong kty, or missing k values passed to HMACAlgorithm.from_jwk.",
+          "PEM private/public keys, SSH keys, and certificates accidentally supplied as HMAC secrets.",
+          "Cryptography not installed: importing jwt.algorithms and using HMAC still works, while cryptography-only algorithms are not silently usable.",
+          "Malformed base64url values in JWK fields raise PyJWT exceptions rather than raw decoding errors."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "jwt.algorithms",
+            "symbol": "Algorithm",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "jwt.algorithms",
+            "symbol": "NoneAlgorithm",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "jwt.algorithms",
+            "symbol": "HMACAlgorithm",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "jwt.algorithms",
+            "symbol": "RSAAlgorithm",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "jwt.algorithms",
+            "symbol": "ECAlgorithm",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "jwt.algorithms",
+            "symbol": "RSAPSSAlgorithm",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "jwt.algorithms",
+            "symbol": "OKPAlgorithm",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "jwt.algorithms",
+            "symbol": "get_default_algorithms",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "jwt.algorithms",
+            "symbol": "requires_cryptography",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "jwt.exceptions",
+            "symbol": "PyJWTError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "jwt.exceptions",
+            "symbol": "InvalidKeyError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "jwt.exceptions",
+            "symbol": "InvalidAlgorithmError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "jwt.exceptions",
+            "symbol": "MissingCryptographyError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write black-box tests from the design documents for exception inheritance, utility base64url helpers, Algorithm abstract behaviour, NoneAlgorithm, HMACAlgorithm, HMAC JWK round-trips, and get_default_algorithms with optional cryptography handling.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "jwt/algorithms.py",
+            "jwt/exceptions.py",
+            "jwt/types.py",
+            "jwt/utils.py",
+            "jwt/warnings.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "builder_contract_author",
+          "title": "Contract author",
+          "mandate": "Implement the shared foundation exactly as documented: exception classes, type aliases/protocol-compatible shapes, utility helpers, Algorithm base class, None/HMAC algorithms, optional cryptography-backed algorithms, JWK conversion, and the algorithm registry without depending on later JWS/JWT modules.",
+          "role": "contract_author",
+          "slot_id": "builder",
+          "focus_paths": [
+            "jwt/algorithms.py",
+            "jwt/exceptions.py",
+            "jwt/types.py",
+            "jwt/utils.py",
+            "jwt/warnings.py",
+            "jwt/py.typed"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "If the milestone gate fails, fix only the reported foundational contract or algorithm defects while preserving the documented symbols for later milestones.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "jwt/algorithms.py",
+            "jwt/exceptions.py",
+            "jwt/types.py",
+            "jwt/utils.py",
+            "jwt/warnings.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "jwk_models_and_cache",
+      "title": "JWK and JWK set models with local cache",
+      "objective": "Build PyJWK, PyJWKSet, PyJWTSetWithTimestamp, and JWKSetCache so local JSON Web Keys can be parsed, selected, materialized into algorithm-ready keys, and cached.",
+      "risk_rationale": "This milestone delivers the key-management data model separate from token signing and remote fetching. Its gate can instantiate JWKs directly from dictionaries/JSON, verify key id/type/use/algorithm selection, reject malformed key sets, and test cache expiry with no JWS, JWT, or HTTP client. If wrong, later JWS and JWKS code will verify signatures with the wrong algorithm or stale/malformed keys.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "review_then_fix",
+      "depends_on": [
+        "crypto_contracts_and_algorithms"
+      ],
+      "focus_paths": [
+        "jwt/api_jwk.py",
+        "jwt/jwk_set_cache.py",
+        "jwt/exceptions.py",
+        "jwt/algorithms.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "PyJWK.from_dict and PyJWK.from_json create usable key wrappers for supported oct JWKs and expose key, key_type, key_id, public_key_use, algorithm_name, and Algorithm attributes.",
+          "PyJWK chooses algorithms from explicit constructor input, JWK alg fields, and kty/crv defaults according to the design, and rejects unsupported combinations.",
+          "PyJWKSet.from_dict and PyJWKSet.from_json parse a JWKS keys list into PyJWK objects and raise PyJWKSetError for malformed sets.",
+          "JWKSetCache stores PyJWKSet objects, returns unexpired entries, expires entries after lifespan, and clears on put(None).",
+          "Cryptography-backed JWK types are accepted only when the optional dependency is available and otherwise fail with the documented PyJWT exception."
+        ],
+        "corner_cases": [
+          "JWKS missing the keys member, keys not a list, or all contained keys invalid.",
+          "JWK with missing kty, unsupported kty, unsupported EC/OKP curve, or unknown alg.",
+          "JWK with kid absent: key_id is None and set parsing still succeeds.",
+          "JWK with use other than sig is still represented for PyJWK, while later signing-key filtering can exclude it.",
+          "Cache lifespan of zero or negative values expires immediately."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "jwt.api_jwk",
+            "symbol": "PyJWK",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "jwt.api_jwk",
+            "symbol": "PyJWKSet",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "jwt.jwk_set_cache",
+            "symbol": "PyJWTSetWithTimestamp",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "jwt.jwk_set_cache",
+            "symbol": "JWKSetCache",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "jwt.exceptions",
+            "symbol": "PyJWKError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "jwt.exceptions",
+            "symbol": "PyJWKSetError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write tests for local JWK parsing, algorithm selection, PyJWKSet construction failures, and JWKSetCache expiry/clearing based only on the design documents and frozen algorithm contracts.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "jwt/api_jwk.py",
+            "jwt/jwk_set_cache.py",
+            "jwt/exceptions.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement PyJWK, PyJWKSet, PyJWTSetWithTimestamp, and JWKSetCache using the frozen algorithm and exception contracts; do not implement remote JWKS fetching or JWT decoding in this milestone.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "jwt/api_jwk.py",
+            "jwt/jwk_set_cache.py",
+            "jwt/exceptions.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "reviewer_spec_auditor",
+          "title": "Specification auditor",
+          "mandate": "Review the JWK and cache implementation against the PRD, architecture, and UML, especially algorithm inference, error types, exposed attributes, and cache expiry semantics; report deviations without editing.",
+          "role": "spec_auditor",
+          "slot_id": "reviewer",
+          "focus_paths": [
+            "jwt/api_jwk.py",
+            "jwt/jwk_set_cache.py"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Apply the reviewer report and any gate failures narrowly, preserving the frozen algorithm contracts and completing only local JWK/JWKS/cache behaviour.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "jwt/api_jwk.py",
+            "jwt/jwk_set_cache.py",
+            "jwt/exceptions.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "jws_compact_serialization",
+      "title": "JWS compact encode/decode and signature verification",
+      "objective": "Build PyJWS compact serialization, algorithm registration, unverified header loading, detached payload support, PyJWK key handling, and signature verification.",
+      "risk_rationale": "This milestone delivers JWS behaviour independently of JWT claims: byte payloads can be encoded, decoded, and signature-checked with algorithms and PyJWKs already built. Its gate can verify compact token structure, header parsing, allowed-algorithm enforcement, invalid signature handling, and detached-payload handling without needing JWT claim validation or JWKS HTTP retrieval. If wrong, JWT will inherit insecure or incompatible signing behaviour.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "test_first",
+      "depends_on": [
+        "crypto_contracts_and_algorithms",
+        "jwk_models_and_cache"
+      ],
+      "focus_paths": [
+        "jwt/api_jws.py",
+        "jwt/algorithms.py",
+        "jwt/api_jwk.py",
+        "jwt/exceptions.py",
+        "jwt/utils.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "PyJWS.encode produces three-segment compact JWS strings for bytes payloads with valid JSON headers and base64url encoding.",
+          "PyJWS.decode and decode_complete verify signatures when requested, enforce the supplied allowed algorithms list, and return bytes payloads or complete header/payload/signature dictionaries as documented.",
+          "get_unverified_header parses headers without verifying signatures and rejects malformed compact tokens.",
+          "register_algorithm and unregister_algorithm update the usable algorithm registry and validate Algorithm instances.",
+          "PyJWS accepts PyJWK keys by using their key and algorithm metadata.",
+          "Detached payload mode signs/verifies the external payload and represents the empty payload segment as documented."
+        ],
+        "corner_cases": [
+          "Token has fewer or more than three compact segments.",
+          "Header or payload contains invalid base64url or non-JSON header bytes.",
+          "alg is missing, unknown, disallowed, or none when verification is required.",
+          "Signature segment is empty, malformed, or valid for a different message.",
+          "decode called with verify_signature false and no key still returns payload but does not accept malformed structure."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "jwt.api_jws",
+            "symbol": "PyJWS",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "jwt.exceptions",
+            "symbol": "DecodeError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "jwt.exceptions",
+            "symbol": "InvalidSignatureError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "jwt.exceptions",
+            "symbol": "InvalidTokenError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write black-box JWS tests for compact encode/decode, header inspection, algorithm whitelisting, custom algorithm registration, PyJWK key inputs, malformed tokens, invalid signatures, and detached payload behaviour.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "jwt/api_jws.py",
+            "jwt/api_jwk.py",
+            "jwt/algorithms.py",
+            "jwt/exceptions.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "builder_implementer",
+          "title": "Implementer",
+          "mandate": "Implement PyJWS from the design documents using the frozen algorithm, utility, exception, and JWK contracts; keep scope to JWS byte payloads and signature handling, not JWT claims.",
+          "role": "implementer",
+          "slot_id": "builder",
+          "focus_paths": [
+            "jwt/api_jws.py",
+            "jwt/algorithms.py",
+            "jwt/api_jwk.py",
+            "jwt/exceptions.py",
+            "jwt/utils.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "If the gate fails, repair only reported JWS compact-serialization, signature-verification, or public-method defects while preserving earlier frozen contracts.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "jwt/api_jws.py",
+            "jwt/algorithms.py",
+            "jwt/api_jwk.py",
+            "jwt/exceptions.py",
+            "jwt/utils.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "jwt_claims_api",
+      "title": "JWT encode/decode and registered claim validation",
+      "objective": "Build PyJWT on top of PyJWS for JSON payload encoding, decoding, decode_complete, and standards-compliant validation of exp, nbf, iat, iss, aud, sub, jti, and required claims.",
+      "risk_rationale": "This milestone delivers the core user-facing JWT feature without remote JWKS lookup or package-root integration. Its gate can create signed tokens with HMAC, decode them through PyJWT, and verify all documented claim validators and options using local keys. If wrong, applications will accept expired, premature, wrong-audience, or wrong-issuer tokens even though lower-level JWS signatures work.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "review_then_fix",
+      "depends_on": [
+        "crypto_contracts_and_algorithms",
+        "jwk_models_and_cache",
+        "jws_compact_serialization"
+      ],
+      "focus_paths": [
+        "jwt/api_jwt.py",
+        "jwt/api_jws.py",
+        "jwt/exceptions.py",
+        "jwt/types.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "PyJWT.encode accepts dictionary payloads, JSON-serializes them, handles datetime registered claims by converting to NumericDate, and returns compact JWT strings.",
+          "PyJWT.decode returns payload dictionaries after signature verification and claim validation, while decode_complete returns header, payload, and signature metadata.",
+          "Options can disable signature and individual claim verification as documented.",
+          "exp, nbf, and iat validation respects leeway and raises the documented exceptions.",
+          "audience, issuer, subject, jwt id, and required-claim validation follow the documented option names and error classes.",
+          "PyJWT inherits or composes PyJWS behaviour without breaking JWS encode/decode."
+        ],
+        "corner_cases": [
+          "Payload is not a dict during encode.",
+          "Decoded payload is not valid JSON or is not a JSON object.",
+          "exp, nbf, or iat are missing, non-numeric, datetime, exactly now, or outside leeway.",
+          "aud claim is string versus list, audience parameter is string versus iterable, and strict_aud is true.",
+          "issuer parameter is a single string versus a container of issuers.",
+          "require option names a claim that is absent but its verify option is disabled."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "jwt.api_jwt",
+            "symbol": "PyJWT",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "jwt.exceptions",
+            "symbol": "ExpiredSignatureError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "jwt.exceptions",
+            "symbol": "ImmatureSignatureError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "jwt.exceptions",
+            "symbol": "InvalidAudienceError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "jwt.exceptions",
+            "symbol": "InvalidIssuerError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "jwt.exceptions",
+            "symbol": "InvalidIssuedAtError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "jwt.exceptions",
+            "symbol": "InvalidSubjectError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "jwt.exceptions",
+            "symbol": "InvalidJTIError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "jwt.exceptions",
+            "symbol": "MissingRequiredClaimError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write tests for PyJWT encode/decode, decode_complete, JSON payload handling, datetime NumericDate conversion, options, leeway, required claims, and every documented standard claim validator using local HMAC tokens.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "jwt/api_jwt.py",
+            "jwt/api_jws.py",
+            "jwt/exceptions.py",
+            "jwt/types.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement PyJWT and registered claim validation on top of the frozen PyJWS, exception, and type contracts; do not implement JWKS HTTP client or root-package convenience functions yet.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "jwt/api_jwt.py",
+            "jwt/api_jws.py",
+            "jwt/exceptions.py",
+            "jwt/types.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "reviewer_spec_auditor",
+          "title": "Specification auditor",
+          "mandate": "Review claim-validation semantics against RFC-style requirements in the PRD and UML, focusing on options defaults, leeway, audience/issuer edge cases, exception classes, and decode_complete shape; report deviations without editing.",
+          "role": "spec_auditor",
+          "slot_id": "reviewer",
+          "focus_paths": [
+            "jwt/api_jwt.py",
+            "jwt/exceptions.py",
+            "jwt/types.py"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Fix only the reported JWT claim/API defects while preserving frozen JWS, JWK, algorithm, and exception contracts.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "jwt/api_jwt.py",
+            "jwt/api_jws.py",
+            "jwt/exceptions.py",
+            "jwt/types.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "jwks_client_and_public_integration",
+      "title": "JWKS client, helper modules, and package public API integration",
+      "objective": "Implement PyJWKClient remote JWKS retrieval and signing-key selection, wire package-root exports and convenience encode/decode functions, and ensure the full documented PyJWT public surface works together.",
+      "risk_rationale": "This final milestone integrates previously verified modules into the full public contract. It delivers remote JWKS fetching/caching, get_signing_key_from_jwt, documented package imports, helper metadata, and end-to-end decode with a selected JWK. Its gate can mock a JWKS endpoint, issue local JWTs with kid headers, fetch/select/cache signing keys, import all public symbols from jwt, and run the visible integration suite. Defects here are integration defects rather than algorithm, JWK, JWS, or claim-validation defects already frozen earlier.",
+      "gate_level": "integration",
+      "split_reason": "feature_module",
+      "template_id": "parallel_audit",
+      "depends_on": [
+        "crypto_contracts_and_algorithms",
+        "jwk_models_and_cache",
+        "jws_compact_serialization",
+        "jwt_claims_api"
+      ],
+      "focus_paths": [
+        "jwt/jwks_client.py",
+        "jwt/jwk_set_cache.py",
+        "jwt/api_jwk.py",
+        "jwt/api_jws.py",
+        "jwt/api_jwt.py",
+        "jwt/__init__.py",
+        "jwt/help.py",
+        "jwt/exceptions.py",
+        "jwt/warnings.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "PyJWKClient.fetch_data retrieves JSON from the configured URI using headers, timeout, and SSL context options and converts connection failures into PyJWKClientConnectionError.",
+          "get_jwk_set uses JWKSetCache when enabled, refreshes when requested or expired, and returns PyJWKSet objects.",
+          "get_signing_keys filters usable signing keys and get_signing_key finds by kid, refreshes once on miss, and raises PyJWKClientError if still absent.",
+          "get_signing_key_from_jwt extracts kid from an unverified token header through the JWT/JWS stack and returns the matching PyJWK.",
+          "The jwt package root exports the documented classes, exceptions, and convenience encode, decode, decode_complete, get_unverified_header, register_algorithm, and unregister_algorithm functions.",
+          "An application can encode a JWT with a kid header, serve a matching JWKS, fetch the key through PyJWKClient, and decode the token through jwt.decode using the returned key."
+        ],
+        "corner_cases": [
+          "JWKS endpoint returns invalid JSON, a non-object response, an empty keys list, or no signing keys.",
+          "The token passed to get_signing_key_from_jwt has no kid, malformed header, or unsupported alg.",
+          "Cache disabled versus cache enabled, cache hit versus cache miss, and forced refresh.",
+          "Network timeout, HTTP error, or URL opener failure is wrapped in the documented client connection error.",
+          "Package-root imports work in a clean interpreter without cryptography installed for HMAC-only use."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "jwt.jwks_client",
+            "symbol": "PyJWKClient",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "jwt.exceptions",
+            "symbol": "PyJWKClientError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "jwt.exceptions",
+            "symbol": "PyJWKClientConnectionError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "jwt",
+            "symbol": "PyJWT",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "jwt",
+            "symbol": "PyJWS",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "jwt",
+            "symbol": "PyJWK",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "jwt",
+            "symbol": "PyJWKSet",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "jwt",
+            "symbol": "PyJWKClient",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "jwt",
+            "symbol": "encode",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "jwt",
+            "symbol": "decode",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "jwt",
+            "symbol": "decode_complete",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "jwt",
+            "symbol": "get_unverified_header",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "jwt",
+            "symbol": "register_algorithm",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "jwt",
+            "symbol": "unregister_algorithm",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "jwt",
+            "symbol": "__version__",
+            "required_levels": [
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write integration tests for PyJWKClient with mocked URL responses, cache hit/miss/refresh, kid selection, get_signing_key_from_jwt, package-root imports, convenience functions, and an end-to-end encode-JWKS-fetch-decode flow.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "jwt/jwks_client.py",
+            "jwt/__init__.py",
+            "jwt/help.py",
+            "jwt/api_jwt.py",
+            "jwt/api_jws.py",
+            "jwt/api_jwk.py",
+            "jwt/jwk_set_cache.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement PyJWKClient and wire the documented package-root public API, helper metadata, and exception exports so previously built algorithms, JWK, JWS, and JWT modules work through consumer-facing import paths.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "jwt/jwks_client.py",
+            "jwt/__init__.py",
+            "jwt/help.py",
+            "jwt/exceptions.py",
+            "jwt/api_jwt.py",
+            "jwt/api_jws.py",
+            "jwt/api_jwk.py",
+            "jwt/jwk_set_cache.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "spec_review_spec_auditor",
+          "title": "Specification auditor",
+          "mandate": "Audit the final repository against the PRD, architecture, UML class/package diagrams, and sequence diagram, focusing on JWKS client behaviour, public imports, and end-to-end user flows; report deviations without editing.",
+          "role": "spec_auditor",
+          "slot_id": "spec_review",
+          "focus_paths": [
+            "jwt"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "contract_review_contract_critic",
+          "title": "Contract critic",
+          "mandate": "Audit the final changes against contracts frozen by earlier milestones: algorithms, exceptions, PyJWK/PyJWKSet/JWKSetCache, PyJWS, and PyJWT method availability and semantics; report regressions without editing.",
+          "role": "contract_critic",
+          "slot_id": "contract_review",
+          "focus_paths": [
+            "jwt"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Fix the combined audit findings and any integration-gate failures narrowly, preserving frozen module contracts while completing JWKS and package-root integration.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "jwt"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    }
+  ]
+}

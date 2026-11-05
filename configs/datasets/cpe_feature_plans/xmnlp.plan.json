@@ -1,0 +1,925 @@
+{
+  "generator": "llm",
+  "split_policy": "feature",
+  "rationale": "The repository is split into five feature modules ordered by dependency: shared infrastructure first, lightweight data resources next, lexical analysis, model-backed inference features, and a final public API/integration layer. Each non-final milestone exposes behavior that can be tested without later milestones, while the last milestone verifies the complete documented xmnlp package surface.",
+  "split": true,
+  "milestones": [
+    {
+      "milestone_id": "core_infrastructure",
+      "title": "Configuration, model base, serialization, and utility data structures",
+      "objective": "Build the shared substrate used by every feature: model path configuration, BaseModel ONNX CPU wrapper, Module persistence helpers, Trie and BM25 utilities, package imports, and parallel processing helper.",
+      "risk_rationale": "This milestone delivers the contracts that downstream pinyin, radical, lexical, summary, checker, sentiment, and sentence-vector modules import. Its gate can verify imports, path mutation, CPU-only BaseModel session construction through mocks, Module save/load round trips, Trie lookup behavior, BM25 scoring behavior, and parallel_handler execution without any later NLP feature existing.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "test_first",
+      "depends_on": [],
+      "focus_paths": [
+        "xmnlp/config",
+        "xmnlp/base_model.py",
+        "xmnlp/module.py",
+        "xmnlp/utils"
+      ],
+      "acceptance": {
+        "criteria": [
+          "xmnlp.config.path exposes mutable model and resource path configuration including MODEL_DIR and default package data paths.",
+          "BaseModel initializes an ONNX Runtime InferenceSession using CPUExecutionProvider and defines an abstract predict contract.",
+          "Module.filelist yields files for both single-file and recursive-directory inputs.",
+          "Module.save and Module.load round-trip ordinary attributes, sets, nested objects, compressed pickle files, and uncompressed pickle files while respecting __onlysave__ and __notsave__.",
+          "Trie supports add, get, and longest-prefix find behavior for Chinese strings.",
+          "BM25 builds corpus statistics and returns deterministic document similarity scores.",
+          "parallel_handler applies an arbitrary callback over an iterable with configurable job count while preserving result order."
+        ],
+        "corner_cases": [
+          "MODEL_DIR is initially unset or set through an environment variable.",
+          "Module.load can read an uncompressed file even when iszip=True fallback is needed.",
+          "Empty directories and single files passed to filelist.",
+          "Trie lookup for missing prefixes, empty strings, and overlapping keys.",
+          "BM25 with empty documents, repeated terms, and query terms absent from the corpus.",
+          "parallel_handler with n_jobs=1, n_jobs greater than input length, and empty input."
+        ],
+        "checks": [
+          {
+            "type": "export",
+            "module": "xmnlp.config.path",
+            "symbol": "MODEL_DIR",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "xmnlp.config.path",
+            "symbol": "XMNLP_MODEL",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "xmnlp.config.path",
+            "symbol": "SYS_STOPWORDS",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp.base_model",
+            "symbol": "BaseModel",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp.module",
+            "symbol": "Module",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp.utils.trie",
+            "symbol": "Trie",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp.utils.bm25",
+            "symbol": "BM25",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp.utils",
+            "symbol": "parallel_handler",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write executable tests for the infrastructure contracts in the design documents: path globals, BaseModel CPU provider use with mocked onnxruntime, Module serialization behavior, Trie prefix matching, BM25 scoring shape, and parallel_handler ordering.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "builder_contract_author",
+          "title": "Contract author",
+          "mandate": "Implement the shared contracts exactly where documented so later milestones can import them: config.path constants, BaseModel, Module, Trie, BM25, utils package exports, and parallel_handler.",
+          "role": "contract_author",
+          "slot_id": "builder",
+          "focus_paths": [],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "If the infrastructure gate fails, fix only the reported contract or behavior failures without adding unrelated NLP feature code.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "pinyin_radical_resources",
+      "title": "Pinyin, radical extraction, and resource trainers",
+      "objective": "Implement local dictionary-backed pinyin conversion, radical extraction, pickle/resource loading, and trainer entry points for producing those resources.",
+      "risk_rationale": "This milestone delivers standalone lookup features that depend only on Module and Trie. Its gate can train small temporary corpora, save/load generated resources, translate/extract radicals, and verify package-level pinyin/radical imports without lexical, neural, summary, or checker modules. Checker later depends on Pinyin for suggestion ranking, so mistakes here would propagate into spell correction.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "test_first",
+      "depends_on": [
+        "core_infrastructure"
+      ],
+      "focus_paths": [
+        "xmnlp/pinyin",
+        "xmnlp/radical",
+        "xmnlp/trainer.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "Pinyin trains from a UTF-8 corpus, stores mappings in a Trie, persists through Module.save, loads default or configured pickle resources, and translates Chinese text to a list of syllables.",
+          "Radical trains from a UTF-8 corpus, stores mappings in a dictionary/hash map, persists through Module.save, loads default or configured pickle resources, and returns a list of radicals.",
+          "Unknown characters are returned unchanged or with the documented fallback rather than crashing.",
+          "PinyinTrainer and RadicalTrainer create model files from source corpora.",
+          "Package functions xmnlp.pinyin.translate and xmnlp.radical.radical are importable and delegate to lazy-loaded resources."
+        ],
+        "corner_cases": [
+          "Mixed Chinese, ASCII, punctuation, emoji, and whitespace.",
+          "Empty input strings.",
+          "Duplicate corpus rows where later or first mapping must be deterministic.",
+          "Missing resource file with an explicit, understandable exception.",
+          "Multi-character trie entries and overlapping prefixes.",
+          "UTF-8 corpus lines with trailing newlines or extra columns."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp.pinyin.pinyin",
+            "symbol": "Pinyin",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp.pinyin",
+            "symbol": "translate",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp.pinyin",
+            "symbol": "load_pinyin",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp.radical.radical",
+            "symbol": "Radical",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp.radical",
+            "symbol": "radical",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp.radical",
+            "symbol": "load_radical",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp.trainer",
+            "symbol": "PinyinTrainer",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp.trainer",
+            "symbol": "RadicalTrainer",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp.trainer",
+            "symbol": "SysTrainer",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write tests that train tiny pinyin and radical resources in temporary files, verify save/load and lookup behavior, and assert the documented package exports exist.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "builder_implementer",
+          "title": "Implementer",
+          "mandate": "Implement Pinyin, Radical, their lazy package loaders, and trainer classes using the Module and Trie contracts from the previous milestone.",
+          "role": "implementer",
+          "slot_id": "builder",
+          "focus_paths": [],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Repair only failures in pinyin, radical, or trainer behavior reported by the milestone gate.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "lexical_analysis",
+      "title": "Dictionary and model-backed lexical analysis",
+      "objective": "Implement Chinese segmentation, POS tagging, NER decoding, user dictionaries, fast dictionary tokenization, and the lexical ONNX wrapper/lazy loader.",
+      "risk_rationale": "This milestone delivers the core lexical API that summary and the top-level package later rely on. Its gate can verify reverse maximum matching, jieba-format dictionary loading, user dictionary overrides, POS tags, BIO entity decoding with positions, and lazy model-path error handling using mocked models without needing sentiment, spell checking, sentence vectors, or final integration.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "review_then_fix",
+      "depends_on": [
+        "core_infrastructure"
+      ],
+      "focus_paths": [
+        "xmnlp/lexical"
+      ],
+      "acceptance": {
+        "criteria": [
+          "Tokenization loads system and user dictionaries compatible with jieba-style word frequency tag lines.",
+          "Tokenization.seg performs reverse maximum matching and preserves non-Chinese spans, punctuation, emoji, and ASCII words.",
+          "Tokenization.tag returns (word, pos) tuples with dictionary POS tags and sensible defaults for unknown tokens.",
+          "detect_new_word can be toggled and calls the lexical model only when enabled.",
+          "LexicalModel subclasses BaseModel and predicts from token_ids and segment_ids arrays.",
+          "Lexical decodes BIO labels into segmentation/POS/NER outputs and can include start/end positions for NER entities.",
+          "xmnlp.lexical package exposes load_lexical, seg, tag, ner, fast_seg, fast_tag, deep_seg, and deep_tag."
+        ],
+        "corner_cases": [
+          "Empty strings and whitespace-only strings.",
+          "Traditional Chinese or unsupported deep-model text should not be silently treated as valid simplified-only deep segmentation.",
+          "Input longer than the documented 512-token lexical limit is split or rejected deterministically.",
+          "Overlapping dictionary entries choose the longest reverse match.",
+          "Malformed dictionary lines are ignored or handled without crashing valid lines.",
+          "BIO labels with orphan I tags, adjacent entities, and entity spans at the beginning or end of text."
+        ],
+        "checks": [
+          {
+            "type": "export",
+            "module": "xmnlp.lexical.lexical_model",
+            "symbol": "MAX_SEQ_LEN",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp.lexical.lexical_model",
+            "symbol": "LexicalModel",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp.lexical.lexical_model",
+            "symbol": "Lexical",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp.lexical.tokenization",
+            "symbol": "Tokenization",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp.lexical",
+            "symbol": "load_lexical",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp.lexical",
+            "symbol": "seg",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp.lexical",
+            "symbol": "tag",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp.lexical",
+            "symbol": "ner",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp.lexical",
+            "symbol": "fast_seg",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp.lexical",
+            "symbol": "fast_tag",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Create tests for dictionary tokenization, jieba-format user dictionaries, POS tagging, BIO decoding, entity positions, deep/fast mode dispatch, and lexical package exports using small fixtures and mocked model predictions.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement lexical_model.py, tokenization.py, and xmnlp.lexical exports according to the documented segmentation, tagging, NER, and lazy-loading behavior.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "reviewer_spec_auditor",
+          "title": "Specification auditor",
+          "mandate": "Read the lexical implementation against the PRD, architecture design, and UML diagrams; report mismatches in symbol locations, signatures, sequence length handling, lazy loading, BIO decoding, or dictionary semantics.",
+          "role": "spec_auditor",
+          "slot_id": "reviewer",
+          "focus_paths": [],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Fix the reviewer and gate-reported lexical deviations while preserving contracts frozen by earlier milestones.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "neural_feature_adapters",
+      "title": "Sentiment, spell checker, and sentence-vector adapters",
+      "objective": "Implement the remaining ONNX-backed feature modules: sentiment probabilities, detector/corrector spell checking, sentence embeddings, similarity, and most-similar document search.",
+      "risk_rationale": "This milestone delivers model adapter features that share BaseModel, configuration, tokenizers, and lazy singleton loading but are otherwise independent of summary and final top-level wiring. Its gate can mock ONNX outputs and tokenizers to verify CPU inference calls, max-length validation, probability conversion, correction ranking, pinyin-assisted spell suggestions, cosine similarity, and top-k search.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "parallel_audit",
+      "depends_on": [
+        "core_infrastructure",
+        "pinyin_radical_resources"
+      ],
+      "focus_paths": [
+        "xmnlp/sentiment",
+        "xmnlp/checker",
+        "xmnlp/sv"
+      ],
+      "acceptance": {
+        "criteria": [
+          "SentimentModel subclasses BaseModel and Sentiment.predict returns a two-float negative/positive probability tuple for text up to the documented length.",
+          "Sentiment package uses thread-safe lazy singleton loading and raises ValueError when MODEL_DIR is not configured.",
+          "DetectorModel and CorrectorModel subclass BaseModel and run prediction from token_ids and segment_ids arrays.",
+          "CheckerDecoder initializes detector, corrector, tokenizer, mask ID, and pinyin helper from the configured model directory.",
+          "CheckerDecoder.predict returns detected errors as (position, token) tuples when suggest=False and ranked suggestion lists when suggest=True.",
+          "Spell checker enforces the documented 512-token maximum with ValueError.",
+          "SentenceVectorModel subclasses BaseModel and SentenceVector supports transform, similarity, and most_similar with genre-specific model paths and top-k results.",
+          "All model modules use CPUExecutionProvider through BaseModel and thread-safe lazy loading locks."
+        ],
+        "corner_cases": [
+          "MODEL_DIR missing or changed through set_model before lazy loading.",
+          "Empty sentiment/checker/sentence-vector input.",
+          "Sentiment input exceeding 150 tokens.",
+          "Checker input exceeding 512 tokens.",
+          "Correction suggestions with k larger than available candidates and max_k limiting internal candidates.",
+          "Similarity called with raw strings, numpy vectors, zero vectors, identical vectors, and k larger than document count.",
+          "Concurrent calls to lazy loaders should instantiate a singleton once."
+        ],
+        "checks": [
+          {
+            "type": "export",
+            "module": "xmnlp.sentiment.sentiment_model",
+            "symbol": "MAX_SEQ_LEN",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp.sentiment.sentiment_model",
+            "symbol": "SentimentModel",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp.sentiment.sentiment_model",
+            "symbol": "Sentiment",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp.sentiment",
+            "symbol": "load_sentiment",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp.sentiment",
+            "symbol": "sentiment",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "xmnlp.checker.checker",
+            "symbol": "MAX_SEQ_LEN",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp.checker.checker",
+            "symbol": "DetectorModel",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp.checker.checker",
+            "symbol": "CorrectorModel",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp.checker.checker",
+            "symbol": "CheckerDecoder",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp.checker",
+            "symbol": "load_checker",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp.checker",
+            "symbol": "spellcheck",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp.sv.model",
+            "symbol": "SentenceVectorModel",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp.sv.model",
+            "symbol": "SentenceVector",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp.sv",
+            "symbol": "SentenceVector",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write tests with mocked tokenizers and ONNX sessions for sentiment, checker, and sentence-vector modules, including lazy loading, max lengths, probability/similarity math, and package exports.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement sentiment, checker, and sv modules using BaseModel, tokenizers, numpy, scikit-learn KDTree where appropriate, Pinyin from the prior milestone, and thread-safe lazy singleton loading.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "spec_review_spec_auditor",
+          "title": "Specification auditor",
+          "mandate": "Audit the neural feature adapters against the PRD and architecture documents, especially max sequence lengths, CPU-only ONNX usage, singleton locking, model path handling, and documented return shapes.",
+          "role": "spec_auditor",
+          "slot_id": "spec_review",
+          "focus_paths": [],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "contract_review_contract_critic",
+          "title": "Contract critic",
+          "mandate": "Audit the implementation against frozen contracts from core infrastructure and pinyin/radical milestones, reporting import path, BaseModel, config, Module, or Pinyin contract violations.",
+          "role": "contract_critic",
+          "slot_id": "contract_review",
+          "focus_paths": [],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Fix only the reported sentiment, checker, sentence-vector, spec, or frozen-contract deviations.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "public_api_summary_integration",
+      "title": "TextRank summary/keywords and full public xmnlp integration",
+      "objective": "Implement TextRank keyword/keyphrase extraction, stopword customization, root-package API re-exports, model configuration functions, pinyin/radical/checker/sentiment/lexical wrappers, and final integration of all documented public contracts.",
+      "risk_rationale": "This final milestone delivers the outward-facing toolkit consumers use: import xmnlp, call set_model, seg/tag/ner/keyword/keyphrase/sentiment/pinyin/radical/checker, and use subpackage classes. Its gate verifies the full public contract and catches wiring mistakes between previously frozen modules, plus TextRank behavior that depends on lexical tokens and BM25.",
+      "gate_level": "integration",
+      "split_reason": "feature_module",
+      "template_id": "parallel_audit",
+      "depends_on": [
+        "core_infrastructure",
+        "pinyin_radical_resources",
+        "lexical_analysis",
+        "neural_feature_adapters"
+      ],
+      "focus_paths": [
+        "xmnlp/__init__.py",
+        "xmnlp/summary",
+        "xmnlp/config",
+        "xmnlp"
+      ],
+      "acceptance": {
+        "criteria": [
+          "KeywordTextRank extracts top-k keyword and weight tuples using TextRank, stopword filtering, and optional allowed POS tags.",
+          "TextRank extracts top-k keyphrases/sentences using BM25 sentence similarity and returns strings in ranked order.",
+          "set_model updates the global model directory used by lazy model loaders.",
+          "set_stopword reads UTF-8 stopword files and merges them with system stopwords.",
+          "The xmnlp root package exposes documented functions: set_model, set_stopword, seg, tag, ner, keyword, keyphrase, sentiment, pinyin, radical, and checker.",
+          "Root package wrappers delegate to their owning feature modules and preserve documented return shapes.",
+          "All documented modules import cleanly on a clean environment with optional heavyweight runtime dependencies handled gracefully or mocked in tests.",
+          "Visible check_tests and milestone tests pass together at integration level."
+        ],
+        "corner_cases": [
+          "Keyword/keyphrase on empty text, one sentence, repeated words, punctuation-only text, and text where all words are stopwords.",
+          "allowPOS is None, empty, or contains tags absent from the text.",
+          "k is zero, one, larger than available words/sentences, or negative with deterministic handling.",
+          "set_stopword file with blank lines, duplicate words, and UTF-8 Chinese content.",
+          "set_model called before and after importing feature subpackages.",
+          "Root package imports should not eagerly instantiate ONNX sessions before a model-backed function is called.",
+          "Parallel processing through xmnlp.utils.parallel_handler works with root package functions."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp.summary.textrank",
+            "symbol": "KeywordTextRank",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp.summary.textrank",
+            "symbol": "TextRank",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp.summary",
+            "symbol": "keyword",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp.summary",
+            "symbol": "keyphrase",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp",
+            "symbol": "set_model",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp",
+            "symbol": "set_stopword",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp",
+            "symbol": "seg",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp",
+            "symbol": "tag",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp",
+            "symbol": "ner",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp",
+            "symbol": "keyword",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp",
+            "symbol": "keyphrase",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp",
+            "symbol": "sentiment",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp",
+            "symbol": "pinyin",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp",
+            "symbol": "radical",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "xmnlp",
+            "symbol": "checker",
+            "required_levels": [
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write integration tests for TextRank keyword/keyphrase behavior, root xmnlp API wrappers, set_model/set_stopword side effects, import cleanliness, and representative end-to-end calls using mocks where model files are external.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement summary.textrank, summary package exports, root xmnlp API re-exports and delegating wrappers, set_model, set_stopword, and final package wiring without breaking previously frozen submodule contracts.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "spec_review_spec_auditor",
+          "title": "Specification auditor",
+          "mandate": "Audit the final public package against the PRD usage examples, architecture tree, and UML package diagram; report missing functions, wrong return shapes, eager model loading, or TextRank deviations.",
+          "role": "spec_auditor",
+          "slot_id": "spec_review",
+          "focus_paths": [],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "contract_review_contract_critic",
+          "title": "Contract critic",
+          "mandate": "Verify the integration layer preserves all frozen contracts from earlier milestones, especially exported symbol locations, constants, singleton loaders, and utility behavior.",
+          "role": "contract_critic",
+          "slot_id": "contract_review",
+          "focus_paths": [],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Fix reported final integration and public API failures, then ensure the visible check_tests and milestone acceptance tests pass together.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,890 @@
+{
+  "generator": "llm",
+  "split_policy": "feature",
+  "rationale": "The repository is split feature-first along the documented Simple JWT layers: shared configuration/crypto contracts first, then token objects, then request authentication, then serializers/views, and finally blacklist persistence plus full public integration. Each non-final milestone exposes behaviour that can be tested immediately without later layers: token backend encode/decode does not need serializers, token classes do not need DRF views, authentication can be exercised with constructed requests and tokens, serializers/views can be tested with Django/DRF request factories, and the final milestone wires database-backed blacklisting and verifies the full documented public contract.",
+  "split": true,
+  "milestones": [
+    {
+      "milestone_id": "settings_crypto_foundation",
+      "title": "Settings, exceptions, utilities, and cryptographic token backend",
+      "objective": "Implement the shared substrate used by all later modules: configurable SIMPLE_JWT settings, exception types, date/time and claim helper utilities, package state, and TokenBackend support for JWT encode/decode using configured algorithms, keys, audience, issuer, leeway, JSON encoder, and optional JWK URL.",
+      "risk_rationale": "This milestone delivers the cross-module contracts that every later token, serializer, and authentication feature imports. Its gate can verify it alone by configuring Django settings and directly exercising TokenBackend.encode/decode, error translation, leeway handling, algorithm/key selection, and utility functions without any token classes or API views. If this layer is wrong, downstream modules can all agree on an incorrect claim name, lifetime, algorithm, or exception contract and still appear internally consistent.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "test_first",
+      "depends_on": [],
+      "focus_paths": [
+        "rest_framework_simplejwt/__init__.py",
+        "rest_framework_simplejwt/settings.py",
+        "rest_framework_simplejwt/state.py",
+        "rest_framework_simplejwt/exceptions.py",
+        "rest_framework_simplejwt/utils.py",
+        "rest_framework_simplejwt/backends.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "The package imports cleanly in a configured Django environment with Django REST Framework and PyJWT installed.",
+          "api_settings exposes documented SIMPLE_JWT defaults and respects user overrides from Django settings.",
+          "TokenBackend can encode and decode valid JWT payloads with HMAC algorithms and enforces expiration, audience, issuer, and signature verification when requested.",
+          "TokenBackend rejects unsupported algorithms, invalid signatures, expired tokens, malformed tokens, and invalid audience/issuer with documented Simple JWT exceptions.",
+          "Utility functions return timezone-aware UTC datetimes, convert between datetimes and epoch timestamps, and format/lazy-load configured user identifiers consistently."
+        ],
+        "corner_cases": [
+          "Naive versus aware datetimes are handled without off-by-timezone expiration errors.",
+          "A configured leeway of int, float, timedelta, None, or zero is normalized correctly.",
+          "PyJWT 1.x byte-string encode results and PyJWT 2.x string encode results both become public string tokens.",
+          "Verifying-key fallback for HMAC algorithms uses the signing key when no separate verifying key is configured.",
+          "Unknown or removed SIMPLE_JWT settings fail loudly rather than being silently ignored where the design requires validation."
+        ],
+        "checks": [
+          {
+            "type": "export",
+            "module": "rest_framework_simplejwt.settings",
+            "symbol": "DEFAULTS",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "rest_framework_simplejwt.settings",
+            "symbol": "IMPORT_STRINGS",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "rest_framework_simplejwt.settings",
+            "symbol": "REMOVED_SETTINGS",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "rest_framework_simplejwt.settings",
+            "symbol": "api_settings",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "rest_framework_simplejwt.state",
+            "symbol": "token_backend",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rest_framework_simplejwt.backends",
+            "symbol": "TokenBackend",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rest_framework_simplejwt.exceptions",
+            "symbol": "TokenError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rest_framework_simplejwt.exceptions",
+            "symbol": "TokenBackendError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rest_framework_simplejwt.exceptions",
+            "symbol": "AuthenticationFailed",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rest_framework_simplejwt.exceptions",
+            "symbol": "InvalidToken",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rest_framework_simplejwt.utils",
+            "symbol": "aware_utcnow",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rest_framework_simplejwt.utils",
+            "symbol": "datetime_to_epoch",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rest_framework_simplejwt.utils",
+            "symbol": "datetime_from_epoch",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write executable tests from the PRD and architecture docs for settings overrides, TokenBackend encode/decode, exception behaviour, and utility datetime conversion. Do not edit source files.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "rest_framework_simplejwt/settings.py",
+            "rest_framework_simplejwt/backends.py",
+            "rest_framework_simplejwt/exceptions.py",
+            "rest_framework_simplejwt/utils.py",
+            "rest_framework_simplejwt/state.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "builder_contract_author",
+          "title": "Contract author",
+          "mandate": "Implement the foundational contracts exactly at the documented import paths: settings constants/api_settings, state token backend, Simple JWT exception classes, utility helpers, and TokenBackend cryptographic encode/decode behaviour.",
+          "role": "contract_author",
+          "slot_id": "builder",
+          "focus_paths": [
+            "rest_framework_simplejwt/__init__.py",
+            "rest_framework_simplejwt/settings.py",
+            "rest_framework_simplejwt/state.py",
+            "rest_framework_simplejwt/exceptions.py",
+            "rest_framework_simplejwt/utils.py",
+            "rest_framework_simplejwt/backends.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "If the milestone gate fails, repair only the named settings, backend, exception, or utility contract failures while preserving the public symbols frozen by this milestone.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "rest_framework_simplejwt/__init__.py",
+            "rest_framework_simplejwt/settings.py",
+            "rest_framework_simplejwt/state.py",
+            "rest_framework_simplejwt/exceptions.py",
+            "rest_framework_simplejwt/utils.py",
+            "rest_framework_simplejwt/backends.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "token_object_lifecycle",
+      "title": "Core token classes and JWT lifecycle primitives",
+      "objective": "Implement Token, UntypedToken, AccessToken, RefreshToken, SlidingToken, and BlacklistMixin behaviour for claim creation, validation, expiration, token type checking, user claim insertion, string serialization, access-token derivation, and optional blacklist hooks.",
+      "risk_rationale": "This milestone delivers the token object model that serializers, authentication, and blacklist persistence all depend on. Its gate can verify it directly by constructing token classes, converting them to strings, decoding them through the frozen backend, checking claims, and deriving access tokens, without requiring DRF authentication classes or API endpoints. A defect here would cause every later feature to issue or accept structurally wrong JWTs.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "test_first",
+      "depends_on": [
+        "settings_crypto_foundation"
+      ],
+      "focus_paths": [
+        "rest_framework_simplejwt/tokens.py",
+        "rest_framework_simplejwt/models.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "New AccessToken, RefreshToken, SlidingToken, and UntypedToken instances populate configured token type, exp, iat, and jti claims as documented.",
+          "Token.for_user adds the configured user id claim using the configured user id field and claim name.",
+          "Stringifying a token produces a signed JWT that the frozen TokenBackend can decode.",
+          "Constructing typed token classes from encoded strings validates signature, expiration, and token type.",
+          "RefreshToken.access_token creates an access token that copies allowed claims and excludes configured no-copy claims.",
+          "UntypedToken validates signature and expiration without enforcing a token_type value."
+        ],
+        "corner_cases": [
+          "Missing exp, iat, jti, or token_type claims fail where required.",
+          "Expired tokens fail validation while tokens inside configured leeway pass.",
+          "Refresh-to-access conversion must not copy refresh-only jti, exp, token_type, or configured no-copy claims.",
+          "Custom configured claim names for token type, user id, jti, exp, and iat are honoured.",
+          "BlacklistMixin methods are safe when the blacklist app is not installed and activate only when token_blacklist models are available."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "rest_framework_simplejwt.tokens",
+            "symbol": "Token",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rest_framework_simplejwt.tokens",
+            "symbol": "UntypedToken",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rest_framework_simplejwt.tokens",
+            "symbol": "AccessToken",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rest_framework_simplejwt.tokens",
+            "symbol": "RefreshToken",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rest_framework_simplejwt.tokens",
+            "symbol": "SlidingToken",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rest_framework_simplejwt.tokens",
+            "symbol": "BlacklistMixin",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write executable tests for token class construction, claim contents, encode/decode round trips, type verification, expiration handling, for_user, and RefreshToken.access_token semantics. Do not edit source.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "rest_framework_simplejwt/tokens.py",
+            "rest_framework_simplejwt/models.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "builder_implementer",
+          "title": "Implementer",
+          "mandate": "Implement the core token object lifecycle on top of the frozen settings, utilities, exceptions, and TokenBackend contracts. Keep blacklist database behaviour as optional hooks and do not implement the blacklist app itself in this milestone.",
+          "role": "implementer",
+          "slot_id": "builder",
+          "focus_paths": [
+            "rest_framework_simplejwt/tokens.py",
+            "rest_framework_simplejwt/models.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "If the milestone gate fails, fix only the token class behaviour named in the failure report, preserving all settings/backend contracts from the previous milestone.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "rest_framework_simplejwt/tokens.py",
+            "rest_framework_simplejwt/models.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "request_authentication",
+      "title": "JWT request authentication and stateless token users",
+      "objective": "Implement DRF authentication classes and token-backed user representation: Authorization header parsing, raw token extraction, token validation against configured AUTH_TOKEN_CLASSES, database user lookup, revoked/inactive user rejection, authenticate header generation, and stateless TokenUser support.",
+      "risk_rationale": "This milestone delivers the request authentication feature independently of token obtain/refresh endpoints. Its gate can create signed tokens with earlier token classes and authenticate synthetic DRF requests, verifying header parsing and user resolution without any serializers or views. A defect here would make all issued tokens unusable or insecure even if generation works.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "review_then_fix",
+      "depends_on": [
+        "settings_crypto_foundation",
+        "token_object_lifecycle"
+      ],
+      "focus_paths": [
+        "rest_framework_simplejwt/authentication.py",
+        "rest_framework_simplejwt/models.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "JWTAuthentication.authenticate returns None when no Authorization header is present and returns a user/token tuple for a valid bearer token.",
+          "JWTAuthentication.get_header and get_raw_token honour configured AUTH_HEADER_NAME and AUTH_HEADER_TYPES.",
+          "JWTAuthentication.get_validated_token accepts any configured token class and reports structured invalid-token details when all fail.",
+          "JWTAuthentication.get_user looks up the configured user model by USER_ID_FIELD/USER_ID_CLAIM and rejects missing, inactive, or password-revoked users according to settings.",
+          "JWTStatelessUserAuthentication returns a TokenUser derived from claims without querying the database.",
+          "TokenUser exposes documented id, pk, username, is_authenticated, is_active, permission, password, save, delete, and string behaviours."
+        ],
+        "corner_cases": [
+          "Authorization headers with zero, one, two, or more whitespace-separated parts are handled exactly as DRF authentication expects.",
+          "Non-ASCII header bytes do not crash authentication and are rejected safely.",
+          "Multiple configured header types are supported case-sensitively where documented.",
+          "Tokens missing the user id claim fail with AuthenticationFailed rather than KeyError.",
+          "Inactive-user checking can be customized via USER_AUTHENTICATION_RULE."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "rest_framework_simplejwt.authentication",
+            "symbol": "JWTAuthentication",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rest_framework_simplejwt.authentication",
+            "symbol": "JWTStatelessUserAuthentication",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rest_framework_simplejwt.authentication",
+            "symbol": "JWTTokenUserAuthentication",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rest_framework_simplejwt.models",
+            "symbol": "TokenUser",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rest_framework_simplejwt.authentication",
+            "symbol": "default_user_authentication_rule",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write executable tests for DRF request authentication using tokens from earlier milestones, including header parsing, invalid tokens, inactive users, custom header settings, and stateless TokenUser behaviour. Do not edit source.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "rest_framework_simplejwt/authentication.py",
+            "rest_framework_simplejwt/models.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement JWTAuthentication, JWTStatelessUserAuthentication, JWTTokenUserAuthentication aliasing, TokenUser, and default user authentication rules against the frozen token and settings contracts.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "rest_framework_simplejwt/authentication.py",
+            "rest_framework_simplejwt/models.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "reviewer_contract_critic",
+          "title": "Contract critic",
+          "mandate": "Read the authentication implementation and report any deviations from the frozen settings, token, exception, and public import contracts, especially changed claim names, token class assumptions, or exception types. Do not edit.",
+          "role": "contract_critic",
+          "slot_id": "reviewer",
+          "focus_paths": [
+            "rest_framework_simplejwt/authentication.py",
+            "rest_framework_simplejwt/models.py"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Fix the reviewer report and any gate failures for authentication and TokenUser only, without changing earlier frozen token/backend/settings contracts.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "rest_framework_simplejwt/authentication.py",
+            "rest_framework_simplejwt/models.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "serializers_and_views",
+      "title": "Token serializers and public DRF endpoint views",
+      "objective": "Implement password field handling, token obtain pair, token obtain sliding, refresh, sliding refresh, verify serializers, and their DRF TokenViewBase-derived views at the documented import paths.",
+      "risk_rationale": "This milestone delivers the outward-facing API layer for generation, refresh, sliding refresh, and verify flows, excluding blacklist persistence. Its gate can use Django users and DRF APIRequestFactory/APIClient to post to the views and verify response status codes and payloads without the blacklist app. A defect here would prevent clients from obtaining or refreshing otherwise-valid tokens.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "test_first",
+      "depends_on": [
+        "settings_crypto_foundation",
+        "token_object_lifecycle",
+        "request_authentication"
+      ],
+      "focus_paths": [
+        "rest_framework_simplejwt/serializers.py",
+        "rest_framework_simplejwt/views.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "TokenObtainPairSerializer authenticates username/password credentials and returns refresh and access token strings for active users.",
+          "TokenObtainSlidingSerializer authenticates credentials and returns a sliding token string.",
+          "TokenRefreshSerializer validates a refresh token and returns a new access token, respecting refresh rotation and blacklist settings when available later.",
+          "TokenRefreshSlidingSerializer validates a sliding token refresh claim and returns a refreshed sliding token.",
+          "TokenVerifySerializer validates any signed, unexpired token without returning claims.",
+          "TokenViewBase and concrete views use the documented serializer classes, no authentication/permission requirements, POST handling, and WWW-Authenticate header behaviour."
+        ],
+        "corner_cases": [
+          "Invalid credentials, inactive users, malformed tokens, expired tokens, wrong token types, and missing required request fields produce DRF validation/authentication errors rather than crashes.",
+          "UPDATE_LAST_LOGIN updates last_login only when configured.",
+          "Refresh rotation settings produce a new refresh token only when configured.",
+          "Sliding token refresh fails after refresh_exp even if the normal exp claim would otherwise be extendable.",
+          "Serializer token_class attributes can be overridden by subclasses."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "rest_framework_simplejwt.serializers",
+            "symbol": "PasswordField",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rest_framework_simplejwt.serializers",
+            "symbol": "TokenObtainSerializer",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rest_framework_simplejwt.serializers",
+            "symbol": "TokenObtainPairSerializer",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rest_framework_simplejwt.serializers",
+            "symbol": "TokenObtainSlidingSerializer",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rest_framework_simplejwt.serializers",
+            "symbol": "TokenRefreshSerializer",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rest_framework_simplejwt.serializers",
+            "symbol": "TokenRefreshSlidingSerializer",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rest_framework_simplejwt.serializers",
+            "symbol": "TokenVerifySerializer",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rest_framework_simplejwt.views",
+            "symbol": "TokenViewBase",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rest_framework_simplejwt.views",
+            "symbol": "TokenObtainPairView",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rest_framework_simplejwt.views",
+            "symbol": "TokenObtainSlidingView",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rest_framework_simplejwt.views",
+            "symbol": "TokenRefreshView",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rest_framework_simplejwt.views",
+            "symbol": "TokenRefreshSlidingView",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rest_framework_simplejwt.views",
+            "symbol": "TokenVerifyView",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write executable tests for obtain pair, obtain sliding, refresh, refresh sliding, verify, invalid credential/token paths, last-login update, and view POST behaviour. Do not edit source.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "rest_framework_simplejwt/serializers.py",
+            "rest_framework_simplejwt/views.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "builder_implementer",
+          "title": "Implementer",
+          "mandate": "Implement serializers and views using the frozen token, authentication, settings, and exception contracts. Exclude database blacklist app implementation except for conditional settings-compatible hooks.",
+          "role": "implementer",
+          "slot_id": "builder",
+          "focus_paths": [
+            "rest_framework_simplejwt/serializers.py",
+            "rest_framework_simplejwt/views.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "If the milestone gate fails, repair only the named serializer or view behaviours while preserving earlier frozen contracts.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "rest_framework_simplejwt/serializers.py",
+            "rest_framework_simplejwt/views.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "blacklist_and_full_integration",
+      "title": "Token blacklist app, migrations, admin, management command, and full public integration",
+      "objective": "Implement the database-backed blacklist subsystem and wire the complete public contract: OutstandingToken and BlacklistedToken models, migrations, admin classes, app config, flushexpiredtokens command, blacklist serializer/view, token blacklist hooks, package imports, and compatibility with the visible integration suite.",
+      "risk_rationale": "This final milestone delivers the remaining documented feature group and integrates all earlier modules under the full public contract. Its gate can verify blacklist models and migrations in a Django test database, programmatic token.blacklist(), API blacklist endpoint, expired-token flushing, admin read-only behaviour, and end-to-end obtain/refresh/verify/authenticate flows together. It is last because blacklist hooks depend on token classes and serializers/views, and because final grading must confirm the whole library works as a package.",
+      "gate_level": "integration",
+      "split_reason": "feature_module",
+      "template_id": "parallel_audit",
+      "depends_on": [
+        "settings_crypto_foundation",
+        "token_object_lifecycle",
+        "request_authentication",
+        "serializers_and_views"
+      ],
+      "focus_paths": [
+        "rest_framework_simplejwt/__init__.py",
+        "rest_framework_simplejwt/tokens.py",
+        "rest_framework_simplejwt/serializers.py",
+        "rest_framework_simplejwt/views.py",
+        "rest_framework_simplejwt/token_blacklist/__init__.py",
+        "rest_framework_simplejwt/token_blacklist/apps.py",
+        "rest_framework_simplejwt/token_blacklist/models.py",
+        "rest_framework_simplejwt/token_blacklist/admin.py",
+        "rest_framework_simplejwt/token_blacklist/management/commands/flushexpiredtokens.py",
+        "rest_framework_simplejwt/token_blacklist/migrations"
+      ],
+      "acceptance": {
+        "criteria": [
+          "Installing rest_framework_simplejwt.token_blacklist creates OutstandingToken and BlacklistedToken tables with the documented fields, relationships, metadata, and migrations.",
+          "RefreshToken.for_user and SlidingToken.for_user create outstanding token records when the blacklist app is installed.",
+          "RefreshToken.blacklist and SlidingToken.blacklist create BlacklistedToken records and make future validation fail.",
+          "TokenBlacklistSerializer and TokenBlacklistView accept a refresh token and blacklist it via POST.",
+          "Refresh rotation with BLACKLIST_AFTER_ROTATION blacklists the consumed refresh token and returns the correct replacement tokens.",
+          "The flushexpiredtokens management command deletes expired outstanding tokens and preserves unexpired records.",
+          "Admin classes expose optimized querysets, read-only outstanding tokens, and blacklisted-token display helper methods.",
+          "All documented modules import at their public paths and the visible check_tests suite passes together with the milestone behavioural gate."
+        ],
+        "corner_cases": [
+          "Blacklisting the same token twice is idempotent or reports the documented validation error without duplicate database rows.",
+          "Outstanding tokens survive user deletion as specified by the migration and model on_delete behaviour.",
+          "Expired outstanding-token flushing uses the current UTC time and deletes tokens expiring exactly at or before now.",
+          "Blacklist checks fail closed when the jti claim is absent from a blacklistable token.",
+          "The token_blacklist app remains optional: importing and using non-blacklist token/auth/view features still works when it is not in INSTALLED_APPS.",
+          "Django 3.2 through 4.2 app config and default_auto_field behaviour are respected."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "rest_framework_simplejwt.token_blacklist.apps",
+            "symbol": "TokenBlacklistConfig",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "rest_framework_simplejwt.token_blacklist",
+            "symbol": "default_app_config",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rest_framework_simplejwt.token_blacklist.models",
+            "symbol": "OutstandingToken",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rest_framework_simplejwt.token_blacklist.models",
+            "symbol": "BlacklistedToken",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rest_framework_simplejwt.token_blacklist.admin",
+            "symbol": "OutstandingTokenAdmin",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rest_framework_simplejwt.token_blacklist.admin",
+            "symbol": "BlacklistedTokenAdmin",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rest_framework_simplejwt.token_blacklist.management.commands.flushexpiredtokens",
+            "symbol": "Command",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rest_framework_simplejwt.serializers",
+            "symbol": "TokenBlacklistSerializer",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "rest_framework_simplejwt.views",
+            "symbol": "TokenBlacklistView",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write executable integration tests for blacklist models/migrations, programmatic blacklist(), blacklist API endpoint, refresh rotation blacklisting, flushexpiredtokens, admin read-only/display helpers, optional-app behaviour, and full obtain/refresh/verify/authenticate flows. Do not edit source.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "rest_framework_simplejwt",
+            "rest_framework_simplejwt/token_blacklist"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement and wire the blacklist subsystem and final public API integration: models, migrations, app config, admin, management command, blacklist serializer/view, token hooks, and package-level compatibility without breaking earlier frozen contracts.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "rest_framework_simplejwt/__init__.py",
+            "rest_framework_simplejwt/tokens.py",
+            "rest_framework_simplejwt/serializers.py",
+            "rest_framework_simplejwt/views.py",
+            "rest_framework_simplejwt/token_blacklist"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "spec_review_spec_auditor",
+          "title": "Specification auditor",
+          "mandate": "Audit the complete repository against the PRD, architecture, UML, and directory tree, with emphasis on blacklist lifecycle, endpoint names/classes, migrations, admin behaviour, and optional-app semantics. Report deviations only.",
+          "role": "spec_auditor",
+          "slot_id": "spec_review",
+          "focus_paths": [
+            "rest_framework_simplejwt",
+            "rest_framework_simplejwt/token_blacklist"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "contract_review_contract_critic",
+          "title": "Contract critic",
+          "mandate": "Audit the final integration against all contracts frozen by previous milestones: settings exports, TokenBackend behaviour, token class APIs, authentication APIs, serializer/view class names, and public import paths. Report violations only.",
+          "role": "contract_critic",
+          "slot_id": "contract_review",
+          "focus_paths": [
+            "rest_framework_simplejwt"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Fix all spec and contract audit findings plus integration-gate failures, limiting changes to the named defects and preserving the full public contract.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "rest_framework_simplejwt",
+            "rest_framework_simplejwt/token_blacklist"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    }
+  ]
+}

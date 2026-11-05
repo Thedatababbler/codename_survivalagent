@@ -1,0 +1,998 @@
+{
+  "generator": "llm",
+  "split_policy": "feature",
+  "rationale": "Split feature-first into five dependency-ordered modules: shared contracts first, then the platform locking engine, then high-level file utilities, then the optional Redis distributed lock, and finally public API/CLI integration. Each non-final milestone exposes behavior that can be tested immediately from the documented modules while freezing contracts that later milestones import.",
+  "split": true,
+  "milestones": [
+    {
+      "milestone_id": "shared_contracts",
+      "title": "Shared constants, exceptions, typing contracts, and version metadata",
+      "objective": "Build the reusable substrate: lock flag enum and public flag constants, lock exceptions, file typing helpers/protocols, py.typed marker, version discovery, and minimal package-root exports for these contracts.",
+      "risk_rationale": "This milestone delivers the symbols every later module must agree on: lock flag names/values, exception hierarchy, file argument types, and package metadata. Its gate can verify these independently by importing the contracts, checking exception inheritance and attributes, checking flag composition, and confirming version discovery works without any platform locker or high-level Lock implementation.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "test_first",
+      "depends_on": [],
+      "focus_paths": [
+        "portalocker/constants.py",
+        "portalocker/exceptions.py",
+        "portalocker/types.py",
+        "portalocker/__about__.py",
+        "portalocker/__init__.py",
+        "portalocker/py.typed"
+      ],
+      "acceptance": {
+        "criteria": [
+          "portalocker.constants.LockFlags is an enum.IntFlag with EXCLUSIVE, SHARED, NON_BLOCKING, and UNBLOCK members.",
+          "Package-level LOCK_EX, LOCK_SH, LOCK_NB, and LOCK_UN are exported and correspond to the documented LockFlags members.",
+          "BaseLockException stores fh and exposes LOCK_FAILED/strerror-compatible lock failure information; LockException, AlreadyLocked, and FileToLarge inherit according to the UML.",
+          "portalocker.types exposes documented file-related typing helpers without importing platform locking modules.",
+          "get_version() returns a string when package metadata or pyproject version is available and degrades safely rather than crashing when neither is available.",
+          "Importing portalocker at this stage succeeds and exposes the shared contracts without requiring redis or Windows-only modules."
+        ],
+        "corner_cases": [
+          "Bitwise OR of LOCK_EX and LOCK_NB remains a LockFlags value.",
+          "BaseLockException can be constructed with no fh, an integer fd, or an object with fileno().",
+          "_read_pyproject_version returns None for missing files, malformed TOML, or pyproject files without a project.version entry.",
+          "Package import must not fail when redis, pywin32, msvcrt, or fcntl are unavailable."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "portalocker.constants",
+            "symbol": "LockFlags",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "portalocker.constants",
+            "symbol": "LOCK_EX",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "portalocker.constants",
+            "symbol": "LOCK_SH",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "portalocker.constants",
+            "symbol": "LOCK_NB",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "portalocker.constants",
+            "symbol": "LOCK_UN",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "portalocker",
+            "symbol": "LOCK_EX",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "portalocker",
+            "symbol": "LOCK_SH",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "portalocker",
+            "symbol": "LOCK_NB",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "portalocker",
+            "symbol": "LOCK_UN",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker.exceptions",
+            "symbol": "BaseLockException",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker.exceptions",
+            "symbol": "LockException",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker.exceptions",
+            "symbol": "AlreadyLocked",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker.exceptions",
+            "symbol": "FileToLarge",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker.types",
+            "symbol": "HasFileno",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker.__about__",
+            "symbol": "get_version",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write tests for the foundational contracts only: LockFlags and public constants, exception hierarchy/attributes, type helper importability, version parsing fallback behavior, py.typed presence, and safe package import without optional dependencies.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "portalocker/constants.py",
+            "portalocker/exceptions.py",
+            "portalocker/types.py",
+            "portalocker/__about__.py",
+            "portalocker/__init__.py",
+            "portalocker/py.typed"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "builder_contract_author",
+          "title": "Contract author",
+          "mandate": "Implement the shared constants, exceptions, typing helpers, version helper, py.typed marker, and minimal package-root re-exports exactly as documented, avoiding any dependency on platform locker or redis modules.",
+          "role": "contract_author",
+          "slot_id": "builder",
+          "focus_paths": [
+            "portalocker/constants.py",
+            "portalocker/exceptions.py",
+            "portalocker/types.py",
+            "portalocker/__about__.py",
+            "portalocker/__init__.py",
+            "portalocker/py.typed"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "If the acceptance gate fails, fix only the reported foundational contract/import/version/type issues without adding high-level lock or redis behavior.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "portalocker/constants.py",
+            "portalocker/exceptions.py",
+            "portalocker/types.py",
+            "portalocker/__about__.py",
+            "portalocker/__init__.py",
+            "portalocker/py.typed"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "platform_locking_engine",
+      "title": "Cross-platform low-level file locking engine",
+      "objective": "Implement portalocker.portalocker: BaseLocker, POSIX lockers, Windows lockers/fallbacks, public lock(file, flags), unlock(file), and package-root exports for low-level locking.",
+      "risk_rationale": "This milestone delivers the core OS-facing lock/unlock behavior that Lock, RLock, semaphores, and atomic utilities depend on. Its gate can verify it alone by locking real temporary files on the current platform, exercising non-blocking contention, unlock behavior, fd handling, and exception mapping without any high-level context-manager utilities.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "test_first",
+      "depends_on": [
+        "shared_contracts"
+      ],
+      "focus_paths": [
+        "portalocker/portalocker.py",
+        "portalocker/__init__.py",
+        "portalocker/constants.py",
+        "portalocker/exceptions.py",
+        "portalocker/types.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "portalocker.portalocker exposes BaseLocker, platform locker classes, lock(), unlock(), LockCallable, and UnlockCallable.",
+          "portalocker.lock(file, flags) and portalocker.unlock(file) work on file handles and integer file descriptors supported by the current platform.",
+          "Exclusive locks prevent a second non-blocking exclusive acquisition on the same file from another handle/process and raise AlreadyLocked or LockException as documented.",
+          "Shared locks are accepted where the current platform supports them and map to the correct underlying primitive.",
+          "Unlock releases the OS lock and allows subsequent acquisition.",
+          "Platform-specific optional modules are imported conditionally so unsupported platform code does not break imports."
+        ],
+        "corner_cases": [
+          "flags passed as LockFlags or integer-compatible bitmasks are handled consistently.",
+          "LOCK_NB contention fails immediately rather than hanging.",
+          "Unlocking after a failed acquisition does not corrupt file position or hide the original error.",
+          "Objects exposing fileno() are accepted; invalid objects raise LockException rather than AttributeError leakage where possible.",
+          "Windows helper code preserves IO object file position around whole-file locking."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "portalocker.portalocker",
+            "symbol": "BaseLocker",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker.portalocker",
+            "symbol": "PosixLocker",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker.portalocker",
+            "symbol": "FlockLocker",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker.portalocker",
+            "symbol": "LockfLocker",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker.portalocker",
+            "symbol": "Win32Locker",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker.portalocker",
+            "symbol": "MsvcrtLocker",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker.portalocker",
+            "symbol": "lock",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker.portalocker",
+            "symbol": "unlock",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker",
+            "symbol": "lock",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker",
+            "symbol": "unlock",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write platform-neutral low-level lock tests using temporary files and subprocesses where needed: exclusive/non-blocking contention, shared-lock availability, release/reacquire, fd and fileno object support, and exception mapping.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "portalocker/portalocker.py",
+            "portalocker/__init__.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "builder_implementer",
+          "title": "Implementer",
+          "mandate": "Implement the documented low-level locker classes and public lock/unlock functions using fcntl on POSIX and msvcrt/Win32 APIs conditionally on Windows, importing only contracts frozen in shared_contracts.",
+          "role": "implementer",
+          "slot_id": "builder",
+          "focus_paths": [
+            "portalocker/portalocker.py",
+            "portalocker/__init__.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "If the gate fails, repair only the reported low-level lock/unlock, platform import, or exception-mapping defects while preserving the frozen constants and exception contracts.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "portalocker/portalocker.py",
+            "portalocker/__init__.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "high_level_file_utilities",
+      "title": "Lock context managers, semaphores, pid locks, and atomic writes",
+      "objective": "Implement portalocker.utils high-level synchronization primitives: LockBase, Lock, RLock, TemporaryFileLock, PidFileLock, BoundedSemaphore, NamedBoundedSemaphore, and open_atomic(), with package-root exports.",
+      "risk_rationale": "This milestone delivers the user-facing file-lock utilities built on the already-frozen low-level engine. Its gate can verify behavior without Redis or CLI by using temporary files and subprocess/thread contention: context-manager acquire/release, timeout loops, reentrant counting, automatic cleanup, bounded semaphore capacity, and atomic write visibility.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "review_then_fix",
+      "depends_on": [
+        "shared_contracts",
+        "platform_locking_engine"
+      ],
+      "focus_paths": [
+        "portalocker/utils.py",
+        "portalocker/__init__.py",
+        "portalocker/portalocker.py",
+        "portalocker/constants.py",
+        "portalocker/exceptions.py",
+        "portalocker/types.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "LockBase implements context-manager behavior and timeout retry generation for subclasses.",
+          "Lock opens the target file, acquires the requested lock flags, returns the file handle from acquire/__enter__, and releases/closes it reliably.",
+          "RLock allows repeated acquisition of the same lock object in the same process and only releases the underlying lock when the acquisition count reaches zero.",
+          "TemporaryFileLock removes its lock file on release/context exit.",
+          "BoundedSemaphore limits concurrent holders to maximum using lock files and releases capacity when the held lock is released.",
+          "NamedBoundedSemaphore behaves as a named BoundedSemaphore variant.",
+          "PidFileLock writes/read pids as documented and cleans up correctly.",
+          "open_atomic writes to a temporary file and atomically replaces the destination only after successful context exit.",
+          "High-level classes and open_atomic are exported from portalocker as documented."
+        ],
+        "corner_cases": [
+          "timeout=0 or fail_when_locked=True fails promptly under contention.",
+          "timeout=None can wait/retry without premature timeout.",
+          "Exceptions during a with-block still release and close the file handle.",
+          "RLock release more times than acquired raises a lock-related error rather than silently underflowing.",
+          "TemporaryFileLock cleanup tolerates missing files during release.",
+          "BoundedSemaphore maximum=1 behaves like a mutex; maximum less than 1 is rejected.",
+          "open_atomic does not replace the destination when the context body raises and supports text and binary modes."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "portalocker.utils",
+            "symbol": "LockBase",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker.utils",
+            "symbol": "Lock",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker.utils",
+            "symbol": "RLock",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker.utils",
+            "symbol": "TemporaryFileLock",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker.utils",
+            "symbol": "PidFileLock",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker.utils",
+            "symbol": "BoundedSemaphore",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker.utils",
+            "symbol": "NamedBoundedSemaphore",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker.utils",
+            "symbol": "open_atomic",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker",
+            "symbol": "Lock",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker",
+            "symbol": "RLock",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker",
+            "symbol": "TemporaryFileLock",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker",
+            "symbol": "BoundedSemaphore",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker",
+            "symbol": "open_atomic",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write tests for high-level utilities using the frozen low-level lock engine: Lock context manager behavior, timeout/fail_when_locked, RLock counts, TemporaryFileLock cleanup, BoundedSemaphore capacity, PidFileLock pid read/write, and open_atomic success/failure replacement semantics.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "portalocker/utils.py",
+            "portalocker/__init__.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement portalocker.utils high-level file lock utilities and package-root exports using only the frozen constants, exceptions, types, and low-level lock/unlock functions.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "portalocker/utils.py",
+            "portalocker/__init__.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "reviewer_spec_auditor",
+          "title": "Specification auditor",
+          "mandate": "Review the high-level utility implementation against the PRD, architecture, and UML, focusing on context-manager return values, timeout semantics, reentrant release counts, semaphore naming/files, and atomic replacement behavior.",
+          "role": "spec_auditor",
+          "slot_id": "reviewer",
+          "focus_paths": [
+            "portalocker/utils.py",
+            "portalocker/__init__.py"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_edge_case_hardener",
+          "title": "Edge-case hardener",
+          "mandate": "Apply the reviewer findings and harden documented edge cases: zero timeout, exceptions during context exit, cleanup races, semaphore invalid limits, and open_atomic rollback.",
+          "role": "edge_case_hardener",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "portalocker/utils.py",
+            "portalocker/__init__.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "redis_distributed_locking",
+      "title": "Optional Redis Pub/Sub distributed lock",
+      "objective": "Implement portalocker.redis RedisLock and PubSubWorkerThread with optional redis dependency handling and compatible LockBase context-manager API.",
+      "risk_rationale": "This milestone delivers the separate distributed-locking extension. Its gate can verify it alone by importing the module with redis installed or with a fake redis client, checking Pub/Sub acquisition/release protocol, timeout behavior, client naming, and safe optional-dependency failure, without needing CLI integration.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "review_then_fix",
+      "depends_on": [
+        "shared_contracts",
+        "high_level_file_utilities"
+      ],
+      "focus_paths": [
+        "portalocker/redis.py",
+        "portalocker/utils.py",
+        "portalocker/exceptions.py",
+        "portalocker/__init__.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "portalocker.redis exposes PubSubWorkerThread and RedisLock.",
+          "RedisLock subclasses/uses LockBase-compatible acquire, release, __enter__, and __exit__ semantics.",
+          "RedisLock can be constructed with an explicit connection or redis_kwargs and lazily creates/reuses a Redis connection as documented.",
+          "RedisLock.acquire detects existing subscribers, optionally fails when locked, waits according to timeout/check_interval, subscribes to the channel, and starts a PubSubWorkerThread when acquired.",
+          "RedisLock.release unsubscribes/stops worker thread and closes only connections it owns.",
+          "PubSubWorkerThread.run interrupts the main thread if the Redis worker raises an exception.",
+          "Importing the top-level portalocker package does not require the optional redis dependency."
+        ],
+        "corner_cases": [
+          "redis package missing: top-level import remains usable and portalocker.redis fails with a clear ImportError only when the extension is imported/used.",
+          "timeout=0 and fail_when_locked=True do not block when another subscriber exists.",
+          "release before acquire is safe or raises a documented lock exception, not an AttributeError.",
+          "Network/pubsub worker exceptions trigger main-thread interruption.",
+          "Connection ownership is respected: externally supplied connections are not closed by release."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "portalocker.redis",
+            "symbol": "PubSubWorkerThread",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker.redis",
+            "symbol": "RedisLock",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "portalocker.redis",
+            "symbol": "DEFAULT_THREAD_SLEEP_TIME",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "portalocker.redis",
+            "symbol": "DEFAULT_UNAVAILABLE_TIMEOUT",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write tests for RedisLock using a fake redis client/pubsub where possible: construction, lazy connection, acquire/release subscription protocol, timeout/fail_when_locked behavior, connection ownership, worker exception interruption, and missing optional dependency behavior.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "portalocker/redis.py",
+            "portalocker/__init__.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement RedisLock and PubSubWorkerThread according to the architecture, using the existing LockBase and exceptions, while keeping redis as an optional dependency that does not affect core imports.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "portalocker/redis.py",
+            "portalocker/__init__.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "reviewer_spec_auditor",
+          "title": "Specification auditor",
+          "mandate": "Review the Redis extension against the PRD and architecture for Pub/Sub-based locking semantics, timeout handling, automatic unlock on connection loss, compatible context-manager API, and optional dependency isolation.",
+          "role": "spec_auditor",
+          "slot_id": "reviewer",
+          "focus_paths": [
+            "portalocker/redis.py"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_edge_case_hardener",
+          "title": "Edge-case hardener",
+          "mandate": "Fix the Redis reviewer findings and harden missing dependency, release-before-acquire, network failure, timeout, and externally supplied connection cases.",
+          "role": "edge_case_hardener",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "portalocker/redis.py",
+            "portalocker/__init__.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "public_api_cli_integration",
+      "title": "Full public API wiring and CLI combine integration",
+      "objective": "Finalize package-root exports, optional Redis exposure, __main__.py combine CLI, dependency-safe imports, and full repository integration across documented public contracts.",
+      "risk_rationale": "This final milestone integrates modules that were verified in isolation and delivers the full public contract: documented import paths, re-exports, command-line combine behavior, and clean repository/package execution. Its gate can run the visible test suite plus full integration checks across core, utilities, optional Redis handling, version metadata, and CLI behavior.",
+      "gate_level": "integration",
+      "split_reason": "feature_module",
+      "template_id": "parallel_audit",
+      "depends_on": [
+        "shared_contracts",
+        "platform_locking_engine",
+        "high_level_file_utilities",
+        "redis_distributed_locking"
+      ],
+      "focus_paths": [
+        "portalocker/__init__.py",
+        "portalocker/__main__.py",
+        "portalocker/__about__.py",
+        "portalocker/constants.py",
+        "portalocker/exceptions.py",
+        "portalocker/portalocker.py",
+        "portalocker/utils.py",
+        "portalocker/redis.py",
+        "portalocker/types.py",
+        "portalocker/py.typed"
+      ],
+      "acceptance": {
+        "criteria": [
+          "All documented public symbols are importable from their documented modules, especially package-root constants, exceptions, low-level functions, high-level utilities, and RedisLock when redis support is available.",
+          "Top-level import portalocker remains dependency-safe and does not require redis or platform-inappropriate Windows/POSIX modules.",
+          "python -m portalocker exposes the documented combine subcommand through main(argv).",
+          "combine reads Python files, resolves relative imports once, removes __future__ imports from combined output, cleans module-qualified self references, prepends README/LICENSE docstrings when present, and can write a single-file portalocker.py output.",
+          "Existing visible check_tests, import checks, and integration behavior pass after all modules are wired together.",
+          "The package remains typed with py.typed and avoids duplicate/scratch implementation files outside the documented tree."
+        ],
+        "corner_cases": [
+          "Circular or repeated relative imports in combine are skipped using seen_files instead of duplicating content or recursing forever.",
+          "_clean_line removes self-assignments such as name = name without damaging unrelated code.",
+          "combine works when README.rst or LICENSE is absent by degrading safely or using documented fallbacks.",
+          "Optional Redis import failures do not hide core API symbols.",
+          "Package-root __all__ or equivalent export wiring does not omit constants, exceptions, lock functions, or utility classes.",
+          "Running main([]) or invalid CLI args produces argparse behavior rather than uncaught implementation exceptions."
+        ],
+        "checks": [
+          {
+            "type": "import",
+            "module": "portalocker",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker",
+            "symbol": "lock",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker",
+            "symbol": "unlock",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker",
+            "symbol": "Lock",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker",
+            "symbol": "RLock",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker",
+            "symbol": "TemporaryFileLock",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker",
+            "symbol": "BoundedSemaphore",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker",
+            "symbol": "NamedBoundedSemaphore",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker",
+            "symbol": "PidFileLock",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker",
+            "symbol": "open_atomic",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker.__main__",
+            "symbol": "main",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker.__main__",
+            "symbol": "combine",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker.__main__",
+            "symbol": "_read_file",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "portalocker.__main__",
+            "symbol": "_clean_line",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "portalocker",
+            "symbol": "__version__",
+            "required_levels": [
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write final integration tests for public package imports/re-exports, dependency-safe optional Redis behavior, python -m portalocker/main(argv), combine output on a miniature package with relative imports, and end-to-end Lock/open_atomic examples from the PRD.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "portalocker"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Wire every documented public symbol through portalocker.__init__, implement and connect the CLI combine command, ensure optional Redis exposure is safe, and run the repository-visible checks to catch integration failures.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "portalocker/__init__.py",
+            "portalocker/__main__.py",
+            "portalocker"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "spec_review_spec_auditor",
+          "title": "Specification auditor",
+          "mandate": "Read the PRD, architecture, and UML against the integrated repository and report missing public symbols, wrong CLI behavior, missing documented modules, or behavior that deviates from examples.",
+          "role": "spec_auditor",
+          "slot_id": "spec_review",
+          "focus_paths": [
+            "portalocker"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "contract_review_contract_critic",
+          "title": "Contract critic",
+          "mandate": "Review the integration changes against all frozen contracts from earlier milestones: constants/exception names, low-level lock signatures, utility class signatures, Redis optional dependency boundary, and documented import paths.",
+          "role": "contract_critic",
+          "slot_id": "contract_review",
+          "focus_paths": [
+            "portalocker"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Apply the auditors' required fixes, remove any scratch or duplicate files outside the documented tree, and leave the package surface exactly matching the design while preserving all frozen contracts.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "portalocker"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    }
+  ]
+}

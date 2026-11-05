@@ -1,0 +1,1179 @@
+{
+  "generator": "llm",
+  "split_policy": "feature",
+  "rationale": "The Flask implementation is split into five feature modules ordered by dependency: shared contracts and data primitives first, routing and blueprint registration next, the WSGI request lifecycle after that, higher-level rendering/helper/testing features next, and the CLI plus public package integration last. Each milestone owns behavior that can be exercised immediately with machine tests, while the final milestone verifies that all modules are reachable through the documented public contract.",
+  "split": true,
+  "milestones": [
+    {
+      "milestone_id": "core_contracts_and_context_primitives",
+      "title": "Core contracts, configuration, wrappers, JSON, sessions, and context globals",
+      "objective": "Implement the shared substrate that the application, routing, templating, testing, and CLI layers import: configuration loading, request/response wrappers, context-local proxies, JSON providers/tagging, session classes/interfaces, signals, logging helpers, and typing contracts.",
+      "risk_rationale": "This milestone delivers the cross-module contracts that later Flask modules depend on. Its gate can verify behavior without routing or the CLI by instantiating Config, Request, Response, JSON providers, session objects, and app/request context primitives directly. If these contracts are wrong, downstream modules will either import the wrong symbols or agree on incompatible request, response, session, and JSON semantics.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "review_then_fix",
+      "depends_on": [],
+      "focus_paths": [
+        "flask/config.py",
+        "flask/wrappers.py",
+        "flask/globals.py",
+        "flask/ctx.py",
+        "flask/json",
+        "flask/sessions.py",
+        "flask/signals.py",
+        "flask/logging.py",
+        "flask/typing.py",
+        "flask/debughelpers.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "Config supports dictionary behavior, from_mapping, from_object, from_pyfile, from_file, from_envvar, from_prefixed_env, and get_namespace according to the documented Flask configuration behavior.",
+          "Request and Response wrappers expose Flask-specific request metadata, JSON helpers, response status/header/body handling, and remain compatible with Werkzeug request and response APIs.",
+          "Context globals current_app, g, request, session, and app_ctx/request_ctx behavior are implemented with context-local isolation and raise useful errors outside active contexts.",
+          "JSONProvider, DefaultJSONProvider, JSONTag, and TaggedJSONSerializer serialize and deserialize documented Flask-supported JSON values including tuples, bytes, UUIDs, datetimes, markup, lists, and dicts.",
+          "SessionInterface, SecureCookieSessionInterface, SecureCookieSession, and NullSession implement signed-cookie session behavior, null-session errors, cookie option accessors, and modification/access tracking.",
+          "Signals and logging helpers expose the documented symbols and can be imported without optional runtime setup beyond declared dependencies."
+        ],
+        "corner_cases": [
+          "Missing config files with silent=True return False rather than raising.",
+          "Only uppercase config keys are loaded from objects and mappings where Flask expects that behavior.",
+          "Context proxies accessed outside context raise the documented RuntimeError rather than AttributeError or leaking stale data.",
+          "Nested app and request contexts restore the previous object on pop.",
+          "JSON round trips preserve tagged non-JSON-native types and do not tag ordinary JSON values unnecessarily.",
+          "Session signing returns None when SECRET_KEY is missing and NullSession blocks mutation with the documented error.",
+          "Cookie options handle None domains, secure, httponly, samesite, partitioned, permanent, and lifetime settings."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "flask.config",
+            "symbol": "Config",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.config",
+            "symbol": "ConfigAttribute",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.wrappers",
+            "symbol": "Request",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.wrappers",
+            "symbol": "Response",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.ctx",
+            "symbol": "AppContext",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.ctx",
+            "symbol": "RequestContext",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.ctx",
+            "symbol": "_AppCtxGlobals",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "flask.globals",
+            "symbol": "current_app",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "flask.globals",
+            "symbol": "g",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "flask.globals",
+            "symbol": "request",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "flask.globals",
+            "symbol": "session",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.json.provider",
+            "symbol": "JSONProvider",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.json.provider",
+            "symbol": "DefaultJSONProvider",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.json.tag",
+            "symbol": "TaggedJSONSerializer",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.sessions",
+            "symbol": "SessionInterface",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.sessions",
+            "symbol": "SecureCookieSessionInterface",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.sessions",
+            "symbol": "SecureCookieSession",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.sessions",
+            "symbol": "NullSession",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write black-box tests for configuration loading, wrappers, JSON tagging/provider behavior, session interfaces, and context-local globals from the design documents only. Do not edit source.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "flask/config.py",
+            "flask/wrappers.py",
+            "flask/globals.py",
+            "flask/ctx.py",
+            "flask/json",
+            "flask/sessions.py",
+            "flask/signals.py",
+            "flask/logging.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_contract_author",
+          "title": "Contract author",
+          "mandate": "Implement the shared Flask contracts and primitives exactly where the architecture declares them, preserving importability and behavior for later modules.",
+          "role": "contract_author",
+          "slot_id": "author",
+          "focus_paths": [
+            "flask/config.py",
+            "flask/wrappers.py",
+            "flask/globals.py",
+            "flask/ctx.py",
+            "flask/json",
+            "flask/sessions.py",
+            "flask/signals.py",
+            "flask/logging.py",
+            "flask/typing.py",
+            "flask/debughelpers.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "reviewer_spec_auditor",
+          "title": "Specification auditor",
+          "mandate": "Review the implemented contracts against the PRD, architecture design, and UML for missing behavior, wrong public symbol placement, or incompatible signatures. Report only.",
+          "role": "spec_auditor",
+          "slot_id": "reviewer",
+          "focus_paths": [
+            "flask/config.py",
+            "flask/wrappers.py",
+            "flask/globals.py",
+            "flask/ctx.py",
+            "flask/json",
+            "flask/sessions.py"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Fix only the deviations or gate failures reported for the core contracts milestone while preserving the frozen symbol locations.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "flask/config.py",
+            "flask/wrappers.py",
+            "flask/globals.py",
+            "flask/ctx.py",
+            "flask/json",
+            "flask/sessions.py",
+            "flask/signals.py",
+            "flask/logging.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "routing_scaffold_and_blueprints",
+      "title": "Routing decorators, sans-IO scaffold, application registry, and blueprints",
+      "objective": "Implement the reusable routing and organization layer: sansio scaffold/app/blueprint classes, route decorators, URL rule registration, endpoint naming, request hook registration, error handler registration, and blueprint registration with prefixes and deferred setup.",
+      "risk_rationale": "This milestone delivers the route and blueprint registry that Flask request dispatch, URL generation, and CLI route listing will consume later. Its gate can verify it alone by constructing sans-IO apps and blueprints, registering rules and callbacks, and inspecting Werkzeug URL maps and stored handler registries without needing full WSGI dispatch.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "test_first",
+      "depends_on": [
+        "core_contracts_and_context_primitives"
+      ],
+      "focus_paths": [
+        "flask/sansio/scaffold.py",
+        "flask/sansio/app.py",
+        "flask/sansio/blueprints.py",
+        "flask/blueprints.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "Scaffold decorators register routes, before/after/teardown callbacks, URL preprocessors/defaults, context processors, template filters/tests/globals, and error handlers.",
+          "Sans-IO App owns configuration, URL map, endpoint view function registry, blueprint registry, error handler structures, shell context processors, and static route metadata.",
+          "Blueprint supports route declaration before registration, deferred setup functions, nested blueprint registration, URL prefixes, subdomains, name prefixes, static files, CLI group metadata, and blueprint-scoped callbacks.",
+          "Duplicate endpoint, duplicate blueprint name, or registration-after-setup errors are detected consistently with documented Flask behavior.",
+          "URL rules support methods, defaults, automatic endpoint naming, strict slash handling through Werkzeug, and static rule registration when configured."
+        ],
+        "corner_cases": [
+          "Registering the same blueprint name twice without a distinct name raises an error.",
+          "Blueprint routes combine app prefix, blueprint prefix, rule, subdomain, defaults, and endpoint name correctly.",
+          "Decorators return the original function so they remain stackable.",
+          "Methods normalize to uppercase and include automatic HEAD/OPTIONS behavior through the recorded rule options.",
+          "Error handlers distinguish HTTP status codes from exception classes.",
+          "Setup methods called after the owning object has been registered raise the documented setup-finished assertion."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "flask.sansio.scaffold",
+            "symbol": "Scaffold",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.sansio.app",
+            "symbol": "App",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.sansio.blueprints",
+            "symbol": "Blueprint",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.sansio.blueprints",
+            "symbol": "BlueprintSetupState",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.blueprints",
+            "symbol": "Blueprint",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.blueprints",
+            "symbol": "BlueprintSetupState",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write executable tests that specify route decorator, hook registration, error handler, and blueprint registration behavior using only the design documents. Do not expose these tests to the builder.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "flask/sansio/scaffold.py",
+            "flask/sansio/app.py",
+            "flask/sansio/blueprints.py",
+            "flask/blueprints.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "builder_implementer",
+          "title": "Implementer",
+          "mandate": "Implement the sans-IO scaffold, app registry, and blueprint behavior from the documents without relying on the hidden milestone test suite.",
+          "role": "implementer",
+          "slot_id": "builder",
+          "focus_paths": [
+            "flask/sansio/scaffold.py",
+            "flask/sansio/app.py",
+            "flask/sansio/blueprints.py",
+            "flask/blueprints.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "If the acceptance gate fails, repair exactly the route, scaffold, or blueprint behavior named in the failure report.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "flask/sansio/scaffold.py",
+            "flask/sansio/app.py",
+            "flask/sansio/blueprints.py",
+            "flask/blueprints.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "flask_wsgi_request_lifecycle",
+      "title": "Flask application WSGI core and request lifecycle",
+      "objective": "Implement the concrete Flask class and request lifecycle: WSGI entrypoint, request context creation, URL matching, dispatch, response conversion, preprocessing, postprocessing, teardown, error handling, URL generation, async view wrapping, and test request contexts.",
+      "risk_rationale": "This milestone delivers the core behavior users exercise with @app.route and a WSGI request. Its gate can verify it without templating or CLI by creating Flask instances, registering views and handlers, pushing contexts, invoking wsgi_app, calling test_request_context, dispatching routes, and inspecting responses.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "parallel_audit",
+      "depends_on": [
+        "core_contracts_and_context_primitives",
+        "routing_scaffold_and_blueprints"
+      ],
+      "focus_paths": [
+        "flask/app.py",
+        "flask/ctx.py",
+        "flask/helpers.py",
+        "flask/wrappers.py",
+        "flask/sessions.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "Flask can be instantiated with documented import name, static, template, instance, host, subdomain, and root path parameters.",
+          "@app.route registers view functions that dispatch through WSGI and return correct responses for strings, bytes, dicts, lists, tuples, Response objects, generators, and WSGI callables where documented.",
+          "Request and application contexts are pushed and popped correctly during wsgi_app, app_context, request_context, and test_request_context.",
+          "before_request, after_request, teardown_request, teardown_appcontext, URL value preprocessors, URL defaults, and shell context processors run in documented order and scope.",
+          "HTTPException and exception error handlers are resolved by code, class hierarchy, app scope, and blueprint scope as documented.",
+          "url_for and Flask.url_for generate internal and external URLs with variables, query arguments, anchors, methods, schemes, and current request/application context behavior.",
+          "Sessions are opened before dispatch, exposed through session, saved on response, and interact correctly with permanent lifetime and cookie configuration.",
+          "Async views are supported through ensure_sync and async_to_sync when the async extra is available, and plain sync callables are returned unchanged."
+        ],
+        "corner_cases": [
+          "404, 405, redirect, and routing exceptions are handled separately from user exceptions.",
+          "Testing mode propagates exceptions where documented while production mode converts unhandled exceptions to 500 responses.",
+          "A before_request return value skips dispatch but still runs response processing.",
+          "after_request callbacks run in reverse registration order and teardown callbacks run even after exceptions.",
+          "HEAD requests suppress the response body while preserving headers.",
+          "Default OPTIONS responses include the allowed methods.",
+          "Request contexts copied or nested do not leak request, session, or g values.",
+          "Async support fails with the documented RuntimeError if the async extra is not installed."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "flask.app",
+            "symbol": "Flask",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.app",
+            "symbol": "_make_timedelta",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.ctx",
+            "symbol": "after_this_request",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.ctx",
+            "symbol": "copy_current_request_context",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.helpers",
+            "symbol": "url_for",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.helpers",
+            "symbol": "make_response",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.helpers",
+            "symbol": "redirect",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.helpers",
+            "symbol": "abort",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write lifecycle tests covering WSGI dispatch, contexts, response conversion, hooks, sessions, URL building, error handling, and async wrapping from the design documents. Do not edit source.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "flask/app.py",
+            "flask/ctx.py",
+            "flask/helpers.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement the concrete Flask WSGI application lifecycle on top of the frozen contracts and routing scaffold.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "flask/app.py",
+            "flask/ctx.py",
+            "flask/helpers.py",
+            "flask/wrappers.py",
+            "flask/sessions.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "spec_review_spec_auditor",
+          "title": "Specification auditor",
+          "mandate": "Audit the Flask request lifecycle against the PRD, architecture, sequence diagram, and UML, focusing on quiet behavioral deviations not caught by structural checks. Report only.",
+          "role": "spec_auditor",
+          "slot_id": "spec_review",
+          "focus_paths": [
+            "flask/app.py",
+            "flask/ctx.py",
+            "flask/helpers.py"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "contract_review_contract_critic",
+          "title": "Contract critic",
+          "mandate": "Audit the implementation against frozen Config, wrappers, globals, JSON, sessions, and routing contracts from earlier milestones. Report any signature, import, or semantic breakage only.",
+          "role": "contract_critic",
+          "slot_id": "contract_review",
+          "focus_paths": [
+            "flask/app.py",
+            "flask/ctx.py",
+            "flask/helpers.py",
+            "flask/sansio",
+            "flask/sessions.py"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Apply focused fixes for the lifecycle milestone based on gate failures and both audit reports, preserving all previously frozen contracts.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "flask/app.py",
+            "flask/ctx.py",
+            "flask/helpers.py",
+            "flask/wrappers.py",
+            "flask/sessions.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "templating_helpers_testing_and_views",
+      "title": "Templating, static/file helpers, testing utilities, views, and auxiliary developer features",
+      "objective": "Implement the higher-level Flask features built on the WSGI core: Jinja environment integration, template rendering, context processors, static and file sending helpers, flash messages, streaming helpers, MethodView/View dispatch, testing clients and CLI runners, and developer helper exceptions.",
+      "risk_rationale": "This milestone delivers user-facing features that rely on a working Flask app but are separable from the CLI. Its gate can verify behavior using a Flask instance and test client from the previous milestone, by rendering templates, serving files, using class-based views, flashing messages, and exercising test utilities directly.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "gate_then_repair",
+      "depends_on": [
+        "flask_wsgi_request_lifecycle"
+      ],
+      "focus_paths": [
+        "flask/templating.py",
+        "flask/helpers.py",
+        "flask/testing.py",
+        "flask/views.py",
+        "flask/debughelpers.py",
+        "flask/app.py",
+        "flask/blueprints.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "Jinja environments are created with Flask globals, filters, tests, autoescaping rules, app and blueprint template loaders, and context processors.",
+          "render_template, render_template_string, stream_template, and stream_template_string render with request, session, config, g, user context variables, and template inheritance.",
+          "send_file, send_from_directory, safe_join behavior, static file serving, cache max-age lookup, etag/conditional handling, and attachment naming work through the documented helpers and app methods.",
+          "flash and get_flashed_messages store messages in the session with categories and filtering.",
+          "View and MethodView implement as_view, method dispatch, decorators, init_every_request behavior, and automatic methods detection.",
+          "FlaskClient supports open, cookie handling, context preservation, session_transaction, JSON request/response helpers, and redirect following.",
+          "FlaskCliRunner can invoke app CLI commands inside the app context once the CLI module is integrated later.",
+          "Debug helper exceptions and diagnostics are raised for common mistakes such as unexpected form data redirects or missing uploaded file keys."
+        ],
+        "corner_cases": [
+          "Template context processor values do not overwrite explicit render arguments.",
+          "Blueprint templates and app templates resolve in the documented precedence order.",
+          "Missing templates raise TemplateNotFound with useful names.",
+          "send_from_directory rejects path traversal and missing files.",
+          "Conditional static requests handle If-None-Match and range-related behavior consistently with Werkzeug.",
+          "Flashed messages can be consumed once or retained depending on category filtering behavior.",
+          "MethodView returns 405 for unsupported methods and maps HEAD to GET behavior where appropriate.",
+          "Test client preserved contexts are cleaned up after the client block exits."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "flask.templating",
+            "symbol": "Environment",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.templating",
+            "symbol": "DispatchingJinjaLoader",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.templating",
+            "symbol": "render_template",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.templating",
+            "symbol": "render_template_string",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.templating",
+            "symbol": "stream_template",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.helpers",
+            "symbol": "send_file",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.helpers",
+            "symbol": "send_from_directory",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.helpers",
+            "symbol": "flash",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.helpers",
+            "symbol": "get_flashed_messages",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.testing",
+            "symbol": "FlaskClient",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.testing",
+            "symbol": "FlaskCliRunner",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.views",
+            "symbol": "View",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.views",
+            "symbol": "MethodView",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write tests for templating, file/static helpers, flash messages, class-based views, and test utilities using the documented public behavior. Do not edit source.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "flask/templating.py",
+            "flask/helpers.py",
+            "flask/testing.py",
+            "flask/views.py",
+            "flask/debughelpers.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement Flask templating, helpers, test utilities, and class-based views on top of the existing app lifecycle.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "flask/templating.py",
+            "flask/helpers.py",
+            "flask/testing.py",
+            "flask/views.py",
+            "flask/debughelpers.py",
+            "flask/app.py",
+            "flask/blueprints.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "If the gate fails, fix exactly the named templating, helper, testing, view, or debug-helper behavior while preserving earlier contracts.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "flask/templating.py",
+            "flask/helpers.py",
+            "flask/testing.py",
+            "flask/views.py",
+            "flask/debughelpers.py",
+            "flask/app.py",
+            "flask/blueprints.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "cli_public_api_and_full_integration",
+      "title": "CLI, application discovery, public exports, and full integration",
+      "objective": "Integrate the repository into the complete documented Flask package: implement the Click-based flask CLI, app discovery and factory loading, run/routes/shell commands, environment and dotenv handling, package __main__, root-level public re-exports, and final cross-module compatibility.",
+      "risk_rationale": "This final milestone delivers the outward-facing contract that users import and execute. Its gate verifies the full public package by importing documented symbols from flask, invoking python -m flask and flask CLI commands through Click runners, discovering apps from modules/files/factories/environment variables, and running the visible integration tests across all previously built modules.",
+      "gate_level": "integration",
+      "split_reason": "feature_module",
+      "template_id": "parallel_audit",
+      "depends_on": [
+        "templating_helpers_testing_and_views"
+      ],
+      "focus_paths": [
+        "flask/cli.py",
+        "flask/__init__.py",
+        "flask/__main__.py",
+        "flask/app.py",
+        "flask/blueprints.py",
+        "flask/helpers.py",
+        "flask/json/__init__.py",
+        "flask/testing.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "The flask CLI supports --app, --debug, --env-file, --version, --help, and the run, routes, and shell commands with documented options.",
+          "Application discovery loads app, application, create_app, make_app, factory calls with literal arguments, dotted imports, filesystem paths, app.py, wsgi.py, and FLASK_APP.",
+          "Debug mode, dotenv loading, environment variable precedence, host, port, reload, debugger, threads, certificate, extra-files, and exclude-pattern options are parsed and passed to the development server correctly.",
+          "routes command lists registered routes with endpoints, methods, domains/rules where available, sorting, and all-methods behavior.",
+          "shell command opens an app context and includes app, g, and shell context processor values.",
+          "Custom app.cli commands and blueprint CLI commands are registered and invokable through FlaskCliRunner.",
+          "flask.__init__ re-exports the documented public API from the package root, including core classes, globals, helpers, templating functions, JSON functions, sessions, blueprints, signals, testing classes, and views.",
+          "python -m flask delegates to the CLI main function.",
+          "The full visible check_tests suite passes with the integrated package."
+        ],
+        "corner_cases": [
+          "No app found produces NoAppException and the documented CLI error message.",
+          "Factory discovery handles missing factories, factories returning non-Flask objects, syntax/import errors, and quoted literal arguments.",
+          "Environment variables set directly override .env, .flaskenv, and --env-file values as documented.",
+          "CLI commands run with the correct app context and do not leak context after invocation.",
+          "routes sorting by endpoint, methods, domain, rule, and match produces stable output.",
+          "The development server is not started during tests when run_command behavior is monkeypatched or invoked through the CLI runner.",
+          "Root package exports match documented import paths, not only private module definition sites."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "flask.cli",
+            "symbol": "FlaskGroup",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.cli",
+            "symbol": "AppGroup",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.cli",
+            "symbol": "ScriptInfo",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.cli",
+            "symbol": "NoAppException",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.cli",
+            "symbol": "main",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.cli",
+            "symbol": "load_dotenv",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "flask.cli",
+            "symbol": "cli",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask.__main__",
+            "symbol": "main",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask",
+            "symbol": "Flask",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask",
+            "symbol": "Blueprint",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask",
+            "symbol": "Config",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask",
+            "symbol": "Request",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask",
+            "symbol": "Response",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "flask",
+            "symbol": "current_app",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "flask",
+            "symbol": "g",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "flask",
+            "symbol": "request",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "flask",
+            "symbol": "session",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask",
+            "symbol": "url_for",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask",
+            "symbol": "render_template",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask",
+            "symbol": "jsonify",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask",
+            "symbol": "send_file",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask",
+            "symbol": "abort",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "flask",
+            "symbol": "redirect",
+            "required_levels": [
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write integration tests for CLI invocation, app discovery, environment handling, route listing, shell context, python -m flask, and root package public imports from the design documents. Do not edit source.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "flask/cli.py",
+            "flask/__init__.py",
+            "flask/__main__.py",
+            "flask/testing.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement the Click CLI, application discovery, command integration, package entrypoint, and root public re-exports so the complete documented Flask package works as a user-facing framework.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "flask/cli.py",
+            "flask/__init__.py",
+            "flask/__main__.py",
+            "flask/app.py",
+            "flask/blueprints.py",
+            "flask/helpers.py",
+            "flask/json/__init__.py",
+            "flask/testing.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "spec_review_spec_auditor",
+          "title": "Specification auditor",
+          "mandate": "Audit the final user-facing behavior against the PRD CLI usage, command option documentation, public API expectations, and architecture file tree. Report only.",
+          "role": "spec_auditor",
+          "slot_id": "spec_review",
+          "focus_paths": [
+            "flask/cli.py",
+            "flask/__init__.py",
+            "flask/__main__.py"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "contract_review_contract_critic",
+          "title": "Contract critic",
+          "mandate": "Audit that final integration preserves all frozen symbols and semantics from prior milestones, especially package-root exports and app/test-client interactions. Report only.",
+          "role": "contract_critic",
+          "slot_id": "contract_review",
+          "focus_paths": [
+            "flask",
+            "flask/json"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Fix final integration failures, CLI/public export mismatches, and audit findings while preserving all prior milestone contracts and removing no documented public behavior.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "flask/cli.py",
+            "flask/__init__.py",
+            "flask/__main__.py",
+            "flask/app.py",
+            "flask/blueprints.py",
+            "flask/helpers.py",
+            "flask/json/__init__.py",
+            "flask/testing.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    }
+  ]
+}

@@ -53,10 +53,11 @@ def change(before: dict[str, list[str]], after: dict[str, list[str]]) -> tuple[i
 
 
 class Prober:
-    def __init__(self, *, ledger: Ledger, planner: BudgetPlanner | None, workspace: Path, unit_id: str, suite: Path,
+    def __init__(self, *, ledger: Ledger, planner: BudgetPlanner | None, workspace: Path, suites: dict[str, Path],
                  venv: Path, work_dir: Path, gate_timeout: float):
+        """``suites``: the unit's own frozen suite ({unit_id: dir}; the single-session arm: all of them)."""
         self.ledger, self.planner = ledger, planner
-        self.workspace, self.unit_id, self.suite = Path(workspace), unit_id, Path(suite)
+        self.workspace, self.suites = Path(workspace), dict(suites)
         self.venv, self.work_dir, self.gate_timeout = Path(venv), Path(work_dir), gate_timeout
         self.sessions: dict[str, SessionProgress] = {}
         self._last: dict[str, dict[str, list[str]]] = {}
@@ -78,7 +79,7 @@ class Prober:
         files, lines = change(self._last.get(lid, {}), now)
         self._last[lid] = now
         try:
-            r = run_gate(self.workspace, {self.unit_id: self.suite}, venv=self.venv, work_dir=self.work_dir,
+            r = run_gate(self.workspace, self.suites, venv=self.venv, work_dir=self.work_dir,
                          timeout=self.gate_timeout)
             failures = len(r.failed())
         except Exception:                       # a probe that cannot run is recorded as unknown, never as progress

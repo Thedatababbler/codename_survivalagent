@@ -23,7 +23,7 @@ _LOADED = False
 
 
 def load_env(path: Path = ENV_FILE) -> None:
-    """``KEY=value`` / ``export KEY=value`` lines into os.environ (existing values win)."""
+    """``KEY=value`` / ``export KEY=value`` lines into os.environ (the file wins over the shell)."""
     global _LOADED
     if _LOADED:
         return
@@ -31,7 +31,7 @@ def load_env(path: Path = ENV_FILE) -> None:
         for line in path.read_text(encoding="utf-8").splitlines():
             m = re.match(r"^\s*(?:export\s+)?([A-Z_][A-Z0-9_]*)\s*=\s*(.*?)\s*$", line)
             if m and not line.lstrip().startswith("#"):
-                os.environ.setdefault(m.group(1), m.group(2).strip("'\""))
+                os.environ[m.group(1)] = m.group(2).strip("'\"")   # the project's .env names the channel: it wins
     os.environ.setdefault("MSWEA_COST_TRACKING", "ignore_errors")
     _LOADED = True
 
@@ -54,8 +54,12 @@ def _base() -> str:
 def agent_model(**model_kwargs: Any):
     from minisweagent.models.litellm_model import LitellmModel
 
-    return LitellmModel(model_name=f"openai/{model_name()}", cost_tracking="ignore_errors",
-                        model_kwargs={"api_base": _base(), **model_kwargs})
+    m = LitellmModel(model_name=f"openai/{model_name()}", cost_tracking="ignore_errors",
+                     model_kwargs={"api_base": _base(), **model_kwargs})
+    # a missing module is not transient: mini-swe-agent would retry it 10 times with backoff (2026-11-05: litellm
+    # 1.108 imports `mcp` whenever tools are passed; `mcp` is now a dependency)
+    m.abort_exceptions = [*m.abort_exceptions, ImportError]
+    return m
 
 
 def complete(messages: list[dict[str, str]], **kwargs: Any) -> tuple[str, int, int]:

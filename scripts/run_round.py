@@ -38,6 +38,7 @@ def main() -> int:
     ap.add_argument("--compressions", type=int, default=8)
     ap.add_argument("--repairs", type=int, default=0, help="0: 2 x units")
     ap.add_argument("--probe-every", type=int, default=0)
+    ap.add_argument("--single", action="store_true", help="the single-session control arm (whole repository as one unit)")
     ap.add_argument("--fixed-planner", action="store_true", help="the planner's fixed rule only (no planner calls)")
     a = ap.parse_args()
     require_sandbox("round")
@@ -47,10 +48,14 @@ def main() -> int:
                                     repairs=a.repairs or 2 * len(task.units)), probe_every=a.probe_every)
     models = Models(agent=agent_model, complete=None if a.fixed_planner else complete, summarize=summarize)
     run_dir = ROOT / "outputs" / "rounds" / a.round / a.task
-    rnd = Round(task, ROOT / "outputs" / "suites" / a.task / a.set, run_dir, cfg, models, table=state.table(),
-                rules=state.rules())
+    rnd = Round(task, ROOT / "outputs" / "suites" / a.task / a.set, run_dir, cfg, models,
+                table=None if a.single else state.table(), rules=None if a.single else state.rules(), single=a.single)
     rec = rnd.run()
     s = breach.scan_run(run_dir, run_id=f"{a.round}-{a.task}")
+    if a.single:                                  # the control arm is not the planner's experience
+        print(json.dumps({"measures": rec["measures"], "used": rec["ledger"]["used"], "void": s["void"]}, indent=1))
+        print(breach.report_section([s]))
+        return 1 if s["void"] else 0
     state.add_summary({"round": a.round, "table_version": rec["table_version"], "measures": rec["measures"],
                        "void": s["void"],
                        "units": [{"unit": u["unit"], "passed": u["passed"], "repairs": len(u["repairs"])} for u in rec["units"]],

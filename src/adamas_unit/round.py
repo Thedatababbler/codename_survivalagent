@@ -88,14 +88,33 @@ def _evidence(dest: Path, cols: Columns, gate: GateResult, suites: dict[str, Pat
             f.chmod(0o444)
 
 
+def single_unit(task: Task) -> Task:
+    """The single-session control arm (DESIGN §13 E0): the whole repository as one unit, every unit's brief merged."""
+    from dataclasses import replace
+
+    from adamas_unit.task import Unit
+
+    whole = Unit(index=0, unit_id="whole", title="the whole repository",
+                 objective="Build the whole repository described in the documents. Its parts, in order:\n\n"
+                           + "\n\n".join(u.brief() for u in task.units),
+                 focus_paths=[p for u in task.units for p in u.focus_paths])
+    return replace(task, units=[whole])
+
+
 class Round:
     def __init__(self, task: Task, suite_set: Path, run_dir: Path, cfg: RoundConfig, models: Models, *,
-                 table: dict[str, Any] | None = None, rules: list[dict[str, Any]] | None = None):
-        self.task, self.cfg, self.models = task, cfg, models
+                 table: dict[str, Any] | None = None, rules: list[dict[str, Any]] | None = None, single: bool = False):
+        """``single``: the single-session control: one unit, its gate all frozen suites, the same B (repairs too)."""
         self.suite_set, self.run_dir = Path(suite_set), Path(run_dir)
         if self.run_dir.exists():
             raise FileExistsError(f"{self.run_dir}: a round never reuses a directory")
         self.meta = verify(self.suite_set, task)            # refuses on a missing or changed frozen suite
+        self.orig_units = list(task.units)
+        self.single = single
+        if single:
+            task, table = single_unit(task), None
+            cfg = RoundConfig(**{**cfg.__dict__, "max_repairs_per_unit": cfg.budget.repairs})
+        self.task, self.cfg, self.models = task, cfg, models
         self.run_dir.mkdir(parents=True)
         self.table = table
         self.ledger = Ledger(cfg.budget, len(task.units), path=self.run_dir / "ledger.json", floor_share=cfg.floor_share,
@@ -111,15 +130,19 @@ class Round:
 
     # ------------------------------------------------------------------ pieces
 
+    def _orig_upto(self, k: int) -> list:
+        """The frozen suites' units up to unit k (single arm: all of them)."""
+        return self.orig_units if self.single else self.task.units[:k + 1]
+
     def suites_upto(self, k: int) -> dict[str, Path]:
-        return {u.unit_id: self.suite_set / u.unit_id for u in self.task.units[:k + 1]}
+        return {u.unit_id: self.suite_set / u.unit_id for u in self._orig_upto(k)}
 
     def deselect(self, k: int) -> dict[str, list[str]]:
-        return {u.unit_id: list(self.meta[u.unit_id].get("vacuous") or []) for u in self.task.units[:k + 1]}
+        return {u.unit_id: list(self.meta[u.unit_id].get("vacuous") or []) for u in self._orig_upto(k)}
 
     def known(self, k: int) -> list[str]:
         out = []
-        for u in self.task.units[:k + 1]:
+        for u in self._orig_upto(k):
             vac = set(self.meta[u.unit_id].get("vacuous") or [])
             out += [n for n in self.meta[u.unit_id].get("nodes") or [] if n not in vac]
         return out
@@ -128,6 +151,11 @@ class Round:
         r = run_gate(code, self.suites_upto(k), venv=self.task.venv, work_dir=udir / "gates", timeout=self.cfg.gate_timeout,
                      deselect=self.deselect(k))
         return complete(r, self.known(k))
+
+    def columns(self, g: GateResult, unit_id: str) -> Columns:
+        if self.single:                                     # one unit: every failure is its own
+            return Columns(new=g.failed(), inherited=[], regression=[])
+        return columns(g, unit_id, self.baseline)
 
     def _session(self, role: str, k: int, ws: Path, udir: Path, name: str, instance: str) -> dict[str, Any]:
         if self.ledger.exhausted():
@@ -157,15 +185,16 @@ class Round:
         alloc = self.ledger.open_unit(k, shares={kk: v for kk, v in shares.items() if kk != "repairs"} if shares else None)
         if shares and "repairs" in shares:
             self.ledger.tighten(k, "repairs", int(shares["repairs"]), reason="budget table", decided_by="table")
-        self.prober = Prober(ledger=self.ledger, planner=self.planner, workspace=ws, unit_id=u.unit_id,
-                             suite=self.suite_set / u.unit_id, venv=self.task.venv, work_dir=udir / "probes",
+        own = self.suites_upto(k) if self.single else {u.unit_id: self.suite_set / u.unit_id}
+        self.prober = Prober(ledger=self.ledger, planner=self.planner, workspace=ws, suites=own,
+                             venv=self.task.venv, work_dir=udir / "probes",
                              gate_timeout=self.cfg.probe_timeout) if self.cfg.probe_every else None
         rec: dict[str, Any] = {"unit": u.unit_id, "index": k, "allocation": asdict(alloc), "sessions": [], "gates": [],
                                "repairs": []}
         brief = u.brief()
         rec["sessions"].append(self._session("builder", k, ws, udir, "build", brief))
         g = self.gate(ws, k, udir)
-        cols = columns(g, u.unit_id, self.baseline)
+        cols = self.columns(g, u.unit_id)
         rec["gates"].append({"after": "build", **cols.counts(), "seconds": g.seconds, "timed_out": g.timed_out})
         n = 0
         while not self.ledger.exhausted():
@@ -184,7 +213,7 @@ class Round:
             s = self._session("repairer", k, ws, udir, f"repair{n}", brief + "\n\nRead ../repair_evidence/failures.md first.")
             rec["sessions"].append(s)
             g = self.gate(ws, k, udir)
-            cols = columns(g, u.unit_id, self.baseline)
+            cols = self.columns(g, u.unit_id)
             rec["gates"].append({"after": f"repair{n}", **cols.counts(), "seconds": g.seconds, "timed_out": g.timed_out})
             rec["repairs"].append({"n": n, "target": target, "before": before, "after": cols.counts(),
                                    "exit_status": s.get("exit_status")})

@@ -32,6 +32,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from adamas_unit import submit_check  # noqa: E402
 from adamas_unit.authoring import FrozenSuiteError, author_all, freeze  # noqa: E402
+from adamas_unit.diagnostics import diagnose  # noqa: E402
 from adamas_unit.evolver import accept, validate_table  # noqa: E402
 from adamas_unit.gate import run_gate  # noqa: E402
 from adamas_unit.ledger import Budget  # noqa: E402
@@ -267,6 +268,16 @@ def main() -> int:
         checks["progress probe: nothing left in the agent's directory"] = not any(
             p.name.startswith("_unit") or p.name == ".pytest_cache" for p in ws3.rglob("*"))
 
+        # the single-session control arm: one unit, gated by every frozen suite, the round's repairs all its own
+        q5 = [[write("toyq/__init__.py", WITH_MUL_FIXED), SUBMIT]]
+        r5 = Round(task, sset, base / "rounds" / "r5" / "toyq", cfg, Models(agent=lambda: Scripted(q5.pop(0) if q5 else [SUBMIT])),
+                   single=True)
+        rec5 = r5.run()
+        g5 = r5.units[0]["gates"]
+        checks["single arm: one unit, all suites in its gate, 4 repairs on the one failure"] = (
+            len(r5.units) == 1 and g5[0]["new"] == 1 and len(r5.units[0]["repairs"]) == 4
+            and (rec5["measures"]["frozen_passed"], rec5["measures"]["frozen_tests"]) == (4, 5))
+
         # the authoring phase with a scripted author: round 0 leaves an uncited test (audit violation), the fix round
         # removes it; a vacuous test (passes on the empty repository) is deselected; the set freezes and verifies
         bad_suite = SUITE0 + "\ndef test_uncited():\n    from toyq import add\n    assert add(1, 1) == 2\n"
@@ -284,6 +295,13 @@ def main() -> int:
             am["units"]["u0_add"]["nodes"] == 4 and am["authoring_tokens"] == 4000)
         sa = breach.scan_run(base / "suites" / "authored.authoring" / "toyq", run_id="pc-author", write=False)
         checks["authoring: the author's commands are captured for the breach scan"] = sa["commands"] == 4 and sa["critical"] == 0
+
+        # diagnostics from the ledger and unit records
+        d1, d2, d3 = diagnose(rnd.run_dir), diagnose(r2.run_dir), diagnose(r3.run_dir)
+        checks["diagnostics: ineffective repairs found (unit 0 repairs 2 and 3)"] = [
+            (x["unit"], x["repair"]) for x in d1["repair_ineffective"]] == [("u0_add", 2), ("u0_add", 3)]
+        checks["diagnostics: exhaustion point and no-progress loop"] = (d2["exhausted_at"] == "u0_add"
+                                                                       and d3["counts"]["no_progress_loop"] == 1)
 
         # evolver's mechanical check and the acceptance rule
         ids = ["u0_add", "u1_mul"]

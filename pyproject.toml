@@ -6,6 +6,7 @@ requires-python = ">=3.11,<3.12"
 dependencies = [
     "pyyaml>=6",
     "mini-swe-agent==2.4.6",
+    "mcp>=2.3.0",
 ]
 
 [dependency-groups]

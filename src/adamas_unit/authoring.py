@@ -6,7 +6,9 @@ no code exists yet, so nothing can leak):
 1. the test author (AdaMAS's fixed rules ``configs/roles/test_author/core_rules.md``, memory and evolution off)
    writes ``spec_tests/``;
 2. the mechanical audit (AdaMAS ``suite_audit.audit_suite``: citations, private names, error paths, shims, imports,
-   fake objects, interface) -- violations go back to the author in a fresh session, at most ``fix_rounds`` times;
+   fake objects, interface) -- violations go back to the author in a fresh session, at most ``fix_rounds`` times; a
+   fix that removes more than ``MAX_FIX_DROP`` of the cases is rolled back and the suite is frozen as it was before it
+   (2026-11-05: on cerberus set1 the fix rounds cut 11 -> 2 and 16 -> 3 cases);
 3. the vacuity check: the gate runs the suite on the docs-only workspace; a test that passes there is vacuous and is
    deselected for good; every node id seen is recorded (a later gate that does not report one counts it failed);
 4. freeze: ``spec_tests/`` is copied to ``<suite_set>/<unit_id>/`` with ``SUITE.json`` (files' sha256, node ids,
@@ -58,9 +60,11 @@ def author_prompt() -> str:
     return core + "\n\n" + (ROLES / "common.md").read_text(encoding="utf-8").strip()
 
 
+MAX_FIX_DROP = 0.2      # a fix round that removes more than this share of the cases is rolled back
+
+
 def _violations_text(audit) -> str:
-    lines = [f"- [{v.rule}] {v.file}{'::' + v.case if v.case else ''} (line {v.line}): {v.detail}" for v in audit.violations]
-    return "\n".join(lines[:200])
+    return audit.to_author_text()
 
 
 def author_unit(task: Task, unit_index: int, *, out_dir: Path, ledger: Ledger, models: Callable[[], Any],
@@ -76,7 +80,11 @@ def author_unit(task: Task, unit_index: int, *, out_dir: Path, ledger: Ledger, m
     instance = (f"{unit.brief()}\n\nWrite this unit's test suite under `{SPEC_DIR}/` now. The package is "
                 f"`{task.package}`; its code does not exist yet.")
     ledger.open_unit(unit_index)
+    backup, before_cases = udir / "before_fix", 0
     for rnd in range(fix_rounds + 1):
+        if rnd > 0 and (ws / SPEC_DIR).is_dir():
+            shutil.rmtree(backup, ignore_errors=True)
+            shutil.copytree(ws / SPEC_DIR, backup)
         lease = ledger.lease(unit_index, "test_author")
         s = run_session(role="test_author", system=author_prompt(), instance=instance, workspace=ws, venv=task.venv,
                         session_dir=udir / f"session{rnd}", ledger=ledger, lease=lease,
@@ -90,6 +98,16 @@ def author_unit(task: Task, unit_index: int, *, out_dir: Path, ledger: Ledger, m
             continue
         a = audit_suite(suite, docs, packages=[task.package], interface=True)
         rec["audits"].append({"round": rnd, "cases": a.cases, "cited": a.cited, "violations": a.by_rule()})
+        if rnd > 0 and before_cases and a.cases < (1 - MAX_FIX_DROP) * before_cases:
+            # the fix deleted much of the suite: roll it back; the suite keeps its violations (frozen as it is, as
+            # AdaMAS does when the rounds run out)
+            shutil.rmtree(suite)
+            shutil.copytree(backup, suite)
+            a = audit_suite(suite, docs, packages=[task.package], interface=True)
+            rec["audits"][-1]["rolled_back"] = True
+            rec["audits"][-1]["cases_kept"] = a.cases
+            break
+        before_cases = a.cases
         if a.ok:
             break
         instance = ((ROLES / "author_fix.md").read_text(encoding="utf-8").strip() + "\n\n" + _violations_text(a)

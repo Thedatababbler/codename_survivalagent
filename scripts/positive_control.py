@@ -296,6 +296,17 @@ def main() -> int:
         sa = breach.scan_run(base / "suites" / "authored.authoring" / "toyq", run_id="pc-author", write=False)
         checks["authoring: the author's commands are captured for the breach scan"] = sa["commands"] == 4 and sa["critical"] == 0
 
+        # a fix round that deletes most of the suite is rolled back
+        one = '\n# PRD: "add(a, b) returns the sum of two numbers"\ndef test_add():\n    from toyq import add\n    assert add(2, 3) == 5\n'
+        aq2 = [[write("spec_tests/test_u0.py", bad_suite), SUBMIT], [write("spec_tests/test_u0.py", one), SUBMIT]]
+        aset2 = base / "suites" / "authored2"
+        author_all(task, aset2, budget=Budget(tokens=10**6, seconds=3600), fix_rounds=1, only=[0],
+                   agent_config={"margin_tokens": 1000, "context_window": 10**9},
+                   models=lambda: Scripted(aq2.pop(0) if aq2 else [SUBMIT]))
+        arec2 = json.loads((aset2 / "u0_add" / "SUITE.json").read_text())
+        checks["authoring: a fix that deletes most of the suite is rolled back"] = (
+            arec2["audits"][-1].get("rolled_back") is True and len(arec2["nodes"]) == 4)
+
         # diagnostics from the ledger and unit records
         d1, d2, d3 = diagnose(rnd.run_dir), diagnose(r2.run_dir), diagnose(r3.run_dir)
         checks["diagnostics: ineffective repairs found (unit 0 repairs 2 and 3)"] = [

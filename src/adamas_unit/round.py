@@ -173,11 +173,21 @@ class Round:
                                        "amount": float(max(margin * 2, self.ledger.total.tokens // (4 * self.ledger.n_units))),
                                        "reason": f"{role} session start: the unit's allocation is used up", "calls": 0,
                                        "time": time.time()})
-        return run_session(role=role, system=role_prompt(role), instance=instance, workspace=ws, venv=self.task.venv,
-                           session_dir=udir / name, ledger=self.ledger, lease=lease, model=self.models.agent(),
-                           planner=self.planner.decide_topup, summarizer=self.models.summarize, prober=self.prober,
-                           agent_config={**self.cfg.agent_config, "probe_every": self.cfg.probe_every},
-                           command_timeout=self.cfg.command_timeout, manifest_dir=self.run_dir)
+        # recorded only (diagnostics): a session that starts below the margin cannot make a single call
+        started_empty = lease.tokens_left() < margin
+        s = run_session(role=role, system=role_prompt(role), instance=instance, workspace=ws, venv=self.task.venv,
+                        session_dir=udir / name, ledger=self.ledger, lease=lease, model=self.models.agent(),
+                        planner=self.planner.decide_topup, summarizer=self.models.summarize, prober=self.prober,
+                        agent_config={**self.cfg.agent_config, "probe_every": self.cfg.probe_every},
+                        command_timeout=self.cfg.command_timeout, manifest_dir=self.run_dir)
+        s["started_empty"] = started_empty
+        return s
+
+    def budget_out(self) -> str:
+        """The round budget as the record sees it: used up (ledger) or with less tokens left than one session needs
+        (the margin), after which every session starts empty. Recording only: the control flow uses the ledger."""
+        margin = int(self.cfg.agent_config.get("margin_tokens", 0))
+        return self.ledger.exhausted() or ("tokens" if self.ledger.left("tokens") < margin else "")
 
     # ------------------------------------------------------------------ one unit
 
@@ -226,7 +236,7 @@ class Round:
         shutil.rmtree(udir / "repair_evidence", ignore_errors=True)
         rec["passed"] = cols.passes
         rec["columns"] = cols.to_dict()
-        rec["exhausted"] = self.ledger.exhausted()
+        rec["exhausted"] = self.budget_out()
         self.baseline = commit_baseline(self.baseline, g)
         rec["use"] = self.ledger.close_unit(k)
         (udir / "unit.json").write_text(json.dumps(rec, indent=1, default=str), encoding="utf-8")
@@ -241,7 +251,7 @@ class Round:
         exhausted_at = None
         for k in range(len(self.task.units)):
             code = self.run_unit(k, code)
-            if exhausted_at is None and self.ledger.exhausted():
+            if exhausted_at is None and self.budget_out():
                 exhausted_at = self.task.units[k].unit_id
         final = copy_code(code, self.run_dir / "final")
         last = len(self.task.units) - 1

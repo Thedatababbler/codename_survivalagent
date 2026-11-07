@@ -1,8 +1,9 @@
-"""The eight diagnostics of a finished round, computed from its ledger and unit records only (DESIGN §8.4, §8.5 step 1).
+"""The diagnostics (the eight of §8.4 and session_started_empty) of a finished round, computed from its ledger and unit records only (DESIGN §8.4, §8.5 step 1).
 
 | diagnostic | rule here |
 |---|---|
-| exhausted_at | the unit in which the round budget ran out (round.json) |
+| exhausted_at | the unit in which the round budget ran out: used up, or less tokens left than one session's margin (round.json; recomputed from the ledger for rounds recorded before 2026-11-07) |
+| session_started_empty | a session whose lease, with any top-up granted before its first call, was below the margin: it could not make a single call |
 | truncated_in_progress | a session stopped by its budget (tokens, time, context) while its last probes' failures were falling |
 | repairs_insufficient | a unit used all its repairs, did not pass, and its gate failures fell at every repair |
 | repair_ineffective | a repair after which columns 1 + 3 did not change |
@@ -38,6 +39,30 @@ def diagnose(run_dir: Path) -> dict[str, Any]:
                          "repairs_insufficient": [], "repair_ineffective": [], "unused_left": [],
                          "degraded_after_compression": [], "context_stop": [], "no_progress_loop": []}
     closes = {e["unit"]: e for e in events if e["event"] == "close_unit"}
+    margin = int(((rnd.get("config") or {}).get("agent_config") or {}).get("margin_tokens", 0))
+    total = float(((rnd.get("config") or {}).get("budget") or {}).get("tokens", 0))
+    unit_ids = [json.loads(p.read_text(encoding="utf-8"))["unit"] for p in sorted((run_dir / "units").glob("*/unit.json"))]
+    if d["exhausted_at"] is None and margin and total:
+        used = 0.0
+        for k in sorted(closes):
+            used += closes[k]["used"]["tokens"]
+            if total - used < margin:
+                d["exhausted_at"] = unit_ids[k] if k < len(unit_ids) else k
+                break
+    first_charge: dict[str, float] = {}
+    for e in events:
+        if e["event"] == "charge" and e.get("lease") not in first_charge:
+            first_charge[e["lease"]] = e["t"]
+    d["session_started_empty"] = []
+    for e in events:
+        if e["event"] != "lease" or not margin:
+            continue
+        lid = e["lease"]
+        start = e["tokens"] + sum(g.get("granted", 0) for g in events if g["event"] == "grant" and g.get("lease") == lid
+                                  and g["t"] < first_charge.get(lid, float("inf")))
+        if start < margin:
+            uid = unit_ids[e["unit"]] if e["unit"] < len(unit_ids) else e["unit"]
+            d["session_started_empty"].append({"unit": uid, "role": e["role"], "lease": lid, "start_tokens": int(start)})
     for u in units:
         uid, k = u["unit"], u["index"]
         for s in u["sessions"]:

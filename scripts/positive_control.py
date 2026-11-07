@@ -342,6 +342,33 @@ def main() -> int:
             (x["unit"], x["repair"]) for x in d1["repair_ineffective"]] == [("u0_add", 2), ("u0_add", 3)]
         checks["diagnostics: exhaustion point and no-progress loop"] = (d2["exhausted_at"] == "u0_add"
                                                                        and d3["counts"]["no_progress_loop"] == 1)
+        # a round that ends with less left than one session's margin (2026-11-07, deepdiff tiers: left 58k < 60k, the
+        # last unit's repairs started empty, and the ledger never read as used up)
+        fk = base / "rounds" / "starved" / "toyq"
+        for i, uid in enumerate(("u0_add", "u1_mul")):
+            (fk / "units" / f"{i:02d}_{uid}").mkdir(parents=True)
+            (fk / "units" / f"{i:02d}_{uid}" / "unit.json").write_text(json.dumps(
+                {"unit": uid, "index": i, "sessions": [], "gates": [], "repairs": [], "passed": i == 0,
+                 "allocation": {"repairs": 3}}))
+        (fk / "round.json").write_text(json.dumps({"measures": {"exhausted_at": None}, "config": {
+            "budget": {"tokens": 100_000}, "agent_config": {"margin_tokens": 10_000}}}))
+        evs = [{"t": 0, "event": "lease", "lease": "u0-builder-0", "unit": 0, "role": "builder", "tokens": 50_000},
+               {"t": 1, "event": "charge", "lease": "u0-builder-0"},
+               {"t": 2, "event": "lease", "lease": "u0-repairer-1", "unit": 0, "role": "repairer", "tokens": 4_000},
+               {"t": 2.1, "event": "grant", "lease": "u0-repairer-1", "granted": 20_000},   # topped up before its call
+               {"t": 3, "event": "charge", "lease": "u0-repairer-1"},
+               {"t": 4, "event": "close_unit", "unit": 0, "allocation": {"tokens": 70_000}, "used": {"tokens": 62_000},
+                "unused": {"tokens": 8_000}},
+               {"t": 5, "event": "lease", "lease": "u1-builder-2", "unit": 1, "role": "builder", "tokens": 38_000},
+               {"t": 6, "event": "charge", "lease": "u1-builder-2"},
+               {"t": 7, "event": "lease", "lease": "u1-repairer-3", "unit": 1, "role": "repairer", "tokens": 6_000},
+               {"t": 8, "event": "close_unit", "unit": 1, "allocation": {"tokens": 38_000}, "used": {"tokens": 32_000},
+                "unused": {"tokens": 6_000}}]
+        (fk / "ledger.json").write_text(json.dumps({"events": evs}))
+        d4 = diagnose(fk)
+        checks["diagnostics: less left than one session's margin counts as exhausted"] = d4["exhausted_at"] == "u1_mul"
+        checks["diagnostics: a session starting below the margin is found; one topped up before its call is not"] = [
+            x["lease"] for x in d4["session_started_empty"]] == ["u1-repairer-3"]
 
         # evolver's mechanical check and the acceptance rule
         ids = ["u0_add", "u1_mul"]

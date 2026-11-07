@@ -72,6 +72,20 @@ class PlannerState:
         with (self.dir / "rounds.jsonl").open("a", encoding="utf-8") as fh:
             fh.write(json.dumps({**summary, "canary": self.canary}, default=str) + "\n")
 
-    def summaries(self) -> list[dict[str, Any]]:
+    def summaries(self, *, include_invalid: bool = False) -> list[dict[str, Any]]:
+        """Round summaries; rounds marked ``invalid`` (a pipeline defect made their measures meaningless) are left
+        out unless asked for."""
         p = self.dir / "rounds.jsonl"
-        return [json.loads(x) for x in p.read_text(encoding="utf-8").splitlines() if x.strip()] if p.is_file() else []
+        out = [json.loads(x) for x in p.read_text(encoding="utf-8").splitlines() if x.strip()] if p.is_file() else []
+        return out if include_invalid else [x for x in out if not x.get("invalid")]
+
+    def mark_invalid(self, rounds: set[str], reason: str) -> int:
+        """Mark the summaries of ``rounds`` invalid (kept in the file, with the reason); returns how many."""
+        p = self.dir / "rounds.jsonl"
+        rows = self.summaries(include_invalid=True)
+        n = 0
+        for r in rows:
+            if r.get("round") in rounds and not r.get("invalid"):
+                r["invalid"], n = reason, n + 1
+        p.write_text("".join(json.dumps(r, default=str) + "\n" for r in rows), encoding="utf-8")
+        return n

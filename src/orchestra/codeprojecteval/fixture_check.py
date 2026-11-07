@@ -80,7 +80,11 @@ def check(workspace: str | Path, *, python: str | Path, packages: Iterable[str],
     paths += [str(ws)] + ([str(ws / "src")] if (ws / "src").is_dir() else [])
     env = {"PYTHONPATH": os.pathsep.join(paths), "PATH": f"{Path(python).parent}:/usr/bin:/bin", "HOME": str(ws),
            "PYTHONDONTWRITEBYTECODE": "1"}
-    cmd = [str(python), "-m", "pytest", "--setup-only", "-q", "-s", "-rE", "--tb=short", "--no-header", "-p", "no:cacheprovider", "-o", "addopts=",
+    # AdaMAS-unit 2026-11-07: the configuration file pinned inside the workspace (pytest >= 8 otherwise takes an
+    # ancestor's and collects from there, which the sandbox refuses)
+    ini = ws / "_unit_pytest.ini"
+    ini.write_text("[pytest]\n", encoding="utf-8")
+    cmd = [str(python), "-m", "pytest", "-c", str(ini), "--setup-only", "-q", "-s", "-rE", "--tb=short", "--no-header", "-p", "no:cacheprovider", "-o", "addopts=",
            "--continue-on-collection-errors", f"--rootdir={ws / suite_dir}", f"--confcutdir={ws / suite_dir}"]
     if testkit:
         cmd += ["-p", "adamas_testkit.fixture_probe"]

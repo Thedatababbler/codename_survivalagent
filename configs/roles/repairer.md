@@ -7,3 +7,5 @@ The suites are fixed and are the yardstick: change the code, never try to change
 Read the failures, find the cause in the code, fix it, and check that the tests you fixed pass and that the other
 tests in the suites still do. The design documents are in `docs/`; where a test and the documents seem to disagree,
 follow the documents and say so in your last message.
+
+The package of this project is not installed on this machine: do not search for it or probe for it (no `pip show`, `importlib.metadata`, `find_spec`, or `find` outside the repository); work only from the code in the repository.

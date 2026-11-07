@@ -23,7 +23,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from adamas_unit.gate import TESTKIT
+from adamas_unit.gate import TESTKIT, suite_dir_name
 from orchestra.codeprojecteval.public_symbols import derive_public_symbols
 from orchestra.sandbox.guard import require_sandbox, run_confined
 
@@ -82,7 +82,7 @@ def check(code_dir: Path, *, package: str, docs: dict[str, str], suites: dict[st
         cwd = tmp / "code"
         shutil.copytree(code_dir, cwd, symlinks=True, ignore=shutil.ignore_patterns(".git", "__pycache__", ".pytest_cache", "*.pyc"))
         for uid, src in suites.items():
-            shutil.copytree(src, cwd / "_unit_suites" / uid, ignore=shutil.ignore_patterns("__pycache__", "SUITE.json"))
+            shutil.copytree(src, cwd / suite_dir_name(uid), ignore=shutil.ignore_patterns("__pycache__", "SUITE.json"))
         shutil.copytree(TESTKIT / "adamas_testkit", cwd / "_unit_harness" / "adamas_testkit",
                         ignore=shutil.ignore_patterns("__pycache__"))
         (cwd / "_unit_probe.py").write_text(PROBE, encoding="utf-8")
@@ -107,8 +107,10 @@ def check(code_dir: Path, *, package: str, docs: dict[str, str], suites: dict[st
         rec["names_ratio"] = round(rec["names_importable"] / len(names), 3) if names else 1.0
         rec["names_missing"] = sorted(k for k, v in got.items() if not v)[:50]
         try:
-            c = run([py, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider", f"--rootdir={cwd}", "-o", "addopts=",
-                     "_unit_suites"])
+            ini = cwd / "_unit_pytest.ini"           # pinned inside the copy (see gate.run_gate)
+            ini.write_text("[pytest]\n", encoding="utf-8")
+            c = run([py, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider", "-c", str(ini), f"--rootdir={cwd}",
+                     "-o", "addopts=", *[suite_dir_name(u) for u in suites]])
             errs = re.findall(r"^ERROR (\S+)", c.stdout, re.M)
             rec["collect_errors"] = sorted(set(errs))
             rec["collects"] = c.returncode in (0, 5) and not errs

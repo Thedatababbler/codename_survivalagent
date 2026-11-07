@@ -1,7 +1,8 @@
 """The acceptance gate: frozen suites on a copy of the code, per-test results, three columns (DESIGN §4.4, USING §2.3).
 
 ``run_gate`` copies the code (no ``.git``, no caches) into a fresh gate directory, puts the frozen suites beside it
-under ``_unit_suites/<unit_id>/`` and the authors' testkit under ``_unit_harness/``, and runs the task venv's pytest
+under ``_unit_suite__<unit_id>/`` (one level below the code root, as AdaMAS's ``spec_tests/``: a suite reading
+``Path(__file__).parents[1] / "pyproject.toml"`` finds the repository's) and the authors' testkit under ``_unit_harness/``, and runs the task venv's pytest
 there under the sandbox's workspace policy (``run_confined``: the gate copy writable, nothing else of the run
 readable). The agent's working directory is never touched, so the gate leaves no cache in it.
 
@@ -34,7 +35,12 @@ from orchestra.sandbox.guard import require_sandbox, run_confined
 ROOT = Path(__file__).resolve().parents[2]
 PLUGIN = Path(__file__).with_name("gate_plugin.py")
 TESTKIT = ROOT / "src" / "orchestra" / "harness" / "testkit"
-SUITES_DIR = "_unit_suites"
+SUITES_DIR = "_unit_suites"          # legacy layout (_unit_suites/<unit_id>/), still kept out of the copy
+SUITE_PREFIX = "_unit_suite__"
+
+
+def suite_dir_name(unit_id: str) -> str:
+    return f"{SUITE_PREFIX}{unit_id}"
 OK = ("passed",)
 
 
@@ -65,20 +71,26 @@ def run_gate(code_dir: Path, suites: dict[str, Path], *, venv: Path, work_dir: P
     gate_dir = Path(tempfile.mkdtemp(prefix="gate-", dir=work_dir))
     try:
         shutil.copytree(code_dir, gate_dir / "code", symlinks=True,
-                        ignore=shutil.ignore_patterns(".git", "__pycache__", ".pytest_cache", "*.pyc", SUITES_DIR))
+                        ignore=shutil.ignore_patterns(".git", "__pycache__", ".pytest_cache", "*.pyc", SUITES_DIR,
+                                                      f"{SUITE_PREFIX}*"))
         cwd = gate_dir / "code"
         for uid, src in suites.items():
-            shutil.copytree(src, cwd / SUITES_DIR / uid, ignore=shutil.ignore_patterns("__pycache__", "SUITE.json"))
+            shutil.copytree(src, cwd / suite_dir_name(uid), ignore=shutil.ignore_patterns("__pycache__", "SUITE.json"))
         shutil.copy2(PLUGIN, cwd / "_unit_gate_plugin.py")
         harness = cwd / "_unit_harness"
         shutil.copytree(TESTKIT / "adamas_testkit", harness / "adamas_testkit", ignore=shutil.ignore_patterns("__pycache__"))
         res_file = cwd / "_unit_gate_results.json"
+        # the configuration file is pinned inside the gate copy: otherwise pytest >= 8 takes the nearest ancestor's
+        # (this project's pyproject.toml) and starts collecting there, which the sandbox refuses (2026-11-07: every
+        # deepdiff gate, pytest 9.1, ran nothing)
+        ini = cwd / "_unit_pytest.ini"
+        ini.write_text("[pytest]\n", encoding="utf-8")
         args = [str(Path(venv) / "bin" / "python"), "-m", "pytest", "-q", "-p", "no:cacheprovider", "-p", "_unit_gate_plugin",
-                f"--rootdir={cwd}", "-o", "addopts=", "--continue-on-collection-errors"]
+                "-c", str(ini), f"--rootdir={cwd}", "-o", "addopts=", "--continue-on-collection-errors"]
         for uid, nids in (deselect or {}).items():
             for n in nids:
-                args.append(f"--deselect={SUITES_DIR}/{n}")
-        args += [f"{SUITES_DIR}/{u}" for u in suites]
+                args.append(f"--deselect={SUITE_PREFIX}{n}")
+        args += [suite_dir_name(u) for u in suites]
         env = {"PATH": f"{venv}/bin:/usr/bin:/bin", "LANG": "C.UTF-8", "PYTHONPATH": f"{cwd}{os.pathsep}{harness}",
                "UNIT_GATE_RESULTS": str(res_file), "PYTHONDONTWRITEBYTECODE": "1"}
         t0 = time.time()
@@ -92,8 +104,7 @@ def run_gate(code_dir: Path, suites: dict[str, Path], *, venv: Path, work_dir: P
         out.seconds = round(time.time() - t0, 2)
         out.output_tail = tail[-6000:]
         raw = json.loads(res_file.read_text(encoding="utf-8")) if res_file.is_file() else {}
-        prefix = f"{SUITES_DIR}/"
-        out.results = {k.removeprefix(prefix): v for k, v in raw.items()}
+        out.results = {k.removeprefix(SUITE_PREFIX): v for k, v in raw.items()}
         # a suite of which nothing ran (pytest refused to start, the run hung before it) must not read as "no failures"
         for uid in suites:
             if not any(n.split("/", 1)[0] == uid for n in out.results):

@@ -42,6 +42,7 @@ from orchestra.sandbox import breach  # noqa: E402
 from orchestra.sandbox.guard import require_sandbox  # noqa: E402
 
 VENV = Path("/root/codex-benchmarks/nl2repo/envs/nl2_cerberus")     # any task venv with pytest
+VENV9 = Path("/root/codex-benchmarks/nl2repo/envs/nl2_deepdiff")    # a task venv with pytest >= 8 (9.1)
 SUBMIT = "echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"
 
 PRD = """# toyq
@@ -173,6 +174,30 @@ def main() -> int:
         task = synthetic_task(base)
         sset = frozen_set(task, base)
         suite0 = sset / "u0_add" / "test_u0_add.py"
+
+        # a gate and a submittable check inside this project's tree with pytest >= 8 (2026-11-07: pytest 9 took the
+        # project's pyproject.toml as its configuration, collected from the project root and ran nothing)
+        if VENV9.is_dir():
+            fixed = base / "code_pytest9"
+            fixed.mkdir()
+            shutil.copytree(task.repo_root / "docs", fixed / "docs")
+            (fixed / "toyq").mkdir()
+            (fixed / "toyq" / "__init__.py").write_text(ADD_NEG_FIXED, encoding="utf-8")
+            g9 = run_gate(fixed, {"u0_add": sset / "u0_add"}, venv=VENV9, work_dir=base / "gate9", timeout=120)
+            checks["gate under the project tree with pytest >= 8 runs the suite"] = (
+                bool(g9.results) and not any("nothing ran" in n or "<collection>" in n for n in g9.results)
+                and len(g9.passed()) >= 1)
+            s9 = submit_check.check(fixed, package="toyq", docs=docs_of(fixed), suites={"u0_add": sset / "u0_add"},
+                                    venv=VENV9, work_dir=base / "submit9")
+            checks["submittable check under the project tree with pytest >= 8 collects"] = s9["collects"] is True
+            # a suite one level below the code root, as AdaMAS's spec_tests/ (its parents[1] is the repository)
+            lay = base / "suite_layout"
+            lay.mkdir()
+            (lay / "test_layout.py").write_text("from pathlib import Path\n\ndef test_repo_root():\n"
+                                                "    assert (Path(__file__).resolve().parents[1] / 'toyq' / '__init__.py').is_file()\n")
+            gl = run_gate(fixed, {"lay": lay}, venv=VENV9, work_dir=base / "gate_layout", timeout=120)
+            checks["a suite's parents[1] is the code root (AdaMAS spec_tests layout)"] = gl.results == {
+                "lay/test_layout.py::test_repo_root": "passed"}
         sessions = [
             # unit 0 build: planted bugs, a request far above the cap, an attempt to read the frozen suite
             [write("toyq/__init__.py", ADD_BUGGY), 'request_budget tokens=100000000 reason="need much more"',

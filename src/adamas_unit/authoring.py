@@ -179,6 +179,8 @@ def author_all(task: Task, suite_set: Path, *, model: Any = None, budget: Budget
 def verify(suite_set: Path, task: Task) -> dict[str, dict[str, Any]]:
     """Every unit's frozen suite present and unchanged; returns {unit_id: its SUITE.json}. Raises otherwise."""
     suite_set = Path(suite_set)
+    if (suite_set / "DEFECTIVE.txt").is_file():
+        raise FrozenSuiteError(f"{suite_set} is marked defective: {(suite_set / 'DEFECTIVE.txt').read_text().strip()[:200]}")
     mf = suite_set / "MANIFEST.json"
     if not mf.is_file():
         raise FrozenSuiteError(f"{suite_set}: no MANIFEST.json (authoring not finished)")

@@ -298,14 +298,18 @@ def main() -> int:
 
         # a fix round that deletes most of the suite is rolled back
         one = '\n# PRD: "add(a, b) returns the sum of two numbers"\ndef test_add():\n    from toyq import add\n    assert add(2, 3) == 5\n'
-        aq2 = [[write("spec_tests/test_u0.py", bad_suite), SUBMIT], [write("spec_tests/test_u0.py", one), SUBMIT]]
+        fixed = SUITE0 + one.replace("def test_add(", "def test_add_cited(")
+        aq2 = [[write("spec_tests/test_u0.py", bad_suite), SUBMIT], [write("spec_tests/test_u0.py", one), SUBMIT],
+               [write("spec_tests/test_u0.py", fixed), SUBMIT]]
         aset2 = base / "suites" / "authored2"
-        author_all(task, aset2, budget=Budget(tokens=10**6, seconds=3600), fix_rounds=1, only=[0],
+        author_all(task, aset2, budget=Budget(tokens=10**6, seconds=3600), fix_rounds=2, only=[0],
                    agent_config={"margin_tokens": 1000, "context_window": 10**9},
                    models=lambda: Scripted(aq2.pop(0) if aq2 else [SUBMIT]))
         arec2 = json.loads((aset2 / "u0_add" / "SUITE.json").read_text())
         checks["authoring: a fix that deletes most of the suite is rolled back"] = (
-            arec2["audits"][-1].get("rolled_back") is True and len(arec2["nodes"]) == 4)
+            arec2["audits"][1].get("rolled_back") is True and arec2["audits"][1]["cases_kept"] == 4)
+        checks["authoring: after a rollback the remaining fix round fixes the restored suite"] = (
+            len(arec2["audits"]) == 3 and arec2["audits"][-1]["violations"] == {} and len(arec2["nodes"]) == 4)
 
         # diagnostics from the ledger and unit records
         d1, d2, d3 = diagnose(rnd.run_dir), diagnose(r2.run_dir), diagnose(r3.run_dir)

@@ -33,7 +33,7 @@ from typing import Any
 
 from adamas_unit import submit_check
 from adamas_unit.authoring import verify
-from adamas_unit.gate import TESTKIT, Columns, GateResult, columns, commit_baseline, complete, run_gate
+from adamas_unit.gate import TESTKIT, Columns, GateResult, columns, commit_baseline, complete, drop, outcome, run_gate
 from adamas_unit.ledger import Budget, Ledger
 from adamas_unit.planner import BudgetPlanner
 from adamas_unit.progress import Prober
@@ -137,20 +137,25 @@ class Round:
     def suites_upto(self, k: int) -> dict[str, Path]:
         return {u.unit_id: self.suite_set / u.unit_id for u in self._orig_upto(k)}
 
+    def _dropped(self, uid: str) -> list[str]:
+        """Cases no gate counts: vacuous (pass on the docs-only repository) and soft (an imported suite's cases that
+        break the fixed audits, import_suites)."""
+        m = self.meta[uid]
+        return sorted(set(m.get("vacuous") or []) | set(m.get("soft") or []))
+
     def deselect(self, k: int) -> dict[str, list[str]]:
-        return {u.unit_id: list(self.meta[u.unit_id].get("vacuous") or []) for u in self._orig_upto(k)}
+        return {u.unit_id: self._dropped(u.unit_id) for u in self._orig_upto(k)}
 
     def known(self, k: int) -> list[str]:
         out = []
         for u in self._orig_upto(k):
-            vac = set(self.meta[u.unit_id].get("vacuous") or [])
+            vac = set(self._dropped(u.unit_id))
             out += [n for n in self.meta[u.unit_id].get("nodes") or [] if n not in vac]
         return out
 
     def gate(self, code: Path, k: int, udir: Path) -> GateResult:
-        r = run_gate(code, self.suites_upto(k), venv=self.task.venv, work_dir=udir / "gates", timeout=self.cfg.gate_timeout,
-                     deselect=self.deselect(k))
-        return complete(r, self.known(k))
+        r = run_gate(code, self.suites_upto(k), venv=self.task.venv, work_dir=udir / "gates", timeout=self.cfg.gate_timeout)
+        return complete(drop(r, [n for ids in self.deselect(k).values() for n in ids]), self.known(k))
 
     def columns(self, g: GateResult, unit_id: str) -> Columns:
         if self.single:                                     # one unit: every failure is its own
@@ -187,6 +192,7 @@ class Round:
             self.ledger.tighten(k, "repairs", int(shares["repairs"]), reason="budget table", decided_by="table")
         own = self.suites_upto(k) if self.single else {u.unit_id: self.suite_set / u.unit_id}
         self.prober = Prober(ledger=self.ledger, planner=self.planner, workspace=ws, suites=own,
+                             deselect={uid: self._dropped(uid) for uid in own},
                              venv=self.task.venv, work_dir=udir / "probes",
                              gate_timeout=self.cfg.probe_timeout) if self.cfg.probe_every else None
         rec: dict[str, Any] = {"unit": u.unit_id, "index": k, "allocation": asdict(alloc), "sessions": [], "gates": [],
@@ -241,7 +247,7 @@ class Round:
         last = len(self.task.units) - 1
         g = self.gate(final, last, self.run_dir)
         known = self.known(last)
-        passed = sum(1 for n in known if g.results.get(n) == "passed")
+        passed = sum(1 for n in known if outcome(g.results, n) == "passed")
         sub = submit_check.check(final, package=self.task.package, docs=docs_of(final), suites=self.suites_upto(last),
                                  venv=self.task.venv, work_dir=self.run_dir / "submit")
         rec = {"task": self.task.task_id, "config": self.cfg.to_dict(), "table_version": (self.table or {}).get("version", 0),

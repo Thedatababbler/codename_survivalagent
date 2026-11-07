@@ -4,7 +4,8 @@ On a copy of the final code, in the sandbox (workspace policy), with the task ve
 
 1. the package imports;
 2. the public names the documents attribute to a module import from it (AdaMAS ``public_symbols``; top-level names
-   only, ``Class.method`` entries are not imported) -- at least ``NAMES_MIN`` of them;
+   only, ``Class.method`` entries are not imported; modules under test / benchmark directories and test_*.py files
+   are not the public API and are left out) -- at least ``NAMES_MIN`` of them;
 3. every frozen suite collects (``pytest --collect-only``, no collection error);
 4. when the documents show ``python -m <package>``, ``python -m <package> --help`` exits 0.
 
@@ -47,10 +48,22 @@ print("UNIT_PROBE " + json.dumps(out))
 '''
 
 
+# test and benchmark code is not the package's public API (2026-11-05 user decision: names from these dominated the
+# ratio on cerberus, whose docs list the functions of cerberus/benchmarks/test_*.py)
+_NOT_API_DIRS = {"test", "tests", "testing", "benchmark", "benchmarks"}
+
+
+def _is_test_module(module: str) -> bool:
+    parts = module.split("/")
+    leaf = parts[-1]
+    return bool(_NOT_API_DIRS & set(parts[:-1])) or leaf.startswith("test_") or leaf.endswith("_test.py") \
+        or leaf == "conftest.py"
+
+
 def documented_names(docs: dict[str, str], package: str) -> list[tuple[str, str]]:
     out = set()
     for s in derive_public_symbols(docs).symbols:
-        if not s.module or "." in s.name or not s.module.endswith(".py"):
+        if not s.module or "." in s.name or not s.module.endswith(".py") or _is_test_module(s.module):
             continue
         mod = s.module.removesuffix(".py").replace("/", ".").removesuffix(".__init__")
         if mod.split(".")[0] == package:

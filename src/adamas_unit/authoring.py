@@ -30,7 +30,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from adamas_unit.gate import run_gate
+from adamas_unit.gate import run_gate, case_ids, outcome
 from adamas_unit.ledger import Budget, Ledger
 from adamas_unit.sessions import ROLES, run_session
 from adamas_unit.task import Task, build_workspace, docs_of
@@ -99,14 +99,21 @@ def author_unit(task: Task, unit_index: int, *, out_dir: Path, ledger: Ledger, m
         a = audit_suite(suite, docs, packages=[task.package], interface=True)
         rec["audits"].append({"round": rnd, "cases": a.cases, "cited": a.cited, "violations": a.by_rule()})
         if rnd > 0 and before_cases and a.cases < (1 - MAX_FIX_DROP) * before_cases:
-            # the fix deleted much of the suite: roll it back; the suite keeps its violations (frozen as it is, as
-            # AdaMAS does when the rounds run out)
+            # the fix deleted much of the suite: roll it back and spend the remaining fix rounds on the restored
+            # suite (2026-11-07: stopping here froze deepdiff unit 4's round-0 suite with 56 violations); when the
+            # rounds run out the restored suite is frozen with its violations, as AdaMAS does
+            dropped = before_cases - a.cases
             shutil.rmtree(suite)
             shutil.copytree(backup, suite)
             a = audit_suite(suite, docs, packages=[task.package], interface=True)
             rec["audits"][-1]["rolled_back"] = True
             rec["audits"][-1]["cases_kept"] = a.cases
-            break
+            instance = ((ROLES / "author_fix.md").read_text(encoding="utf-8").strip()
+                        + f"\n\nYour previous fix deleted {dropped} of {before_cases} cases and was rejected; the suite "
+                        "has been restored to its state before that fix. Fix the listed items by correcting the cases "
+                        "(citations, names, expected behaviour), not by deleting them.\n\n"
+                        + _violations_text(a) + "\n\n" + unit.brief())
+            continue
         before_cases = a.cases
         if a.ok:
             break
@@ -119,8 +126,9 @@ def author_unit(task: Task, unit_index: int, *, out_dir: Path, ledger: Ledger, m
     # vacuity: run on the docs-only repository (a fresh copy, without the suite itself)
     empty = build_workspace(task, udir / "empty")
     r = run_gate(empty, {unit.unit_id: suite}, venv=task.venv, work_dir=udir / "gate", timeout=gate_timeout)
-    rec["nodes"] = sorted(n for n in r.results if not n.endswith("::<nothing ran>"))
-    rec["vacuous"] = r.passed()
+    # cases from the source: a suite importing the package at module top does not collect on the docs-only repository
+    rec["nodes"] = case_ids(suite, unit.unit_id)
+    rec["vacuous"] = [n for n in rec["nodes"] if outcome(r.results, n) == "passed"]
     rec["empty_gate"] = {"failed": len(r.failed()), "passed": len(r.passed()), "seconds": r.seconds, "timed_out": r.timed_out}
     shutil.rmtree(empty, ignore_errors=True)
     return rec

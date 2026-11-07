@@ -17,7 +17,7 @@ import difflib
 import time
 from pathlib import Path
 
-from adamas_unit.gate import run_gate
+from adamas_unit.gate import drop, run_gate
 from adamas_unit.ledger import Ledger
 from adamas_unit.planner import BudgetPlanner, Probe, SessionProgress
 
@@ -54,9 +54,11 @@ def change(before: dict[str, list[str]], after: dict[str, list[str]]) -> tuple[i
 
 class Prober:
     def __init__(self, *, ledger: Ledger, planner: BudgetPlanner | None, workspace: Path, suites: dict[str, Path],
-                 venv: Path, work_dir: Path, gate_timeout: float):
-        """``suites``: the unit's own frozen suite ({unit_id: dir}; the single-session arm: all of them)."""
+                 venv: Path, work_dir: Path, gate_timeout: float, deselect: dict[str, list[str]] | None = None):
+        """``suites``: the unit's own frozen suite ({unit_id: dir}; the single-session arm: all of them);
+        ``deselect``: the cases no gate counts (vacuous, soft), left out of the probe as well."""
         self.ledger, self.planner = ledger, planner
+        self.deselect = dict(deselect or {})
         self.workspace, self.suites = Path(workspace), dict(suites)
         self.venv, self.work_dir, self.gate_timeout = Path(venv), Path(work_dir), gate_timeout
         self.sessions: dict[str, SessionProgress] = {}
@@ -79,8 +81,8 @@ class Prober:
         files, lines = change(self._last.get(lid, {}), now)
         self._last[lid] = now
         try:
-            r = run_gate(self.workspace, self.suites, venv=self.venv, work_dir=self.work_dir,
-                         timeout=self.gate_timeout)
+            r = drop(run_gate(self.workspace, self.suites, venv=self.venv, work_dir=self.work_dir,
+                              timeout=self.gate_timeout), [n for ids in self.deselect.values() for n in ids])
             failures = len(r.failed())
         except Exception:                       # a probe that cannot run is recorded as unknown, never as progress
             failures = None

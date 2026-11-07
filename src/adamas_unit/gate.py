@@ -104,11 +104,58 @@ def run_gate(code_dir: Path, suites: dict[str, Path], *, venv: Path, work_dir: P
             shutil.rmtree(gate_dir, ignore_errors=True)
 
 
+def case_ids(suite_dir: Path, unit_id: str) -> list[str]:
+    """The suite's cases read from its source (``<unit_id>/test_x.py::test_a``, ``...::TestK::test_b``): known even
+    when the suite cannot be collected yet (a top-level import of the package not written). A parametrised case is
+    one id; its runs report ``id[param]``."""
+    import ast
+
+    out = []
+    root = Path(suite_dir)
+    for f in sorted(root.rglob("test_*.py")) + sorted(root.rglob("*_test.py")):
+        try:
+            tree = ast.parse(f.read_text(encoding="utf-8", errors="replace"))
+        except SyntaxError:
+            continue
+        rel = f"{unit_id}/{f.relative_to(root).as_posix()}"
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test"):
+                out.append(f"{rel}::{node.name}")
+            elif isinstance(node, ast.ClassDef) and node.name.startswith("Test"):
+                out += [f"{rel}::{node.name}::{m.name}" for m in node.body
+                        if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef)) and m.name.startswith("test")]
+    return sorted(set(out))
+
+
+def _runs(results: dict[str, str], case: str) -> list[str]:
+    return [o for n, o in results.items() if n == case or (n.startswith(case + "[") and n.endswith("]"))]
+
+
+def outcome(results: dict[str, str], case: str) -> str:
+    """A case's outcome: its own result, or over its parametrised runs (passed only when every run passed)."""
+    runs = _runs(results, case)
+    if not runs:
+        return "missing"
+    if all(o in OK for o in runs):
+        return "passed"
+    return next(o for o in runs if o not in OK)
+
+
+def drop(result: GateResult, cases: list[str] | set[str]) -> GateResult:
+    """Remove the results of cases no gate counts (vacuous, soft) and of their parametrised runs; exact, unlike
+    pytest's prefix ``--deselect``."""
+    cs = set(cases)
+    if cs:
+        result.results = {n: o for n, o in result.results.items() if n.split("[")[0] not in cs}
+    return result
+
+
 def complete(result: GateResult, known: list[str] | dict[str, str]) -> GateResult:
     """Tests known from earlier gates or authoring that this gate did not report (killed on timeout, file collapsed)
     count as failed."""
     for n in known:
-        result.results.setdefault(n, "missing")
+        if not _runs(result.results, n):
+            result.results[n] = "missing"
     return result
 
 

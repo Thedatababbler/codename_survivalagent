@@ -222,6 +222,69 @@ def _mentions(text: str, names: list[str]) -> bool:
     return any(re.search(rf"(?<![a-z0-9]){re.escape(n)}(?![a-z0-9])", low) or f"*{n}" in low or f"{n}*" in low for n in names)
 
 
+_HEREDOC_AT = re.compile(r"(?m)^([^\n]*?)<<-?\s*(['\"]?)(\w+)\2[^\n]*\n(.*?)\n[ \t]*\3[ \t]*(?=\n|$)", re.S)
+_PACKAGING = {"pyproject.toml", "setup.py", "setup.cfg"}
+# a script that runs code it builds at run time is not a plain file editor: its string literals may be executed
+_DYNAMIC = re.compile(r"\b(?:exec|eval|compile|__import__|import_module|run_module|run_path)\s*\(|\bsubprocess\b|\bos\.(?:system|popen|exec\w*)\b")
+_WRITES = re.compile(r"\bopen\s*\([^)]*['\"][wa]\+?['\"]|\.write_text\s*\(|\.write\s*\(")
+
+
+def _own_package_path(p: str, names: list[str], own_batch: str) -> bool:
+    """A path inside the package being written (or one of its packaging files), relative to the workspace or
+    absolute inside the run."""
+    p = p.strip("'\"")
+    if p.startswith("/"):
+        if not (own_batch and p.startswith(own_batch.rstrip("/") + "/")):
+            return False
+        p = p[len(own_batch.rstrip("/")) + 1:]
+        parts = p.split("/")
+        return ".." not in parts and (parts[-1] in _PACKAGING or any(c.lower() in names for c in parts[:-1]))
+    if p.startswith(("~", "$")) or ".." in p.split("/"):
+        return False
+    parts = [c for c in p.split("/") if c not in ("", ".")]
+    if parts[:1] == ["src"]:
+        parts = parts[1:]
+    return bool(parts) and ((len(parts) == 1 and parts[0] in _PACKAGING) or (len(parts) > 1 and parts[0].lower() in names))
+
+
+def _written_text_removed(cmd: str, names: list[str], own_batch: str, query: str, alt: str) -> str:
+    """The command with the text it only writes into the package being written blanked out (2026-11-05 user
+    decision: a package's own source that reads its own version is not a query; a run that performs the query still
+    is). Two forms: a heredoc body redirected into a package file (cat > f, cat >> f, tee f), and, in a Python file
+    editor fed by a heredoc, the string literals that hold the query -- only when the editor writes a file, names a
+    package path, and runs no dynamically built code. Executed code (a direct call) is never blanked."""
+    import io
+    import tokenize
+
+    hit = re.compile(rf"\b{query}\s*\(\s*['\"]({alt})['\"]", re.I)
+
+    def repl(m: re.Match) -> str:
+        head, body = m.group(1), m.group(4)
+        if not hit.search(body):
+            return m.group(0)
+        w = re.search(r"\b(?:cat\s*>>?|tee(?:\s+-a)?)\s*(\S+)", head)
+        if w and _own_package_path(w.group(1), names, own_batch):
+            return m.group(0).replace(body, "")
+        prog = head.split()[0] if head.split() else ""
+        if _INTERPRETERS.match(os.path.basename(prog)) and prog.startswith("python") and not _DYNAMIC.search(body) \
+                and _WRITES.search(body):
+            try:
+                toks = list(tokenize.generate_tokens(io.StringIO(body + "\n").readline))
+            except (tokenize.TokenError, SyntaxError, IndentationError):
+                return m.group(0)
+            strings = [t.string for t in toks if t.type == tokenize.STRING]
+            if not any(_own_package_path(s, names, own_batch) for s in strings):
+                return m.group(0)
+            new = body
+            for s in strings:
+                if hit.search(s):
+                    new = new.replace(s, "''")
+            return m.group(0).replace(body, new)
+        return m.group(0)
+
+    return _HEREDOC_AT.sub(repl, cmd)
+
+
 def _original_project_search(cmd: str, names: list[str], own_batch: str) -> str:
     """Outside the workspace, by the project's or its modules' name (returns the kind, "" when none): a listing /
     search with an absolute path outside the run; a query of installed distributions (pip show / download / install
@@ -259,13 +322,16 @@ def _original_project_search(cmd: str, names: list[str], own_batch: str) -> str:
             _mentions(" ".join(re.findall(r"\|\s*grep\b([^\n|;&]*)", script)), names):
         return "installed-distribution query"
     # importlib.metadata / pkg_resources under any alias (import importlib.metadata as m; m.version("x"))
-    meta = bool(re.search(r"importlib\.metadata|importlib_metadata|pkg_resources", cmd))
+    meta = bool(re.search(r"importlib\.metadata|importlib_metadata|pkg_resources|from\s+importlib\s+import\s+[^\n]*\bmetadata\b", cmd))
     query = (r"(?:(?:\w+\.)?(?:version|distribution|files|metadata|requires)|get_distribution|find_distributions?|find_spec)"
              if meta else r"(?:find_spec|get_distribution)")
-    if not own_copy and re.search(rf"\b{query}\s*\(\s*['\"]({alt})['\"]", cmd, re.I):
+    # a cd to a directory outside the run makes relative package paths someone else's: nothing is blanked then
+    cd_out = any(os.path.basename(t[0]) == "cd" and len(t) > 1 and outside(t[1]) for t in _segments(cmd))
+    run = cmd if cd_out else _written_text_removed(cmd, names, own_batch, query, alt)
+    if not own_copy and re.search(rf"\b{query}\s*\(\s*['\"]({alt})['\"]", run, re.I):
         return "installed-distribution query"
-    m = re.search(rf"\b{query}\s*\(\s*(\w+)\s*\)", cmd)
-    if not own_copy and m and re.search(rf"for\s+{m.group(1)}\s+in\s*[\[(][^\])]*['\"]({alt})['\"]", cmd, re.I):
+    m = re.search(rf"\b{query}\s*\(\s*(\w+)\s*\)", run)
+    if not own_copy and m and re.search(rf"for\s+{m.group(1)}\s+in\s*[\[(][^\])]*['\"]({alt})['\"]", run, re.I):
         return "installed-distribution query"
     cwd_out = False
     for toks in _segments(cmd):

@@ -561,6 +561,12 @@ def main() -> int:
             v_got = breach.scan_run(fake_run("vr2", "pip show toyq", "Name: toyq\nVersion: 1.2.0\nLocation: /usr/lib/x", 0), write=False)
             v_imp = breach.scan_run(fake_run("vr3", "cd / && python -c 'import toyq; print(toyq.__file__)'",
                                              "/opt/site/toyq/__init__.py", 0), write=False)
+            rel = fake_run("vr5", "python -c \"import importlib.metadata as m; print(m.version('toyq'))\"; find . -name '*.py'",
+                           "No package metadata was found for toyq\n./toyq/__init__.py\ntoyq/core.py", 0)
+            v_rel = breach.scan_run(rel, write=False)
+            own = base / "rounds" / "vr6" / "toyq"
+            v_own = breach.scan_run(fake_run("vr6", "cd / && python -c 'import importlib.util; print(importlib.util.find_spec(\"toyq\"))'",
+                                             f"ModuleSpec(name='toyq', origin='{own.resolve()}/units/00_u/ws/toyq/__init__.py')", 0), write=False)
             breach.similarity_check = lambda rd: {"ok": False, "outlier": True}
             v_sim = breach.scan_run(fake_run("vr4", "pip show toyq", "WARNING: Package(s) not found: toyq"), write=False)
         finally:
@@ -570,6 +576,8 @@ def main() -> int:
         checks["void rule: a search that obtained anything (metadata, an import from outside) voids the run"] = (
             v_got["void"] and not v_got["flagged"] and v_imp["void"] and not v_imp["flagged"])
         checks["void rule: a verified-empty search with a similarity outlier voids the run"] = v_sim["void"] and not v_sim["flagged"]
+        checks["void rule: relative paths of the run's own files, and the agent's own package found, are not content"] = (
+            v_rel["flagged"] and not v_rel["void"] and v_own["flagged"] and not v_own["void"])
 
         # the held-out split (sealed; booleans only): reproducible from its seed, halves disjoint and covering all
         import subprocess as _sp

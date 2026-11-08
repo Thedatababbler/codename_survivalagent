@@ -564,9 +564,10 @@ def search_got_content(cmd: str, output: str, kind: str, *, names: list[str], ru
     - a search: a listing program (ls, tree, du) run on an outside path -- its output names no paths, so it cannot
       be told apart from the run's own;
     - an import from outside: no import error in the output."""
-    run_root = run_root.rstrip("/")
-    env = [str(v).rstrip("/") + "/" for v in venvs]
-    for m in re.finditer(r"(/[^\s'\":,()\[\]<>=]+)", output or ""):
+    run_root = os.path.realpath(run_root).rstrip("/")        # outputs carry absolute paths
+    env = [os.path.realpath(str(v)).rstrip("/") + "/" for v in venvs]
+    # absolute paths only: a "/" that starts a path, not one inside a relative path (./pkg/x.py, pkg/x.py)
+    for m in re.finditer(r"(?<![\w.~/-])(/[^\s'\":,()\[\]<>=]+)", output or ""):
         p = m.group(1)
         if p.startswith(("/tmp", run_root + "/")) or p == run_root or any(p.startswith(e) for e in env):
             continue

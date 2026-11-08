@@ -40,9 +40,15 @@ class PlannerState:
             return None                                   # pi_0: even split
         return json.loads((self.dir / cur.read_text(encoding="utf-8").strip()).read_text(encoding="utf-8"))
 
+    def table_version(self, version: int) -> dict[str, Any]:
+        """A stored table by version (a candidate under trial is not the current one)."""
+        return json.loads((self.dir / f"table_v{version}.json").read_text(encoding="utf-8"))
+
     def write_table(self, units: dict[str, dict[str, float]], *, source: str) -> dict[str, Any]:
-        cur = self.table()
-        v = (cur or {}).get("version", 0) + 1
+        # the next free version: a rejected candidate is never current, and must not be overwritten
+        vs = [int(p.stem.removeprefix("table_v")) for p in self.dir.glob("table_v*.json")
+              if p.stem.removeprefix("table_v").isdigit()]
+        v = max(vs, default=0) + 1
         t = {"version": v, "units": units, "source": source, "canary": self.canary}
         (self.dir / f"table_v{v}.json").write_text(json.dumps(t, indent=1), encoding="utf-8")
         return t

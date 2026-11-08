@@ -33,7 +33,8 @@ sys.path.insert(0, str(ROOT / "src"))
 from adamas_unit import submit_check  # noqa: E402
 from adamas_unit.authoring import FrozenSuiteError, author_all, freeze  # noqa: E402
 from adamas_unit.diagnostics import diagnose  # noqa: E402
-from adamas_unit.evolver import accept, validate_table  # noqa: E402
+from adamas_unit.planner_state import PlannerState  # noqa: E402
+from adamas_unit.evolver import SYSTEM as EVOLVER_SYSTEM, accept, decide, propose, round_record, validate_table  # noqa: E402
 from adamas_unit.gate import run_gate  # noqa: E402
 from adamas_unit.ledger import Budget  # noqa: E402
 from adamas_unit.round import Models, Round, RoundConfig  # noqa: E402
@@ -385,6 +386,39 @@ def main() -> int:
             {**inc, "submittable_ratio": 0.5, "frozen_pass_rate": 0.9}, inc, eps_noise=0.05)[0]
         checks["acceptance: a pass-rate gain within the noise does not win by itself"] = not accept(
             {**inc, "frozen_pass_rate": 0.53}, inc, eps_noise=0.05)[0]
+
+        # the proposal step: an invalid table goes back once with its problems; the input carries numbers only; the
+        # prompt says nothing about how to divide (2026-11-07 user rule)
+        recs = [round_record(rnd.run_dir, d1), round_record(r2.run_dir, d2)]
+        answers = [json.dumps({"table": big, "reason": "first"}), json.dumps({"table": ok, "reason": "fixed", "rules": ["r1", "r2", "r3"]})]
+        seen_msgs: list[list[dict]] = []
+
+        def scripted_complete(msgs):
+            seen_msgs.append(msgs)
+            return answers.pop(0), 100, 10
+        pr = propose(scripted_complete, None, recs, ids)
+        checks["evolver: an invalid table goes back once; the corrected one is taken, rules cut to 2"] = (
+            pr["table"] == ok and bool(pr["problems"][0]) and pr["problems"][1] == [] and pr["rules"] == ["r1", "r2"]
+            and "moves more" in seen_msgs[1][-1]["content"] and pr["tokens"]["prompt"] == 200)
+        blob = seen_msgs[0][1]["content"]
+        checks["evolver: its input holds no test ids, test names or code"] = (
+            "::" not in blob and "test_" not in blob and "def " not in blob and "import " not in blob)
+        low = EVOLVER_SYSTEM.lower()
+        checks["evolver: the prompt carries no advice on dividing (no unit, position or reserve words)"] = not any(
+            w in low for w in ("last unit", "final unit", "later units need", "reserve", "integration", "more to the",
+                               "earlier units should", "u0_add", "u1_mul", "serialization"))
+        R = {"submittable_ratio": 1.0, "frozen_pass_rate": 0.5, "gated_units": 2, "waste": 1.0}
+        good, bad_run = {**R, "frozen_pass_rate": 0.7}, {**R, "frozen_pass_rate": 0.3}
+        checks["E1 trial: 2 of 2 better accept, 0 of 2 reject, 1 of 2 asks a 3rd, 2 of 3 accept"] = (
+            decide([good, good], [R], eps_noise=0.05) == "accept" and decide([bad_run, bad_run], [R], eps_noise=0.05) == "reject"
+            and decide([good, bad_run], [R], eps_noise=0.05) == "more"
+            and decide([good, bad_run, good], [R], eps_noise=0.05) == "accept"
+            and decide([good, bad_run, bad_run], [R], eps_noise=0.05) == "reject")
+        ps = PlannerState("toyq", root=base / "planner")
+        v1 = ps.write_table(ok, source="cand 1")["version"]
+        v2 = ps.write_table(ok, source="cand 2")["version"]          # cand 1 was never made current
+        checks["planner state: a rejected candidate's table is not overwritten by the next"] = (
+            (v1, v2) == (1, 2) and ps.table_version(1)["source"] == "cand 1" and ps.table() is None)
 
         # a changed frozen suite stops a round
         bad = base / "suites" / "tampered"

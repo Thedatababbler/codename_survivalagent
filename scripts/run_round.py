@@ -40,6 +40,9 @@ def main() -> int:
     ap.add_argument("--probe-every", type=int, default=0)
     ap.add_argument("--single", action="store_true", help="the single-session control arm (whole repository as one unit)")
     ap.add_argument("--fixed-planner", action="store_true", help="the planner's fixed rule only (no planner calls)")
+    ap.add_argument("--table-version", type=int, default=0,
+                    help="run with this stored budget table (a candidate under trial); 0: the current one (pi_0 if none)")
+    ap.add_argument("--pi0", action="store_true", help="no budget table (pi_0), whatever is current")
     a = ap.parse_args()
     require_sandbox("round")
     task = load_task(a.task)
@@ -49,7 +52,8 @@ def main() -> int:
     models = Models(agent=agent_model, complete=None if a.fixed_planner else complete, summarize=summarize)
     run_dir = ROOT / "outputs" / "rounds" / a.round / a.task
     rnd = Round(task, ROOT / "outputs" / "suites" / a.task / a.set, run_dir, cfg, models,
-                table=None if a.single else state.table(), rules=None if a.single else state.rules(), single=a.single)
+                table=None if a.single or a.pi0 else (state.table_version(a.table_version) if a.table_version else state.table()),
+                rules=None if a.single else state.rules(), single=a.single)
     rec = rnd.run()
     s = breach.scan_run(run_dir, run_id=f"{a.round}-{a.task}")
     if a.single:                                  # the control arm is not the planner's experience

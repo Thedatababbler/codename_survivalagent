@@ -34,8 +34,8 @@ from adamas_unit import submit_check  # noqa: E402
 from adamas_unit.authoring import FrozenSuiteError, author_all, freeze  # noqa: E402
 from adamas_unit.diagnostics import diagnose  # noqa: E402
 from adamas_unit.planner_state import PlannerState  # noqa: E402
-from adamas_unit.evolver import SYSTEM as EVOLVER_SYSTEM, accept, decide, direction, propose, round_record, thresholds  # noqa: E402
-from adamas_unit.evolver import validate_approval, validate_table, verdict  # noqa: E402
+from adamas_unit.evolver import SYSTEM as EVOLVER_SYSTEM, accept, decide, direction, eps_of, propose, round_record  # noqa: E402
+from adamas_unit.evolver import validate_approval, validate_table  # noqa: E402
 from adamas_unit.gate import run_gate  # noqa: E402
 from adamas_unit.ledger import APPROVAL_DEFAULTS, Budget, Ledger  # noqa: E402
 from adamas_unit.planner import BudgetPlanner  # noqa: E402
@@ -438,7 +438,10 @@ def main() -> int:
         # the proposal step: an invalid table goes back once with its problems; the input carries numbers only; the
         # prompt says nothing about how to divide (2026-11-07 user rule)
         recs = [round_record(rnd.run_dir, d1), round_record(r2.run_dir, d2)]
-        answers = [json.dumps({"table": big, "reason": "first"}), json.dumps({"table": ok, "reason": "fixed", "rules": ["r1", "r2", "r3"]})]
+        def anon(t):
+            return {f"U{ids.index(u) + 1}": v for u, v in t.items()}
+        answers = [json.dumps({"table": anon(big), "reason": "first"}),
+                   json.dumps({"table": anon(ok), "reason": "fixed", "rules": ["r1", "r2", "r3"]})]
         seen_msgs: list[list[dict]] = []
 
         def scripted_complete(msgs):
@@ -448,36 +451,40 @@ def main() -> int:
         checks["evolver: an invalid table goes back once; the corrected one is taken, rules cut to 2"] = (
             pr["table"] == ok and bool(pr["problems"][0]) and pr["problems"][1] == [] and pr["rules"] == ["r1", "r2"]
             and "moves more" in seen_msgs[1][-1]["content"] and pr["tokens"]["prompt"] == 200)
-        blob = seen_msgs[0][1]["content"]
+        blob = seen_msgs[0][1]["content"] + seen_msgs[1][-1]["content"]          # the input and the returned problems
         checks["evolver: its input holds no test ids, test names or code"] = (
             "::" not in blob and "test_" not in blob and "def " not in blob and "import " not in blob)
+        checks["evolver: no real unit name in its input or returned problems (U1..Un); its table maps back"] = (
+            not any(u in blob for u in ids) and '"U1"' in seen_msgs[0][1]["content"] and "U1" in seen_msgs[1][-1]["content"]
+            and set(pr["table"]) == set(ids))
         low = EVOLVER_SYSTEM.lower()
         checks["evolver: the prompt carries no advice on dividing (no unit, position or reserve words)"] = not any(
             w in low for w in ("last unit", "final unit", "later units need", "reserve", "integration", "more to the",
                                "earlier units should", "u0_add", "u1_mul", "serialization"))
-        # E1 trial (user decision 2026-11-08): priorities 1-2 only; the bar from the incumbent's rounds
-        def R(sub, passed, gated, fail=3, empty=1):
-            return {"submittable_ratio": sub, "frozen_pass_rate": passed / 52, "frozen_passed": passed, "gated_units": gated,
+        checks["evolver: the prompt's scoring has two priorities; process figures said not to decide"] = (
+            "hidden tests" in low and "do not decide" in low and "then the number of units whose gate passed" not in low)
+        # E1 trial (user decision 2026-11-08, patch): submittable, then the held-out feedback-half ratio
+        def R(sub, hid, fail=3, empty=1):
+            return {"submittable_ratio": sub, "hidden": hid, "frozen_pass_rate": 0.9, "frozen_passed": 47, "gated_units": 3,
                     "waste": 1.0, "last_unit_failures": fail, "last_unit_repairs_empty": empty}
-        inc_runs = [R(0, 47, 3, 4, 2), R(1, 48, 3), R(1, 46, 3)]                    # the tier50 baseline's figures
-        th = thresholds(inc_runs, eps_cases=(48 - 46) / 2 / 52 * 52)
-        good, bad_run = R(1, 50, 3), R(1, 47, 3)
-        checks["E1 bar: pass count 49 (mean 47 + eps 1, next whole), gated 4, at most 1 round with submittable 0"] = (
-            th == {"pass_count": 49.0, "gated_units": 4.0, "zero_submittable": 1.0})
-        checks["E1 trial: 2 of 2 clearly better accept, 0 of 2 reject, mixed asks a 3rd, the 3-round verdict decides"] = (
-            decide([good, good], th) == "accept" and decide([bad_run, bad_run], th) == "reject"
-            and decide([good, bad_run], th) == "more"
-            and decide([good, bad_run, good], th) == "accept"            # mean 49
-            and decide([good, bad_run, bad_run], th) == "reject"         # mean 48
-            and decide([R(1, 47, 4), R(1, 47, 4), R(1, 47, 3)], th) == "accept")   # most rounds gate 4 units
-        checks["E1 trial: a candidate with more rounds of submittable 0 than the incumbent is not accepted"] = (
-            not verdict([R(0, 52, 5), R(0, 52, 5)], th)[0] and decide([R(0, 52, 5), R(0, 52, 5)], th) != "accept")
-        checks["E1 trial: one more gated unit at an equal pass count, or less waste, does not decide"] = (
-            decide([R(1, 47, 3) | {"waste": 0.0}, R(1, 47, 3) | {"waste": 0.0}], th) == "reject")
+        inc_runs = [R(0, 0.10), R(1, 0.12), R(1, 0.14)]                          # mean 0.12
+        e = eps_of([r["hidden"] for r in inc_runs])
+        checks["E1 eps: max(half the incumbent's range, 0.01)"] = (abs(e - 0.02) < 1e-9 and eps_of([0.5, 0.505, 0.51]) == 0.01)
+        hi, mid, lo = R(1, 0.15), R(1, 0.13), R(1, 0.11)
+        checks["E1 decide: both above mean + eps accept; both not above the mean reject; mixed asks a 3rd"] = (
+            decide([hi, hi], inc_runs, eps=e)[0] == "accept" and decide([lo, lo], inc_runs, eps=e)[0] == "reject"
+            and decide([hi, lo], inc_runs, eps=e)[0] == "more" and decide([mid, mid], inc_runs, eps=e)[0] == "more")
+        checks["E1 decide: after a 3rd round, 2 of 3 above mean + eps accept, otherwise reject"] = (
+            decide([hi, lo, hi], inc_runs, eps=e)[0] == "accept" and decide([hi, lo, mid], inc_runs, eps=e)[0] == "reject")
+        checks["E1 decide: more rounds with submittable 0 than the incumbent reject at once, whatever the ratio"] = (
+            decide([R(0, 0.9), R(0, 0.9)], inc_runs, eps=e)[0] == "reject"
+            and decide([R(0, 0.9), R(1, 0.9)], inc_runs, eps=e)[0] == "accept")
+        checks["E1 decide: frozen figures, gated units and waste do not decide"] = (
+            decide([R(1, 0.11) | {"frozen_passed": 52, "gated_units": 5, "waste": 0.0}] * 2, inc_runs, eps=e)[0] == "reject")
         checks["E1 direction: the last unit's repairs funded and its failures down is recorded"] = (
-            direction([R(1, 47, 3, 1, 0), R(1, 47, 3, 2, 0)], inc_runs)["ok"] is True
-            and direction([R(1, 47, 3, 1, 1), R(1, 47, 3, 1, 0)], inc_runs)["ok"] is False
-            and direction([R(1, 47, 3, None, None), R(1, 47, 3, 1, 0)], inc_runs)["ok"] is False)
+            direction([R(1, 0.1, 1, 0), R(1, 0.1, 2, 0)], inc_runs)["ok"] is True
+            and direction([R(1, 0.1, 1, 1), R(1, 0.1, 1, 0)], inc_runs)["ok"] is False
+            and direction([R(1, 0.1, None, None), R(1, 0.1, 1, 0)], inc_runs)["ok"] is False)
 
         # approval parameters (2026-11-08): the defaults run byte for byte as the ledger and planner before them
         refL, refP = _ref_modules(base)
@@ -522,10 +529,10 @@ def main() -> int:
             and validate_approval({"unit_topup_limit": 1.5}) == [] and len(validate_approval({"grant_cap": "x"})) == 1
             and len(validate_approval({"unit_topup_limit": 4})) == 1 and len(validate_approval({"foo": 1})) == 1
             and len(validate_approval({"unit_topup_limit": True})) == 1)
-        answers2 = [json.dumps({"table": ok, "approval": {"grant_cap": "nope"}, "reason": "x"}),
-                    json.dumps({"table": ok, "approval": {"unit_topup_limit": 1, "inherited": "planner"}, "reason": "y"})]
+        answers2 = [json.dumps({"table": anon(ok), "approval": {"grant_cap": "nope"}, "reason": "x"}),
+                    json.dumps({"table": anon(ok), "approval": {"unit_topup_limit": 1, "inherited": "planner"}, "reason": "y"})]
         pr2 = propose(lambda msgs: (answers2.pop(0), 1, 1), None, recs, ids)
-        answers3 = [json.dumps({"table": ok, "approval": dict(APPROVAL_DEFAULTS), "reason": "z"})]
+        answers3 = [json.dumps({"table": anon(ok), "approval": dict(APPROVAL_DEFAULTS), "reason": "z"})]
         pr3 = propose(lambda msgs: (answers3.pop(0), 1, 1), None, recs, ids)
         checks["evolver: an invalid approval goes back; a valid one is kept, all-default approval stored as none"] = (
             pr2["approval"] == {"grant_cap": "floors", "unit_topup_limit": 1, "inherited": "planner"}
@@ -536,6 +543,45 @@ def main() -> int:
         checks["planner state: a rejected candidate's table is not overwritten by the next"] = (
             (v1, v2) == (1, 2) and ps.table_version(1)["source"] == "cand 1" and ps.table() is None
             and ps.table_version(1)["approval"] == {"unit_topup_limit": 1} and "approval" not in ps.table_version(2))
+
+        # rule 6 void rule (2026-11-08): refused + verified empty -> CRITICAL, flagged, kept; anything obtained -> void
+        def fake_run(name, cmd, output, exit_code=1):
+            d = base / "rounds" / name / "toyq"
+            (d / "cap").mkdir(parents=True)
+            (d / "cap" / "c.jsonl").write_text(json.dumps({"role": "builder", "command": cmd, "output": output,
+                                                           "exit_code": exit_code}) + "\n")
+            (d / "sandbox_manifest.json").write_text(json.dumps({"entries": [
+                {"kind": "agent", "role": "builder", "capture": str(d / "cap" / "c.jsonl"), "policy": {"read": [str(d)]}}]}))
+            return d
+        sim_ok = {"ok": True, "similarity": 0.1, "cut": 0.6, "outlier": False}
+        old_sim = breach.similarity_check
+        try:
+            breach.similarity_check = lambda rd: sim_ok
+            v_empty = breach.scan_run(fake_run("vr1", "pip show toyq", "WARNING: Package(s) not found: toyq"), write=False)
+            v_got = breach.scan_run(fake_run("vr2", "pip show toyq", "Name: toyq\nVersion: 1.2.0\nLocation: /usr/lib/x", 0), write=False)
+            v_imp = breach.scan_run(fake_run("vr3", "cd / && python -c 'import toyq; print(toyq.__file__)'",
+                                             "/opt/site/toyq/__init__.py", 0), write=False)
+            breach.similarity_check = lambda rd: {"ok": False, "outlier": True}
+            v_sim = breach.scan_run(fake_run("vr4", "pip show toyq", "WARNING: Package(s) not found: toyq"), write=False)
+        finally:
+            breach.similarity_check = old_sim
+        checks["void rule: a refused search that found nothing is CRITICAL and flagged, the run kept"] = (
+            v_empty["critical"] == 1 and v_empty["flagged"] and not v_empty["void"])
+        checks["void rule: a search that obtained anything (metadata, an import from outside) voids the run"] = (
+            v_got["void"] and not v_got["flagged"] and v_imp["void"] and not v_imp["flagged"])
+        checks["void rule: a verified-empty search with a similarity outlier voids the run"] = v_sim["void"] and not v_sim["flagged"]
+
+        # the held-out split (sealed; booleans only): reproducible from its seed, halves disjoint and covering all
+        import subprocess as _sp
+        hs = _sp.run([sys.executable, str(ROOT / "scripts" / "sealed" / "heldout_half.py"), "selfcheck", "nl2_deepdiff"],
+                     capture_output=True, text=True, cwd=ROOT, timeout=600)
+        try:
+            hj = json.loads(hs.stdout.strip().splitlines()[-1])
+        except (ValueError, IndexError):
+            hj = {}
+        checks["held-out split: reproducible from its seed, halves disjoint, both non-empty, covering every function"] = (
+            hj.get("reproducible") is True and hj.get("disjoint") is True and hj.get("both_nonempty") is True
+            and hj.get("covers_all") is True)
 
         # a changed frozen suite stops a round
         bad = base / "suites" / "tampered"

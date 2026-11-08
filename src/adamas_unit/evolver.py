@@ -12,19 +12,17 @@
   D12). The prompt states the mechanics and the constraints and nothing about how to divide (2026-11-07 user rule:
   whether the evolver finds the pattern itself is the question E1 answers). An invalid table goes back once with
   its problems.
-- ``run_stats`` / ``thresholds`` / ``verdict`` / ``decide``: the E1 trial of a candidate (user decisions 2026-11-07,
-  2026-11-08): 2 rounds; both clearly better and the verdict holds -> accepted; neither -> rejected; otherwise a 3rd
-  round and the verdict over three. The verdict uses priorities 1 and 2 only (rounds with submittable 0 not more than
-  the incumbent's; mean pass count above the incumbent's mean + eps, or most rounds gating one more unit than the
-  incumbent's best); ``better`` (all of D8) and ``direction`` (the last unit got budget for its repairs and its
-  failures fell) are recorded only.
+- ``run_stats`` / ``eps_of`` / ``decide``: the E1 trial of a candidate (user decision 2026-11-08): judged on the
+  held-out feedback half's pass ratio (one number per round from the sealed program) after the submittable check;
+  2 rounds, a 3rd when mixed. ``better`` (all of D8 on the frozen figures) and ``direction`` (the last unit got
+  budget for its repairs and its failures fell) are recorded only.
+- The evolver sees units as U1..Un only (``anonymize``); its table comes back in real ids.
 - The table's approval parameters (``ledger.APPROVAL_DEFAULTS``) are evolvable too (2026-11-08); ``validate_approval``.
 """
 
 from __future__ import annotations
 
 import json
-import math
 import re
 from pathlib import Path
 from typing import Any, Callable
@@ -126,9 +124,9 @@ The table may also set approval parameters (omitted ones keep their default; the
   (default): the planner decides each time; "never"; "fixed": yes while repairs are left.
 
 Rounds are compared by, in this order: the submittable ratio (the final code imports, its documented names import,
-the suites collect); the pass rate of the final code on all units' frozen tests, where a difference must exceed the
-noise between repeated rounds; then the number of units whose gate passed, and waste (allocations left unused,
-repairs that changed nothing, sessions without progress).
+the suites collect); then the pass ratio of the final code on a set of hidden tests ("hidden_pass_ratio" in the
+records), where a difference must exceed the noise between repeated rounds. The records also carry process figures
+(the frozen gate tests' pass count, units whose gate passed, waste); they do not decide.
 
 You see only numbers from the ledger: no code, no tests. Propose the budget table for the next round. Constraints
 (checked mechanically; a table that breaks one is returned to you once with the problems):
@@ -140,7 +138,7 @@ In "reason", say which numbers in the records lead to each change (shares and ap
 (short sentences that would hold for other tasks); they are only recorded.
 
 Answer with one JSON object and nothing else:
-{"table": {"<unit id>": {"tokens": <share>, "seconds": <share>, "compressions": <share>, "repairs": <int>}, ...},
+{"table": {"<U1..Un>": {"tokens": <share>, "seconds": <share>, "compressions": <share>, "repairs": <int>}, ...},
  "approval": {"grant_cap": ..., "unit_topup_limit": ..., "inherited": ...},
  "reason": "<text>", "rules": ["<rule>", ...]}"""
 
@@ -154,8 +152,9 @@ def _no_ids(x: Any) -> Any:
     return x
 
 
-def round_record(run_dir: Path, diagnostics: dict[str, Any]) -> dict[str, Any]:
-    """What the evolver reads of one finished round: numbers only."""
+def round_record(run_dir: Path, diagnostics: dict[str, Any], hidden_ratio: float | None = None) -> dict[str, Any]:
+    """What the evolver reads of one finished round: numbers only (``hidden_ratio``: the held-out feedback half's
+    pass ratio, the one number the sealed program returns)."""
     run_dir = Path(run_dir)
     rnd = json.loads((run_dir / "round.json").read_text(encoding="utf-8"))
     B = rnd["config"]["budget"]
@@ -183,21 +182,41 @@ def round_record(run_dir: Path, diagnostics: dict[str, Any]) -> dict[str, Any]:
     diag = {k: v for k, v in diagnostics.items() if k not in ("measures",)}
     return _no_ids({"round": rnd.get("round_id") or run_dir.parent.name, "table_version": rnd.get("table_version", 0),
                     "budget_B": {k: B[k] for k in ("tokens", "seconds", "compressions", "repairs")},
-                    "measures": rnd["measures"], "units": units, "topups": topups, "diagnostics": diag})
+                    "hidden_pass_ratio": hidden_ratio,
+                    "measures": {**{k: v for k, v in rnd["measures"].items() if k != "frozen_pass_rate"},
+                                 "note": "frozen_* and gated_units are process figures; they do not decide"},
+                    "units": units, "topups": topups, "diagnostics": diag})
+
+
+def anon_map(unit_ids: list[str]) -> dict[str, str]:
+    """Real unit id -> U1..Un in execution order (2026-11-08: the evolver never sees a real unit name)."""
+    return {u: f"U{i + 1}" for i, u in enumerate(unit_ids)}
+
+
+def anonymize(text: str, unit_ids: list[str]) -> str:
+    for u, a in sorted(anon_map(unit_ids).items(), key=lambda kv: -len(kv[0])):
+        text = text.replace(u, a)
+    return text
+
+
+def _anon_table(units: dict[str, Any] | None, unit_ids: list[str]) -> dict[str, Any] | None:
+    m = anon_map(unit_ids)
+    return None if units is None else {m.get(u, u): v for u, v in units.items()}
 
 
 def evolver_input(incumbent: dict[str, Any] | None, records: list[dict[str, Any]], unit_ids: list[str], *,
                   floor_share: float, max_change: float, trials: list[dict[str, Any]] | None = None) -> str:
     """``trials``: earlier candidate tables and how their trial ended (version, table, approval, decision)."""
     inc = {"name": "pi_0 (no table)", "table": None, "approval": APPROVAL_DEFAULTS} if not incumbent else \
-        {"name": f"table v{incumbent.get('version')}", "table": incumbent.get("units"),
+        {"name": f"table v{incumbent.get('version')}", "table": _anon_table(incumbent.get("units"), unit_ids),
          "approval": {**APPROVAL_DEFAULTS, **(incumbent.get("approval") or {})}}
+    trials = [{**t, "table": _anon_table(t.get("table"), unit_ids)} for t in trials or []]
     tr = f"Earlier candidate tables and their trials:\n{json.dumps(trials, indent=1, default=str)}\n\n" if trials else ""
-    return (f"Units in order: {json.dumps(unit_ids)}\n"
+    return anonymize(f"Units in order: {json.dumps(list(anon_map(unit_ids).values()))}\n"
             f"Floor share: {floor_share}; maximum move per share: {max_change:.0%} of the incumbent's share\n\n"
             f"Incumbent: {json.dumps(inc)}\n\n{tr}"
             f"Records of earlier rounds of this task (same B), oldest first (\"table_version\" 0 is pi_0):\n"
-            f"{json.dumps(records, indent=1, default=str)}")
+            f"{json.dumps(records, indent=1, default=str)}", unit_ids)
 
 
 def _json_obj(text: str) -> dict[str, Any] | None:
@@ -227,10 +246,11 @@ def propose(complete: Callable[[list[dict]], tuple[str, int, int]], incumbent: d
         out["tokens"]["completion"] += c
         out["raw"].append(text)
         d = _json_obj(text)
+        back = {a: u for u, a in anon_map(unit_ids).items()}
         if d is None or not isinstance(d.get("table"), dict):
             probs = ["the answer is not one JSON object with a \"table\""]
         else:
-            table = {u: {k: (int(v) if k == "repairs" and isinstance(v, (int, float)) and float(v).is_integer() else v)
+            table = {back.get(u, u): {k: (int(v) if k == "repairs" and isinstance(v, (int, float)) and float(v).is_integer() else v)
                          for k, v in (row or {}).items()} for u, row in d["table"].items()}
             appr = d.get("approval")
             probs = validate_table(table, inc_units, unit_ids, floor_share=floor_share, max_change=max_change) \
@@ -244,14 +264,15 @@ def propose(complete: Callable[[list[dict]], tuple[str, int, int]], incumbent: d
                 return out
         out["problems"].append(probs)
         msgs += [{"role": "assistant", "content": text},
-                 {"role": "user", "content": "The table breaks these constraints; answer again with a corrected table:\n- "
-                  + "\n- ".join(probs)}]
+                 {"role": "user", "content": anonymize("The table breaks these constraints; answer again with a corrected "
+                                                       "table:\n- " + "\n- ".join(probs), unit_ids)}]
     return out
 
 
 # ---------------------------------------------------------------------------------------------- the E1 trial
 
-def run_stats(run_dir: Path, diagnostics: dict[str, Any], last_unit: str | None = None) -> dict[str, Any]:
+def run_stats(run_dir: Path, diagnostics: dict[str, Any], last_unit: str | None = None,
+              hidden: float | None = None) -> dict[str, Any]:
     """One round's figures for the acceptance rule; waste = repairs that changed nothing + sessions without progress
     + unused tokens as a share of B."""
     rnd = json.loads((Path(run_dir) / "round.json").read_text(encoding="utf-8"))
@@ -261,7 +282,7 @@ def run_stats(run_dir: Path, diagnostics: dict[str, Any], last_unit: str | None 
     last = next((u for u in units if u["unit"] == last_unit), None) if last_unit else (units[-1] if units else None)
     last = last or {"gates": [], "unit": last_unit}
     empty = sum(1 for x in diagnostics.get("session_started_empty") or [] if x.get("unit") == last["unit"] and x.get("role") == "repairer")
-    return {"submittable_ratio": float(m["submittable"]), "frozen_pass_rate": float(m["frozen_pass_rate"]),
+    return {"hidden": hidden, "submittable_ratio": float(m["submittable"]), "frozen_pass_rate": float(m["frozen_pass_rate"]),
             "frozen_passed": int(m["frozen_passed"]), "gated_units": float(m["gated_units"]),
             "last_unit_failures": int(last["gates"][-1]["new"]) if last["gates"] else None,
             "last_unit_repairs_empty": empty if last["gates"] else None,
@@ -277,51 +298,36 @@ def better(run: dict[str, Any], incumbent_runs: list[dict[str, Any]], *, eps_noi
     return accept(run, mean_stats(incumbent_runs), eps_noise=eps_noise)
 
 
-def thresholds(incumbent_runs: list[dict[str, Any]], *, eps_cases: float) -> dict[str, float]:
-    """E1's bar (user decision 2026-11-08): the pass count must reach the smallest whole count above the
-    incumbent's mean + eps; gated units must reach one more than the incumbent's best."""
-    m = sum(r["frozen_passed"] for r in incumbent_runs) / len(incumbent_runs)
-    return {"pass_count": float(math.floor(round(m + eps_cases, 6)) + 1),
-            "gated_units": float(max(r["gated_units"] for r in incumbent_runs) + 1),
-            "zero_submittable": float(sum(1 for r in incumbent_runs if r["submittable_ratio"] == 0))}
+def eps_of(incumbent_ratios: list[float], floor: float = 0.01) -> float:
+    """eps = max(half the range of the incumbent's feedback-half ratios, 0.01) (user decision 2026-11-08)."""
+    return max((max(incumbent_ratios) - min(incumbent_ratios)) / 2, floor)
 
 
-def clearly_better(run: dict[str, Any], th: dict[str, float]) -> bool:
-    """One candidate round over the bar: submittable, and pass count or gated units at the threshold."""
-    return run["submittable_ratio"] > 0 and (run["frozen_passed"] >= th["pass_count"] or run["gated_units"] >= th["gated_units"])
+def decide(candidate_runs: list[dict[str, Any]], incumbent_runs: list[dict[str, Any]], *, eps: float) -> tuple[str, str]:
+    """('accept' | 'reject' | 'more', why) by priorities 1-2 only (user decision 2026-11-08). Runs carry
+    "submittable_ratio" and "hidden" (the feedback-half ratio).
 
-
-def verdict(candidate_runs: list[dict[str, Any]], th: dict[str, float]) -> tuple[bool, str]:
-    """Accepted as the new incumbent when (1) no more rounds with submittable 0 than the incumbent had, and (2) the
-    mean pass count reaches the threshold or most rounds reach the gated-units threshold. Priority 3 (gated units by
-    one, waste) is recorded only."""
-    n = len(candidate_runs)
+    1. more rounds with submittable 0 than the incumbent had -> reject at once;
+    2. two rounds: both above the incumbent's mean + eps -> accept; both not above the mean -> reject; otherwise a
+       3rd round; three rounds: at least 2 above mean + eps -> accept, else reject."""
+    zeros_inc = sum(1 for r in incumbent_runs if r["submittable_ratio"] == 0)
     zeros = sum(1 for r in candidate_runs if r["submittable_ratio"] == 0)
-    if zeros > th["zero_submittable"]:
-        return False, f"1: {zeros} rounds with submittable 0 > the incumbent's {th['zero_submittable']:g}"
-    mp = sum(r["frozen_passed"] for r in candidate_runs) / n
-    ng = sum(1 for r in candidate_runs if r["gated_units"] >= th["gated_units"])
-    if mp >= th["pass_count"]:
-        return True, f"2: mean pass count {mp:.2f} >= {th['pass_count']:g}"
-    if ng * 2 > n:
-        return True, f"2: {ng} of {n} rounds gate >= {th['gated_units']:g} units"
-    return False, f"2: mean pass count {mp:.2f} < {th['pass_count']:g} and {ng} of {n} rounds gate >= {th['gated_units']:g} units"
-
-
-def decide(candidate_runs: list[dict[str, Any]], th: dict[str, float]) -> str:
-    """'accept', 'reject' or 'more' (run a 3rd round). Two rounds: both clearly better and the verdict holds ->
-    accept; neither clearly better -> reject; otherwise a 3rd. Three rounds: the verdict over all three."""
+    if zeros > zeros_inc:
+        return "reject", f"1: {zeros} rounds with submittable 0 > the incumbent's {zeros_inc}"
+    mean = sum(r["hidden"] for r in incumbent_runs) / len(incumbent_runs)
+    high = [r["hidden"] > mean + eps + 1e-12 for r in candidate_runs]
+    low = [r["hidden"] <= mean + 1e-12 for r in candidate_runs]
+    bar = f"incumbent mean {mean:.4f}, eps {eps:.4f}"
     if len(candidate_runs) < 2:
-        return "more"
-    ok = verdict(candidate_runs, th)[0]
-    if len(candidate_runs) >= 3:
-        return "accept" if ok else "reject"
-    b = [clearly_better(r, th) for r in candidate_runs]
-    if all(b) and ok:
-        return "accept"
-    if not any(b) and not ok:
-        return "reject"
-    return "more"
+        return "more", f"fewer than 2 rounds ({bar})"
+    if len(candidate_runs) == 2:
+        if all(high):
+            return "accept", f"2: both above mean + eps ({bar})"
+        if all(low):
+            return "reject", f"2: both not above the mean ({bar})"
+        return "more", f"2: mixed ({bar})"
+    n = sum(high)
+    return ("accept" if n >= 2 else "reject"), f"2: {n} of {len(candidate_runs)} above mean + eps ({bar})"
 
 
 def direction(candidate_runs: list[dict[str, Any]], incumbent_runs: list[dict[str, Any]]) -> dict[str, Any]:

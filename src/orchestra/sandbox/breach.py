@@ -22,7 +22,7 @@ are classified into the events below. Each event goes, as one JSON line, to
 | canary: a planner-state canary in any agent input, output, trajectory, workspace or evidence file | CRITICAL |
 | capture_empty: an agent call whose commands were not captured (cannot be audited) | CRITICAL |
 | unblocked_breach: an out-of-bounds command the audit finds and nothing refused | CRITICAL |
-| original_project_search: outside the workspace, searching, listing, finding files or importing by the name of the task's original project or of its modules (user decision 2026-10-21); importing the package being written, inside the workspace, is normal | CRITICAL |
+| original_project_search: outside the workspace, searching, listing, finding files or importing by the name of the task's original project or of its modules (user decision 2026-10-21); importing the package being written, inside the workspace, is normal. Refused and verified to have obtained nothing (no content in the output, no copy in a granted environment, final code not a similarity outlier): flagged, run kept; anything obtained: void (2026-11-08) | CRITICAL |
 
 A record: time, run id, role, event, level, target (a directory, never a file
 name or content), command (200 characters). A run with any CRITICAL event is
@@ -513,6 +513,81 @@ def classify_call(c: dict[str, Any], *, allowed: list[str], own_batch: str = "",
     return ev
 
 
+def _primary_names(run_dir: Path) -> set[str]:
+    """The project's own name and its package name (not the module stems)."""
+    task = Path(run_dir).name
+    out = {task.removeprefix("nl2_").lower()}
+    cfg = Path("/root/codex-benchmarks/nl2repo/cpe_format") / task / "config.json"
+    if cfg.is_file():
+        out.add(Path(str(json.loads(cfg.read_text()).get("source_code") or task)).name.removesuffix(".py").lower())
+    return {n.replace("-", "_") for n in out}
+
+
+def _venvs(allowed: list[str]) -> list[Path]:
+    return sorted({Path(r) for r in allowed if (Path(r) / "pyvenv.cfg").is_file()})
+
+
+def installed_copies(run_dir: Path, allowed: list[str] | None = None) -> list[str]:
+    """Copies of the project in the run's granted environments (package directory or module, dist-info / egg-info,
+    a .pth or .egg-link naming it). Empty is what makes a refused search harmless: there was nothing to find."""
+    allowed = _allowed_roots(run_dir) if allowed is None else allowed
+    names = _primary_names(run_dir)
+    found = []
+    for v in _venvs(allowed):
+        for sp in v.glob("lib/python*/site-packages"):
+            for n in names:
+                for pat in (n, f"{n}.py", f"{n}-*.dist-info", f"{n}-*.egg-info"):
+                    found += [str(p) for p in sp.glob(pat)]
+            for f in [*sp.glob("*.pth"), *sp.glob("*.egg-link")]:
+                try:
+                    if any(re.search(rf"(?<![a-z0-9]){re.escape(n)}(?![a-z0-9])", f.read_text(errors="replace").lower())
+                           for n in names):
+                        found.append(str(f))
+                except OSError:
+                    continue
+    return sorted(set(found))
+
+
+_NOT_FOUND = re.compile(r"PackageNotFoundError|No package metadata was found|ModuleNotFoundError|No module named|"
+                        r"Package\(s\) not found|^None$", re.M)
+
+
+def search_got_content(cmd: str, output: str, kind: str, *, names: list[str], run_root: str,
+                       venvs: list[Path]) -> bool:
+    """Whether an ``original_project_search`` command obtained anything from outside the run (2026-11-07 user
+    decision: refused and verified empty -> CRITICAL, flagged, run kept; anything obtained -> void). Conservative:
+    whatever cannot be verified from the output counts as obtained.
+
+    - an absolute path outside the run (and outside the task environment, verified to hold no copy) naming the
+      project or a module of it;
+    - a distribution query: a printed version, ``pip show`` fields, or no "not found" answer at all;
+    - a search: a listing program (ls, tree, du) run on an outside path -- its output names no paths, so it cannot
+      be told apart from the run's own;
+    - an import from outside: no import error in the output."""
+    run_root = run_root.rstrip("/")
+    env = [str(v).rstrip("/") + "/" for v in venvs]
+    for m in re.finditer(r"(/[^\s'\":,()\[\]<>=]+)", output or ""):
+        p = m.group(1)
+        if p.startswith(("/tmp", run_root + "/")) or p == run_root or any(p.startswith(e) for e in env):
+            continue
+        if _mentions(p, names):
+            return True
+    out = output or ""
+    if kind == "installed-distribution query":
+        if re.search(r"^\s*v?\d+(?:\.\d+)+\S*\s*$", out, re.M) or re.search(r"^(?:Version|Location|Name):", out, re.M):
+            return True
+        return not _NOT_FOUND.search(out) and "ModuleSpec(" not in out
+    if kind == "search outside the workspace":
+        for toks in _segments(cmd):
+            if os.path.basename(toks[0]) in ("ls", "tree", "du") and \
+                    any(t.startswith("/") and not t.startswith(("/tmp", run_root + "/")) for t in toks[1:]):
+                return True
+        return False
+    if kind == "import from outside the workspace":
+        return not re.search(r"ModuleNotFoundError|ImportError|No module named", out)
+    return True
+
+
 def scan_run(run_dir: Path, *, run_id: str = "", write: bool = True) -> dict[str, Any]:
     """Classify a finished run, write its breach log and the global index; returns the summary."""
     run_dir = Path(run_dir)
@@ -522,17 +597,24 @@ def scan_run(run_dir: Path, *, run_id: str = "", write: bool = True) -> dict[str
     events: list[dict[str, Any]] = []
     cs = calls(run_dir)
 
-    def add(role: str, event: str, target: str, command: str) -> None:
+    def add(role: str, event: str, target: str, command: str, **extra: Any) -> None:
         events.append({"time": _now(), "run_id": run_id, "role": role, "event": event, "level": LEVEL[event],
-                       "target": target, "command": command[:200]})
+                       "target": target, "command": command[:200], **extra})
 
+    copies = installed_copies(run_dir, allowed)
+    venvs = _venvs(allowed)
     seen = set()
     for c in cs:
         for event, target in classify_call(c, allowed=allowed, own_batch=str(run_dir.parent), names=names):
             key = (c["role"], event, target, c["command"][:200])
             if key not in seen:
                 seen.add(key)
-                add(c["role"], event, target, c["command"])
+                extra = {}
+                if event == "original_project_search":
+                    # rule 6 (2026-11-08): did the search obtain anything? a copy in a granted environment counts
+                    extra["obtained"] = bool(copies) or search_got_content(
+                        c["command"], c.get("output") or "", target, names=list(names), run_root=str(run_dir), venvs=venvs)
+                add(c["role"], event, target, c["command"], **extra)
     for e in agent_calls(run_dir):
         if e.get("capture"):
             # a mini-swe-agent session: every command its trajectory executed must be in the capture
@@ -561,11 +643,49 @@ def scan_run(run_dir: Path, *, run_id: str = "", write: bool = True) -> dict[str
                 fh.write(json.dumps(ev, ensure_ascii=False) + "\n")
     s = summary_of(events, runs=1, commands=len(cs))
     s["run_id"] = run_id
-    s["void"] = s["critical"] > 0
+    crit = [e for e in events if e["level"] == "CRITICAL"]
+    # rule 6 (2026-11-08, as AdaMAS): a refused search verified to have obtained nothing is CRITICAL and flagged, the
+    # run kept -- verified = no content in the output, no copy of the project in a granted environment, and the
+    # final code's similarity to the reference not an outlier; anything else voids the run
+    kept = [e for e in crit if e["event"] == "original_project_search" and e.get("obtained") is False]
+    s["void"] = len(crit) > len(kept)
+    s["flagged"] = bool(kept) and not s["void"]
+    if s["flagged"]:
+        sim = similarity_check(run_dir) if similarity_check else {"ok": False, "why": "no similarity check"}
+        s["similarity"] = sim
+        if not sim.get("ok"):
+            s["void"], s["flagged"] = True, False
     s["manual_review"] = s["warning"] >= REVIEW_WARNINGS
     if write and s["void"]:
-        mark_void(run_dir, run_id, [e for e in events if e["level"] == "CRITICAL"])
+        mark_void(run_dir, run_id, crit)
+    if write and s["flagged"]:
+        (run_dir / "SANDBOX_FLAGGED").write_text(json.dumps({"critical": kept, "similarity": s["similarity"]}, indent=1),
+                                                 encoding="utf-8")
     return s
+
+
+def _similarity_of_final(run_dir: Path) -> dict[str, Any]:
+    """The sealed similarity check of the run's final code against the finals of the task's other rounds."""
+    import subprocess
+    import sys
+
+    run_dir = Path(run_dir)
+    final, task = run_dir / "final", run_dir.name
+    if not final.is_dir():
+        return {"ok": False, "why": "no final code"}
+    pop = [str(p) for p in sorted(run_dir.parent.parent.glob(f"*/{task}/final")) if p != final and not is_void(p.parent)]
+    script = ROOT / "scripts" / "sealed" / "reference_similarity.py"
+    try:
+        p = subprocess.run([sys.executable, str(script), "check", task, str(final), "--population", *pop],
+                           capture_output=True, text=True, timeout=900, check=False)
+        r = json.loads(p.stdout.strip().splitlines()[-1])
+    except Exception as e:                                   # cannot verify: not kept
+        return {"ok": False, "why": f"similarity check failed: {type(e).__name__}"}
+    return {"ok": not r["outlier"], **r}
+
+
+# the similarity check the flag needs (replaceable in the positive control); None: never kept
+similarity_check = _similarity_of_final
 
 
 def summary_of(events: Iterable[dict[str, Any]], *, runs: int, commands: int) -> dict[str, Any]:

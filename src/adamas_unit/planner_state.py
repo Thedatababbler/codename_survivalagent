@@ -62,6 +62,10 @@ class PlannerState:
             raise FileNotFoundError(version)
         (self.dir / "current").write_text(f"table_v{version}.json\n", encoding="utf-8")
 
+    def clear_current(self) -> None:
+        """No current table: pi_0 (the versions stay)."""
+        (self.dir / "current").unlink(missing_ok=True)
+
     def shares(self, unit_id: str) -> dict[str, float] | None:
         t = self.table()
         return None if t is None else (t.get("units") or {}).get(unit_id)

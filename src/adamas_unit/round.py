@@ -119,7 +119,9 @@ class Round:
         self.table = table
         self.ledger = Ledger(cfg.budget, len(task.units), path=self.run_dir / "ledger.json", floor_share=cfg.floor_share,
                              management_cap_share=cfg.management_cap_share,
-                             max_repairs_per_unit=cfg.max_repairs_per_unit)
+                             max_repairs_per_unit=cfg.max_repairs_per_unit,
+                             approval=(table or {}).get("approval"),
+                             table_shares=[((table or {}).get("units") or {}).get(u.unit_id) for u in task.units])
         self.prober: Prober | None = None
         self.planner = BudgetPlanner(self.ledger, complete=models.complete, table=table, rules=rules,
                                      progress_of=lambda lid: self.prober.get(lid) if self.prober else None)

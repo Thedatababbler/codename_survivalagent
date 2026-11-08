@@ -12,16 +12,24 @@
   D12). The prompt states the mechanics and the constraints and nothing about how to divide (2026-11-07 user rule:
   whether the evolver finds the pattern itself is the question E1 answers). An invalid table goes back once with
   its problems.
-- ``run_stats`` / ``better`` / ``decide``: the E1 trial of a candidate (2026-11-07 user rule): 2 rounds; both better
-  than the incumbent -> accepted; neither -> rejected; one -> a 3rd round, accepted when 2 of 3 are better.
+- ``run_stats`` / ``thresholds`` / ``verdict`` / ``decide``: the E1 trial of a candidate (user decisions 2026-11-07,
+  2026-11-08): 2 rounds; both clearly better and the verdict holds -> accepted; neither -> rejected; otherwise a 3rd
+  round and the verdict over three. The verdict uses priorities 1 and 2 only (rounds with submittable 0 not more than
+  the incumbent's; mean pass count above the incumbent's mean + eps, or most rounds gating one more unit than the
+  incumbent's best); ``better`` (all of D8) and ``direction`` (the last unit got budget for its repairs and its
+  failures fell) are recorded only.
+- The table's approval parameters (``ledger.APPROVAL_DEFAULTS``) are evolvable too (2026-11-08); ``validate_approval``.
 """
 
 from __future__ import annotations
 
 import json
+import math
 import re
 from pathlib import Path
 from typing import Any, Callable
+
+from adamas_unit.ledger import APPROVAL_CHOICES, APPROVAL_DEFAULTS, UNIT_TOPUP_LIMIT_MAX
 
 SHARE_KINDS = ("tokens", "seconds", "compressions")
 
@@ -55,6 +63,22 @@ def validate_table(proposed: dict[str, dict[str, float]], incumbent: dict[str, d
         r = proposed[u].get("repairs", max_repairs)
         if not isinstance(r, int) or not 0 <= r <= max_repairs:
             bad.append(f"{u}.repairs: {r!r} not an integer in 0..{max_repairs}")
+    return bad
+
+
+def validate_approval(approval: Any) -> list[str]:
+    """Problems of a proposed approval block ([] = it passes; None / absent = the defaults)."""
+    if approval is None:
+        return []
+    if not isinstance(approval, dict):
+        return ["approval: not an object"]
+    bad = [f"approval.{k}: unknown parameter" for k in approval if k not in APPROVAL_DEFAULTS]
+    for k, choices in APPROVAL_CHOICES.items():
+        if k in approval and approval[k] not in choices:
+            bad.append(f"approval.{k}: {approval[k]!r} not one of {list(choices)}")
+    lim = approval.get("unit_topup_limit")
+    if lim is not None and (isinstance(lim, bool) or not isinstance(lim, (int, float)) or not 0 <= lim <= UNIT_TOPUP_LIMIT_MAX):
+        bad.append(f"approval.unit_topup_limit: {lim!r} not null or a number in 0..{UNIT_TOPUP_LIMIT_MAX:g}")
     return bad
 
 
@@ -92,6 +116,15 @@ How a budget table is used in a round:
 - Without a table (the incumbent pi_0), each unit gets what is left of the round budget divided evenly over the
   units left, and up to 3 repairs.
 
+The table may also set approval parameters (omitted ones keep their default; the defaults are how pi_0 runs):
+- "grant_cap": "floors" (default): the mechanical cap on a top-up is what is left minus the floors of the later
+  units; "later_table_shares": what is left minus the later units' table shares x B (a share below the floor counts
+  as the floor).
+- "unit_topup_limit": null (default): no limit per unit; a number x in 0..3: all top-ups of one unit together are at
+  most x times its allocation at the start of the unit (0: no top-ups).
+- "inherited": whether a unit whose own tests pass spends a repair on failures of earlier units' tests; "planner"
+  (default): the planner decides each time; "never"; "fixed": yes while repairs are left.
+
 Rounds are compared by, in this order: the submittable ratio (the final code imports, its documented names import,
 the suites collect); the pass rate of the final code on all units' frozen tests, where a difference must exceed the
 noise between repeated rounds; then the number of units whose gate passed, and waste (allocations left unused,
@@ -103,11 +136,12 @@ You see only numbers from the ledger: no code, no tests. Propose the budget tabl
 - for each kind the shares sum to at most 1, and every share is at least the floor;
 - every share moves at most the given fraction relative to the incumbent's share (pi_0's shares count as 1/n).
 
-In "reason", say which numbers in the records lead to each change. You may also state at most 2 general rules
+In "reason", say which numbers in the records lead to each change (shares and approval parameters). You may also state at most 2 general rules
 (short sentences that would hold for other tasks); they are only recorded.
 
 Answer with one JSON object and nothing else:
 {"table": {"<unit id>": {"tokens": <share>, "seconds": <share>, "compressions": <share>, "repairs": <int>}, ...},
+ "approval": {"grant_cap": ..., "unit_topup_limit": ..., "inherited": ...},
  "reason": "<text>", "rules": ["<rule>", ...]}"""
 
 
@@ -153,13 +187,17 @@ def round_record(run_dir: Path, diagnostics: dict[str, Any]) -> dict[str, Any]:
 
 
 def evolver_input(incumbent: dict[str, Any] | None, records: list[dict[str, Any]], unit_ids: list[str], *,
-                  floor_share: float, max_change: float) -> str:
-    inc = {"name": "pi_0 (no table)", "table": None} if not incumbent else \
-        {"name": f"table v{incumbent.get('version')}", "table": incumbent.get("units")}
+                  floor_share: float, max_change: float, trials: list[dict[str, Any]] | None = None) -> str:
+    """``trials``: earlier candidate tables and how their trial ended (version, table, approval, decision)."""
+    inc = {"name": "pi_0 (no table)", "table": None, "approval": APPROVAL_DEFAULTS} if not incumbent else \
+        {"name": f"table v{incumbent.get('version')}", "table": incumbent.get("units"),
+         "approval": {**APPROVAL_DEFAULTS, **(incumbent.get("approval") or {})}}
+    tr = f"Earlier candidate tables and their trials:\n{json.dumps(trials, indent=1, default=str)}\n\n" if trials else ""
     return (f"Units in order: {json.dumps(unit_ids)}\n"
             f"Floor share: {floor_share}; maximum move per share: {max_change:.0%} of the incumbent's share\n\n"
-            f"Incumbent: {json.dumps(inc)}\n\n"
-            f"Records of earlier rounds of this task (same B), oldest first:\n{json.dumps(records, indent=1, default=str)}")
+            f"Incumbent: {json.dumps(inc)}\n\n{tr}"
+            f"Records of earlier rounds of this task (same B), oldest first (\"table_version\" 0 is pi_0):\n"
+            f"{json.dumps(records, indent=1, default=str)}")
 
 
 def _json_obj(text: str) -> dict[str, Any] | None:
@@ -175,11 +213,12 @@ def _json_obj(text: str) -> dict[str, Any] | None:
 
 def propose(complete: Callable[[list[dict]], tuple[str, int, int]], incumbent: dict[str, Any] | None,
             records: list[dict[str, Any]], unit_ids: list[str], *, floor_share: float = 0.05,
-            max_change: float = 0.30, attempts: int = 2) -> dict[str, Any]:
-    """{"table" (None when no valid one), "reason", "rules", "problems" per attempt, "tokens", "raw"}."""
-    user = evolver_input(incumbent, records, unit_ids, floor_share=floor_share, max_change=max_change)
+            max_change: float = 0.30, attempts: int = 2, trials: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """{"table" (None when no valid one), "approval" (None: defaults), "reason", "rules", "problems" per attempt,
+    "tokens", "raw"}."""
+    user = evolver_input(incumbent, records, unit_ids, floor_share=floor_share, max_change=max_change, trials=trials)
     msgs = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}]
-    out: dict[str, Any] = {"table": None, "reason": "", "rules": [], "problems": [], "tokens": {"prompt": 0, "completion": 0},
+    out: dict[str, Any] = {"table": None, "approval": None, "reason": "", "rules": [], "problems": [], "tokens": {"prompt": 0, "completion": 0},
                            "raw": []}
     inc_units = (incumbent or {}).get("units")
     for _ in range(attempts):
@@ -193,10 +232,14 @@ def propose(complete: Callable[[list[dict]], tuple[str, int, int]], incumbent: d
         else:
             table = {u: {k: (int(v) if k == "repairs" and isinstance(v, (int, float)) and float(v).is_integer() else v)
                          for k, v in (row or {}).items()} for u, row in d["table"].items()}
-            probs = validate_table(table, inc_units, unit_ids, floor_share=floor_share, max_change=max_change)
+            appr = d.get("approval")
+            probs = validate_table(table, inc_units, unit_ids, floor_share=floor_share, max_change=max_change) \
+                + validate_approval(appr)
             if not probs:
                 rules = [str(r)[:300] for r in (d.get("rules") or [])][:2]
-                out.update(table=table, reason=str(d.get("reason") or ""), rules=rules)
+                appr = {**APPROVAL_DEFAULTS, **(appr or {})}
+                out.update(table=table, approval=None if appr == APPROVAL_DEFAULTS else appr,
+                           reason=str(d.get("reason") or ""), rules=rules)
                 out["problems"].append([])
                 return out
         out["problems"].append(probs)
@@ -208,13 +251,20 @@ def propose(complete: Callable[[list[dict]], tuple[str, int, int]], incumbent: d
 
 # ---------------------------------------------------------------------------------------------- the E1 trial
 
-def run_stats(run_dir: Path, diagnostics: dict[str, Any]) -> dict[str, Any]:
+def run_stats(run_dir: Path, diagnostics: dict[str, Any], last_unit: str | None = None) -> dict[str, Any]:
     """One round's figures for the acceptance rule; waste = repairs that changed nothing + sessions without progress
     + unused tokens as a share of B."""
     rnd = json.loads((Path(run_dir) / "round.json").read_text(encoding="utf-8"))
     m, w = rnd["measures"], diagnostics["waste"]
+    # the task's last unit (``last_unit``; default: the last one run): None figures when the round never reached it
+    units = [json.loads(f.read_text(encoding="utf-8")) for f in sorted((Path(run_dir) / "units").glob("*/unit.json"))]
+    last = next((u for u in units if u["unit"] == last_unit), None) if last_unit else (units[-1] if units else None)
+    last = last or {"gates": [], "unit": last_unit}
+    empty = sum(1 for x in diagnostics.get("session_started_empty") or [] if x.get("unit") == last["unit"] and x.get("role") == "repairer")
     return {"submittable_ratio": float(m["submittable"]), "frozen_pass_rate": float(m["frozen_pass_rate"]),
-            "gated_units": float(m["gated_units"]),
+            "frozen_passed": int(m["frozen_passed"]), "gated_units": float(m["gated_units"]),
+            "last_unit_failures": int(last["gates"][-1]["new"]) if last["gates"] else None,
+            "last_unit_repairs_empty": empty if last["gates"] else None,
             "waste": w["ineffective_repairs"] + w["no_progress_sessions"] + w["unused_tokens"] / rnd["config"]["budget"]["tokens"]}
 
 
@@ -223,15 +273,65 @@ def mean_stats(runs: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def better(run: dict[str, Any], incumbent_runs: list[dict[str, Any]], *, eps_noise: float) -> tuple[bool, str]:
-    """One candidate round against the incumbent's mean, by the priority rule (D8)."""
+    """One candidate round against the incumbent's mean, by the full priority rule (D8). E1 records it only."""
     return accept(run, mean_stats(incumbent_runs), eps_noise=eps_noise)
 
 
-def decide(candidate_runs: list[dict[str, Any]], incumbent_runs: list[dict[str, Any]], *, eps_noise: float) -> str:
-    """'accept', 'reject' or 'more' (run a 3rd round)."""
-    b = [better(r, incumbent_runs, eps_noise=eps_noise)[0] for r in candidate_runs]
-    if len(b) < 2:
+def thresholds(incumbent_runs: list[dict[str, Any]], *, eps_cases: float) -> dict[str, float]:
+    """E1's bar (user decision 2026-11-08): the pass count must reach the smallest whole count above the
+    incumbent's mean + eps; gated units must reach one more than the incumbent's best."""
+    m = sum(r["frozen_passed"] for r in incumbent_runs) / len(incumbent_runs)
+    return {"pass_count": float(math.floor(round(m + eps_cases, 6)) + 1),
+            "gated_units": float(max(r["gated_units"] for r in incumbent_runs) + 1),
+            "zero_submittable": float(sum(1 for r in incumbent_runs if r["submittable_ratio"] == 0))}
+
+
+def clearly_better(run: dict[str, Any], th: dict[str, float]) -> bool:
+    """One candidate round over the bar: submittable, and pass count or gated units at the threshold."""
+    return run["submittable_ratio"] > 0 and (run["frozen_passed"] >= th["pass_count"] or run["gated_units"] >= th["gated_units"])
+
+
+def verdict(candidate_runs: list[dict[str, Any]], th: dict[str, float]) -> tuple[bool, str]:
+    """Accepted as the new incumbent when (1) no more rounds with submittable 0 than the incumbent had, and (2) the
+    mean pass count reaches the threshold or most rounds reach the gated-units threshold. Priority 3 (gated units by
+    one, waste) is recorded only."""
+    n = len(candidate_runs)
+    zeros = sum(1 for r in candidate_runs if r["submittable_ratio"] == 0)
+    if zeros > th["zero_submittable"]:
+        return False, f"1: {zeros} rounds with submittable 0 > the incumbent's {th['zero_submittable']:g}"
+    mp = sum(r["frozen_passed"] for r in candidate_runs) / n
+    ng = sum(1 for r in candidate_runs if r["gated_units"] >= th["gated_units"])
+    if mp >= th["pass_count"]:
+        return True, f"2: mean pass count {mp:.2f} >= {th['pass_count']:g}"
+    if ng * 2 > n:
+        return True, f"2: {ng} of {n} rounds gate >= {th['gated_units']:g} units"
+    return False, f"2: mean pass count {mp:.2f} < {th['pass_count']:g} and {ng} of {n} rounds gate >= {th['gated_units']:g} units"
+
+
+def decide(candidate_runs: list[dict[str, Any]], th: dict[str, float]) -> str:
+    """'accept', 'reject' or 'more' (run a 3rd round). Two rounds: both clearly better and the verdict holds ->
+    accept; neither clearly better -> reject; otherwise a 3rd. Three rounds: the verdict over all three."""
+    if len(candidate_runs) < 2:
         return "more"
-    if len(b) == 2:
-        return "accept" if all(b) else "reject" if not any(b) else "more"
-    return "accept" if sum(b) >= 2 else "reject"
+    ok = verdict(candidate_runs, th)[0]
+    if len(candidate_runs) >= 3:
+        return "accept" if ok else "reject"
+    b = [clearly_better(r, th) for r in candidate_runs]
+    if all(b) and ok:
+        return "accept"
+    if not any(b) and not ok:
+        return "reject"
+    return "more"
+
+
+def direction(candidate_runs: list[dict[str, Any]], incumbent_runs: list[dict[str, Any]]) -> dict[str, Any]:
+    """'Direction correct' (recorded, never decides; user decision 2026-11-08): in the candidate's rounds the last
+    unit's repair sessions got budget (none started below the margin) and its own remaining failures fell below the
+    incumbent's mean. Not shown to the evolver."""
+    def mean(rs: list[dict[str, Any]]) -> float | None:
+        v = [r["last_unit_failures"] for r in rs]
+        return None if not v or any(x is None for x in v) else sum(v) / len(v)
+    inc, cand = mean(incumbent_runs), mean(candidate_runs)
+    funded = bool(candidate_runs) and all(r["last_unit_repairs_empty"] == 0 for r in candidate_runs)
+    return {"ok": funded and cand is not None and inc is not None and cand < inc, "last_unit_repairs_funded": funded,
+            "last_unit_failures": cand, "incumbent_last_unit_failures": inc}

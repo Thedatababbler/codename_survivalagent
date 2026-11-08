@@ -8,7 +8,8 @@ sandbox grants no agent any of ``outputs/``; besides that, every file here carri
 wrote (``orchestra.sandbox.breach.canary_hits``).
 
 A budget table: ``{"version": N, "units": {unit_id: {"tokens": share, "seconds": share, "compressions": share,
-"repairs": limit}}, "canary": ...}``; shares are fractions of B, repairs a limit within 3 (DESIGN §8.1).
+"repairs": limit}}, "approval": {...optional}, "canary": ...}``; shares are fractions of B, repairs a limit within 3
+(DESIGN §8.1); approval: the ledger's approval parameters (``ledger.APPROVAL_DEFAULTS``; absent = the defaults).
 """
 
 from __future__ import annotations
@@ -44,12 +45,15 @@ class PlannerState:
         """A stored table by version (a candidate under trial is not the current one)."""
         return json.loads((self.dir / f"table_v{version}.json").read_text(encoding="utf-8"))
 
-    def write_table(self, units: dict[str, dict[str, float]], *, source: str) -> dict[str, Any]:
+    def write_table(self, units: dict[str, dict[str, float]], *, source: str,
+                    approval: dict[str, Any] | None = None) -> dict[str, Any]:
         # the next free version: a rejected candidate is never current, and must not be overwritten
         vs = [int(p.stem.removeprefix("table_v")) for p in self.dir.glob("table_v*.json")
               if p.stem.removeprefix("table_v").isdigit()]
         v = max(vs, default=0) + 1
         t = {"version": v, "units": units, "source": source, "canary": self.canary}
+        if approval:
+            t["approval"] = approval                      # absent = the defaults (ledger.APPROVAL_DEFAULTS)
         (self.dir / f"table_v{v}.json").write_text(json.dumps(t, indent=1), encoding="utf-8")
         return t
 

@@ -196,9 +196,17 @@ class BudgetPlanner:
         return f"request_budget: granted {got:g} {unit_word}." if got else "request_budget: refused."
 
     def decide_inherited(self, unit: int, *, own_passes: bool, n_inherited: int) -> bool:
-        facts = {**self._facts(unit), "own_gate_passes": own_passes, "inherited_failures": n_inherited}
-        d, by = self._ask("inherited", facts)
-        if d is not None and isinstance(d.get("repair"), bool):
+        mode = self.ledger.approval["inherited"]
+        if mode != "planner":                                    # the table's approval parameter decides
+            d, by = None, f"table ({mode})"
+            yes, reason = (False, "table: inherited failures are not repaired") if mode == "never" else \
+                self.fixed.inherited(unit, self.ledger, own_passes, n_inherited)
+        else:
+            facts = {**self._facts(unit), "own_gate_passes": own_passes, "inherited_failures": n_inherited}
+            d, by = self._ask("inherited", facts)
+        if mode != "planner":
+            pass
+        elif d is not None and isinstance(d.get("repair"), bool):
             yes, reason = d["repair"], str(d.get("reason") or "")
             self._tighten(unit, d, by)
         else:

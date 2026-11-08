@@ -5,9 +5,11 @@
         --baseline tier50-pi0-r3,tier50-pi0-r4,tier50-pi0-r5 --iterations 5
 
 Per iteration: the evolver reads every valid round so far (the baseline and all candidate rounds, numbers only) and
-proposes a table; the table is stored as a new version (never current while under trial) and run in 2 rounds side
-by side; both better than the incumbent -> accepted (becomes current); neither -> rejected; one -> a 3rd round,
-accepted when 2 of 3 are better. A void round is run again once. Every iteration writes
+the earlier candidates' tables with their decisions, and proposes a table (shares, repair limits, approval
+parameters); the table is stored as a new version (never current while under trial) and run in 2 rounds side by
+side; decision by ``evolver.decide`` (priorities 1-2 only, user decision 2026-11-08): accepted -> it becomes current
+(the incumbent); rejected candidates stay in the history; "direction" (the last unit's repairs got budget and its
+failures fell) is recorded, never decides, and is not shown to the evolver. A void round is run again once. Every iteration writes
 outputs/e1/<task>/iter_<n>.json: the proposal (table, reason, rules, constraint problems, tokens), its share changes,
 the rounds, the decision. The evolver's tokens go on the evolution account (iteration files), not on any round's B.
 """
@@ -25,7 +27,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from adamas_unit.diagnostics import diagnose  # noqa: E402
-from adamas_unit.evolver import better, decide, mean_stats, propose, round_record, run_stats  # noqa: E402
+from adamas_unit.evolver import (better, decide, direction, mean_stats, propose, round_record, run_stats,  # noqa: E402
+                                 thresholds, verdict)
 from adamas_unit.model import complete  # noqa: E402
 from adamas_unit.planner_state import PlannerState  # noqa: E402
 from adamas_unit.task import load_task  # noqa: E402
@@ -57,6 +60,13 @@ def run_rounds(task: str, sset: str, tokens: int, version: int, names: list[str]
                                       cwd=ROOT, start_new_session=True))
     for p in procs:
         p.wait()
+
+
+def approval_changes(approval: dict | None, incumbent: dict | None) -> dict:
+    from adamas_unit.ledger import APPROVAL_DEFAULTS
+    a = {**APPROVAL_DEFAULTS, **(approval or {})}
+    b = {**APPROVAL_DEFAULTS, **((incumbent or {}).get("approval") or {})}
+    return {k: [b[k], a[k]] for k in a if a[k] != b[k]}
 
 
 def share_changes(table: dict, incumbent: dict | None, unit_ids: list[str]) -> dict:
@@ -96,18 +106,26 @@ def main() -> int:
         records = [round_record(rdir(a.task, r), diagnose(rdir(a.task, r))) for r in st["rounds"] if usable(a.task, r)]
         inc_v = st["incumbent"]["version"]
         inc_table = state.table_version(inc_v) if inc_v else None
-        prop = propose(complete, inc_table, records, unit_ids)
+        trials = [{"version": x["version"], "table": state.table_version(x["version"]).get("units"),
+                   "approval": state.table_version(x["version"]).get("approval"), "decision": x["decision"]}
+                  for x in st["iterations"] if x.get("version")]
+        prop = propose(complete, inc_table, records, unit_ids, trials=trials)
         it = {"iteration": i, "time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "incumbent": st["incumbent"]["name"],
-              "proposal": {k: prop[k] for k in ("table", "reason", "rules", "problems", "tokens")}, "rounds": [], "decision": None}
+              "proposal": {k: prop[k] for k in ("table", "approval", "reason", "rules", "problems", "tokens")}, "rounds": [],
+              "decision": None}
         if prop["table"] is None:
             it["decision"] = "no valid proposal"
         else:
-            t = state.write_table(prop["table"], source=f"e1 iteration {i}")
+            t = state.write_table(prop["table"], source=f"e1 iteration {i}", approval=prop["approval"])
             v = t["version"]
             it["version"], it["share_changes"] = v, share_changes(prop["table"], inc_table, unit_ids)
+            it["approval_changes"] = approval_changes(prop["approval"], inc_table)
             if prop["rules"]:
                 state.save_rules(state.rules() + [{"text": r, "status": "trial", "source": f"e1 iteration {i}"} for r in prop["rules"]])
-            inc_runs = [run_stats(rdir(a.task, r), diagnose(rdir(a.task, r))) for r in st["incumbent"]["rounds"]]
+            inc_runs = [run_stats(rdir(a.task, r), diagnose(rdir(a.task, r)), unit_ids[-1]) for r in st["incumbent"]["rounds"]]
+            n_tests = json.loads((rdir(a.task, st["incumbent"]["rounds"][0]) / "round.json").read_text())["measures"]["frozen_tests"]
+            th = thresholds(inc_runs, eps_cases=st["eps_noise"] * n_tests)
+            it["thresholds"] = th
             names, runs, n = [], [], 0
 
             def trial(want: int) -> None:
@@ -123,7 +141,7 @@ def main() -> int:
                         n += 1
                         run_rounds(a.task, a.set, a.tokens, v, [b])
                     if usable(a.task, b):
-                        s = run_stats(rdir(a.task, b), diagnose(rdir(a.task, b)))
+                        s = run_stats(rdir(a.task, b), diagnose(rdir(a.task, b)), unit_ids[-1])
                         ok, why = better(s, inc_runs, eps_noise=st["eps_noise"])
                         runs.append(s)
                         names.append(b)
@@ -132,22 +150,27 @@ def main() -> int:
                         it["rounds"].append({"round": b, "usable": False})
 
             trial(2)
-            d = decide(runs, inc_runs, eps_noise=st["eps_noise"]) if len(runs) == 2 else "more"
-            if d == "more":                                  # mixed (or a round lost): one more
-                trial(3 - len(runs) if len(runs) < 3 else 0)
-                d = decide(runs, inc_runs, eps_noise=st["eps_noise"]) if len(runs) >= 2 else "reject"
+            d = decide(runs, th)
+            if d == "more":                                  # mixed (or a round lost): up to 3 usable rounds
+                trial(max(0, 3 - len(runs)))
+                d = decide(runs, th) if len(runs) >= 2 else "reject"
                 d = "reject" if d == "more" else d
             it["decision"] = d
+            it["verdict"] = verdict(runs, th) if runs else None
+            it["direction"] = direction(runs, inc_runs)       # recorded only; not shown to the evolver
             it["candidate_mean"], it["incumbent_mean"] = (mean_stats(runs) if runs else None), mean_stats(inc_runs)
             st["rounds"] += names
             if it["decision"] == "accept":
                 state.set_current(v)
                 st["incumbent"] = {"name": f"table v{v}", "version": v, "rounds": names}
         (out / f"iter_{i:02d}.json").write_text(json.dumps(it, indent=1, default=str))
-        st["iterations"].append({"iteration": i, "version": it.get("version"), "decision": it["decision"]})
+        st["iterations"].append({"iteration": i, "version": it.get("version"), "decision": it["decision"],
+                                 "direction_ok": (it.get("direction") or {}).get("ok")})
         stf.write_text(json.dumps(st, indent=1))
         print(json.dumps({"iteration": i, "decision": it["decision"], "version": it.get("version"),
-                          "rounds": [(r["round"], r.get("frozen_pass_rate"), r.get("better")) for r in it["rounds"]]}), flush=True)
+                          "direction": (it.get("direction") or {}).get("ok"),
+                          "rounds": [(r["round"], r.get("frozen_passed"), r.get("gated_units"), r.get("submittable_ratio"))
+                                     for r in it["rounds"]]}), flush=True)
     return 0
 
 

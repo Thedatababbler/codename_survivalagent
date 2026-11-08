@@ -34,9 +34,11 @@ from adamas_unit import submit_check  # noqa: E402
 from adamas_unit.authoring import FrozenSuiteError, author_all, freeze  # noqa: E402
 from adamas_unit.diagnostics import diagnose  # noqa: E402
 from adamas_unit.planner_state import PlannerState  # noqa: E402
-from adamas_unit.evolver import SYSTEM as EVOLVER_SYSTEM, accept, decide, propose, round_record, validate_table  # noqa: E402
+from adamas_unit.evolver import SYSTEM as EVOLVER_SYSTEM, accept, decide, direction, propose, round_record, thresholds  # noqa: E402
+from adamas_unit.evolver import validate_approval, validate_table, verdict  # noqa: E402
 from adamas_unit.gate import run_gate  # noqa: E402
-from adamas_unit.ledger import Budget  # noqa: E402
+from adamas_unit.ledger import APPROVAL_DEFAULTS, Budget, Ledger  # noqa: E402
+from adamas_unit.planner import BudgetPlanner  # noqa: E402
 from adamas_unit.round import Models, Round, RoundConfig  # noqa: E402
 from adamas_unit.task import Task, Unit, build_workspace, docs_of  # noqa: E402
 from orchestra.sandbox import breach  # noqa: E402
@@ -163,6 +165,52 @@ def frozen_set(task: Task, base: Path) -> Path:
         manifest["units"][u.unit_id] = {"index": u.index, "tree_sha256": h}
     (sset / "MANIFEST.json").write_text(json.dumps(manifest))
     return sset
+
+
+# the ledger and planner as they were before the approval parameters (2026-11-08): the default must run byte for byte
+# as they did
+REF_COMMIT = "a6aa8fb"
+
+
+def _ref_modules(base: Path):
+    import importlib.util
+    import subprocess
+
+    def load(name: str, rel: str, fix=lambda t: t):
+        src = subprocess.run(["git", "show", f"{REF_COMMIT}:{rel}"], cwd=ROOT, capture_output=True, text=True, check=True).stdout
+        f = base / f"{name}.py"
+        f.write_text(fix(src), encoding="utf-8")
+        spec = importlib.util.spec_from_file_location(name, f)
+        m = importlib.util.module_from_spec(spec)
+        sys.modules[name] = m
+        spec.loader.exec_module(m)
+        return m
+    led = load("ref_ledger", "src/adamas_unit/ledger.py")
+    pl = load("ref_planner", "src/adamas_unit/planner.py", lambda t: t.replace("from adamas_unit.ledger import", "from ref_ledger import"))
+    return led, pl
+
+
+def _ledger_script(L, B, P, path: Path, **kw) -> tuple[bytes, list]:
+    """The same top-ups, inherited decisions and closes on a ledger and planner (fake clock, scripted planner)."""
+    t = [0.0]
+
+    def clock():
+        t[0] += 1.0
+        return t[0]
+    answers = iter([json.dumps({"grant": 30_000, "reason": "a"}), json.dumps({"repair": True, "reason": "b"}),
+                    json.dumps({"grant": 500_000, "reason": "c"}), json.dumps({"repair": False, "reason": "d"})] * 3)
+    led = L(B(tokens=1_000_000, seconds=3600, compressions=6, repairs=9), 3, path=path, clock=clock, **kw)
+    pl = P(led, complete=lambda msgs: (next(answers), 50, 5))
+    for k in range(3):
+        led.open_unit(k, shares={"tokens": [0.2, 0.3, 0.5][k]} if k < 2 else None)
+        ls = led.lease(k, "builder")
+        led.charge(ls.lease_id, 100_000 + 10_000 * k)
+        pl.decide_topup({"unit": k, "lease": ls.lease_id, "kind": "tokens", "amount": 40_000, "reason": "r", "role": "builder", "calls": 3})
+        pl.decide_inherited(k, own_passes=True, n_inherited=2)
+        pl.decide_topup({"unit": k, "lease": ls.lease_id, "kind": "tokens", "amount": 600_000, "reason": "r", "role": "builder", "calls": 4})
+        pl.decide_inherited(k, own_passes=True, n_inherited=1)
+        led.close_unit(k)
+    return path.read_bytes(), pl.decisions
 
 
 def main() -> int:
@@ -407,18 +455,87 @@ def main() -> int:
         checks["evolver: the prompt carries no advice on dividing (no unit, position or reserve words)"] = not any(
             w in low for w in ("last unit", "final unit", "later units need", "reserve", "integration", "more to the",
                                "earlier units should", "u0_add", "u1_mul", "serialization"))
-        R = {"submittable_ratio": 1.0, "frozen_pass_rate": 0.5, "gated_units": 2, "waste": 1.0}
-        good, bad_run = {**R, "frozen_pass_rate": 0.7}, {**R, "frozen_pass_rate": 0.3}
-        checks["E1 trial: 2 of 2 better accept, 0 of 2 reject, 1 of 2 asks a 3rd, 2 of 3 accept"] = (
-            decide([good, good], [R], eps_noise=0.05) == "accept" and decide([bad_run, bad_run], [R], eps_noise=0.05) == "reject"
-            and decide([good, bad_run], [R], eps_noise=0.05) == "more"
-            and decide([good, bad_run, good], [R], eps_noise=0.05) == "accept"
-            and decide([good, bad_run, bad_run], [R], eps_noise=0.05) == "reject")
+        # E1 trial (user decision 2026-11-08): priorities 1-2 only; the bar from the incumbent's rounds
+        def R(sub, passed, gated, fail=3, empty=1):
+            return {"submittable_ratio": sub, "frozen_pass_rate": passed / 52, "frozen_passed": passed, "gated_units": gated,
+                    "waste": 1.0, "last_unit_failures": fail, "last_unit_repairs_empty": empty}
+        inc_runs = [R(0, 47, 3, 4, 2), R(1, 48, 3), R(1, 46, 3)]                    # the tier50 baseline's figures
+        th = thresholds(inc_runs, eps_cases=(48 - 46) / 2 / 52 * 52)
+        good, bad_run = R(1, 50, 3), R(1, 47, 3)
+        checks["E1 bar: pass count 49 (mean 47 + eps 1, next whole), gated 4, at most 1 round with submittable 0"] = (
+            th == {"pass_count": 49.0, "gated_units": 4.0, "zero_submittable": 1.0})
+        checks["E1 trial: 2 of 2 clearly better accept, 0 of 2 reject, mixed asks a 3rd, the 3-round verdict decides"] = (
+            decide([good, good], th) == "accept" and decide([bad_run, bad_run], th) == "reject"
+            and decide([good, bad_run], th) == "more"
+            and decide([good, bad_run, good], th) == "accept"            # mean 49
+            and decide([good, bad_run, bad_run], th) == "reject"         # mean 48
+            and decide([R(1, 47, 4), R(1, 47, 4), R(1, 47, 3)], th) == "accept")   # most rounds gate 4 units
+        checks["E1 trial: a candidate with more rounds of submittable 0 than the incumbent is not accepted"] = (
+            not verdict([R(0, 52, 5), R(0, 52, 5)], th)[0] and decide([R(0, 52, 5), R(0, 52, 5)], th) != "accept")
+        checks["E1 trial: one more gated unit at an equal pass count, or less waste, does not decide"] = (
+            decide([R(1, 47, 3) | {"waste": 0.0}, R(1, 47, 3) | {"waste": 0.0}], th) == "reject")
+        checks["E1 direction: the last unit's repairs funded and its failures down is recorded"] = (
+            direction([R(1, 47, 3, 1, 0), R(1, 47, 3, 2, 0)], inc_runs)["ok"] is True
+            and direction([R(1, 47, 3, 1, 1), R(1, 47, 3, 1, 0)], inc_runs)["ok"] is False
+            and direction([R(1, 47, 3, None, None), R(1, 47, 3, 1, 0)], inc_runs)["ok"] is False)
+
+        # approval parameters (2026-11-08): the defaults run byte for byte as the ledger and planner before them
+        refL, refP = _ref_modules(base)
+        ref = _ledger_script(refL.Ledger, refL.Budget, refP.BudgetPlanner, base / "led_ref.json")
+        now = _ledger_script(Ledger, Budget, BudgetPlanner, base / "led_now.json")
+        now_d = _ledger_script(Ledger, Budget, BudgetPlanner, base / "led_def.json", approval=dict(APPROVAL_DEFAULTS),
+                               table_shares=[None, None, None])
+        checks["approval defaults: ledger file and planner decisions byte-identical to the ledger before them"] = (
+            ref == now and ref[0] == now_d[0] and ref[1] == now_d[1] and len(ref[1]) == 12)
+        sh = [{"tokens": 0.2}, {"tokens": 0.3}, {"tokens": 0.5}]
+        lt = Ledger(Budget(tokens=1_000_000, seconds=3600, compressions=6, repairs=9), 3, path=base / "led_ts.json",
+                    approval={"grant_cap": "later_table_shares"}, table_shares=sh)
+        lt.open_unit(0, shares={"tokens": 0.2})
+        lf = Ledger(Budget(tokens=1_000_000, seconds=3600, compressions=6, repairs=9), 3, path=base / "led_fl.json")
+        lf.open_unit(0, shares={"tokens": 0.2})
+        checks["approval grant_cap: later_table_shares keeps the later units' shares out of a top-up"] = (
+            round(lt.grant_cap(0, "tokens")) == 1_000_000 - 800_000 - 200_000 + 0
+            and round(lf.grant_cap(0, "tokens")) == 1_000_000 - 100_000 - 200_000)
+        lu = Ledger(Budget(tokens=1_000_000, seconds=3600, compressions=6, repairs=9), 3, path=base / "led_ul.json",
+                    approval={"unit_topup_limit": 0.5})
+        lu.open_unit(0, shares={"tokens": 0.2})
+        ls = lu.lease(0, "builder")
+        lu.charge(ls.lease_id, 200_000)
+        g1 = lu.grant(ls.lease_id, "tokens", 80_000, requested=80_000, reason="", decided_by="t")
+        g2 = lu.grant(ls.lease_id, "tokens", 80_000, requested=80_000, reason="", decided_by="t")
+        l0 = Ledger(Budget(tokens=1_000_000, seconds=3600, compressions=6, repairs=9), 3, path=base / "led_u0.json",
+                    approval={"unit_topup_limit": 0})
+        l0.open_unit(0)
+        checks["approval unit_topup_limit: a unit's top-ups together stop at x times its prior allocation; 0 none"] = (
+            (g1, g2) == (80_000, 20_000) and l0.grant_cap(0, "tokens") == 0)
+        asked = []
+        for mode in ("never", "fixed"):
+            lm = Ledger(Budget(tokens=1_000_000, seconds=3600, compressions=6, repairs=9), 2, path=base / f"led_{mode}.json",
+                        approval={"inherited": mode})
+            lm.open_unit(0)
+            pm = BudgetPlanner(lm, complete=lambda msgs: (asked.append(1) or json.dumps({"repair": True}), 1, 1))
+            asked.append(pm.decide_inherited(0, own_passes=True, n_inherited=2))
+        checks["approval inherited: never refuses, fixed repairs while repairs are left; the planner is not asked"] = (
+            asked == [False, True])
+        checks["approval check: unknown parameters and values are rejected; null and defaults pass"] = (
+            validate_approval(None) == [] and validate_approval(dict(APPROVAL_DEFAULTS)) == []
+            and validate_approval({"unit_topup_limit": 1.5}) == [] and len(validate_approval({"grant_cap": "x"})) == 1
+            and len(validate_approval({"unit_topup_limit": 4})) == 1 and len(validate_approval({"foo": 1})) == 1
+            and len(validate_approval({"unit_topup_limit": True})) == 1)
+        answers2 = [json.dumps({"table": ok, "approval": {"grant_cap": "nope"}, "reason": "x"}),
+                    json.dumps({"table": ok, "approval": {"unit_topup_limit": 1, "inherited": "planner"}, "reason": "y"})]
+        pr2 = propose(lambda msgs: (answers2.pop(0), 1, 1), None, recs, ids)
+        answers3 = [json.dumps({"table": ok, "approval": dict(APPROVAL_DEFAULTS), "reason": "z"})]
+        pr3 = propose(lambda msgs: (answers3.pop(0), 1, 1), None, recs, ids)
+        checks["evolver: an invalid approval goes back; a valid one is kept, all-default approval stored as none"] = (
+            pr2["approval"] == {"grant_cap": "floors", "unit_topup_limit": 1, "inherited": "planner"}
+            and "approval.grant_cap" in pr2["problems"][0][0] and pr3["approval"] is None)
         ps = PlannerState("toyq", root=base / "planner")
-        v1 = ps.write_table(ok, source="cand 1")["version"]
+        v1 = ps.write_table(ok, source="cand 1", approval={"unit_topup_limit": 1})["version"]
         v2 = ps.write_table(ok, source="cand 2")["version"]          # cand 1 was never made current
         checks["planner state: a rejected candidate's table is not overwritten by the next"] = (
-            (v1, v2) == (1, 2) and ps.table_version(1)["source"] == "cand 1" and ps.table() is None)
+            (v1, v2) == (1, 2) and ps.table_version(1)["source"] == "cand 1" and ps.table() is None
+            and ps.table_version(1)["approval"] == {"unit_topup_limit": 1} and "approval" not in ps.table_version(2))
 
         # a changed frozen suite stops a round
         bad = base / "suites" / "tampered"

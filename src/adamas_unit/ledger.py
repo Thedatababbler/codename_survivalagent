@@ -24,6 +24,18 @@ from typing import Any
 KINDS = ("tokens", "seconds", "compressions", "repairs")
 SIDE = ("authoring", "replay", "management", "harness")
 
+# The approval parameters a budget table may carry (user decision 2026-11-08: evolvable; the defaults are the
+# behaviour before they existed, so pi_0 and a table without them run exactly as before).
+#   grant_cap: "floors" -- a top-up never takes what the floors of the later units need;
+#              "later_table_shares" -- nor what the later units' table shares need (a share below the floor counts
+#              as the floor; a unit without a share counts as 1/n).
+#   unit_topup_limit: None -- no limit per unit; x -- a unit's top-ups together at most x times its prior allocation.
+#   inherited: "planner" -- the planner decides whether to repair inherited failures; "never"; "fixed" -- the fixed
+#              rule (own gate passes and repairs left).
+APPROVAL_DEFAULTS: dict[str, Any] = {"grant_cap": "floors", "unit_topup_limit": None, "inherited": "planner"}
+APPROVAL_CHOICES = {"grant_cap": ("floors", "later_table_shares"), "inherited": ("planner", "never", "fixed")}
+UNIT_TOPUP_LIMIT_MAX = 3.0
+
 
 class BudgetExhausted(RuntimeError):
     """The round budget of one kind is used up (DESIGN §5.5)."""
@@ -60,7 +72,11 @@ class Lease:
 
 class Ledger:
     def __init__(self, total: Budget, n_units: int, *, path: str | Path, floor_share: float = 0.05,
-                 management_cap_share: float = 0.02, max_repairs_per_unit: int = 3, clock=time.time):
+                 management_cap_share: float = 0.02, max_repairs_per_unit: int = 3, clock=time.time,
+                 approval: dict[str, Any] | None = None, table_shares: list[dict[str, float] | None] | None = None):
+        """``approval``: the budget table's approval parameters (``APPROVAL_DEFAULTS``; absent = the defaults, which
+        are the behaviour before they existed). ``table_shares``: the table's shares per unit index, needed by
+        ``grant_cap: later_table_shares``."""
         if n_units < 1:
             raise ValueError("a round has at least one unit")
         self.total = total
@@ -77,8 +93,13 @@ class Ledger:
         self.unit_used: dict[int, Budget] = {}
         self.leases: dict[str, Lease] = {}
         self.events: list[dict[str, Any]] = []
+        self.approval = {**APPROVAL_DEFAULTS, **(approval or {})}
+        self.table_shares = list(table_shares or [])
+        self.prior: dict[int, Budget] = {}                # the prior allocation only (no grants)
+        self.granted: dict[int, dict[str, float]] = {}
+        extra = {"approval": self.approval} if self.approval != APPROVAL_DEFAULTS else {}
         self._log("open", total=asdict(total), n_units=n_units, floor_share=floor_share,
-                  management_cap=self.management_cap)
+                  management_cap=self.management_cap, **extra)
 
     # ------------------------------------------------------------------ state
 
@@ -106,7 +127,20 @@ class Ledger:
         unit's open allocation still holds unused (that is spent first)."""
         later = self.n_units - unit - 1
         held = max(0.0, self.alloc_left(unit, kind)) if unit in self.alloc else 0.0
-        return max(0.0, self.left(kind) - later * self.floor(kind) - held)
+        if self.approval["grant_cap"] == "later_table_shares":
+            kept = sum(max(self.floor(kind), self.total.get(kind) * float(self._share(j, kind)))
+                       for j in range(unit + 1, self.n_units))
+        else:
+            kept = later * self.floor(kind)
+        cap = max(0.0, self.left(kind) - kept - held)
+        lim = self.approval["unit_topup_limit"]
+        if lim is not None and unit in self.prior:
+            cap = min(cap, max(0.0, float(lim) * self.prior[unit].get(kind) - self.granted[unit].get(kind, 0.0)))
+        return cap
+
+    def _share(self, unit: int, kind: str) -> float:
+        sh = self.table_shares[unit] if unit < len(self.table_shares) else None
+        return float(sh[kind]) if sh and kind in sh else 1.0 / self.n_units
 
     def alloc_left(self, unit: int, kind: str) -> float:
         a, u = self.alloc[unit], self.unit_used[unit]
@@ -134,6 +168,8 @@ class Ledger:
             setattr(b, k, type(getattr(b, k))(max(0.0, min(want, cap))))
         b.repairs = self.max_repairs_per_unit
         self.alloc[unit] = b
+        self.prior[unit] = Budget(**asdict(b))
+        self.granted[unit] = {}
         self.unit_used[unit] = Budget()
         self._log("open_unit", unit=unit, allocation=asdict(b), shares=shares or "even")
         return b
@@ -201,6 +237,7 @@ class Ledger:
         else:
             ls.seconds += got
             self.alloc[ls.unit].seconds += got
+        self.granted.setdefault(ls.unit, {})[kind] = self.granted.get(ls.unit, {}).get(kind, 0.0) + got
         self._log("grant", lease=lease_id, unit=ls.unit, kind=kind, requested=requested, decided=amount, cap=cap,
                   granted=got, cut=float(amount) > cap, reason=reason[:500], decided_by=decided_by)
         return got

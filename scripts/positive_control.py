@@ -591,6 +591,111 @@ def main() -> int:
             hj.get("reproducible") is True and hj.get("disjoint") is True and hj.get("both_nonempty") is True
             and hj.get("covers_all") is True)
 
+        # closing import check (patch 2026-11-09): manifest from the documents only; check on a copy; fix scope; own
+        # ledger; one module for both arms; nothing else changes
+        import hashlib as _hl
+        import subprocess as _sp2
+
+        from adamas_unit import importcheck as IC
+        from adamas_unit.task import load_task as _load_task
+        dd = _load_task("nl2_deepdiff")
+        ins = IC.manifest_inputs(dd)
+        sealed_bits = ("unit_tests", "sealed", ".adamas_unit_sealed", "/check_tests", f"/{dd.package}/")
+        (task.repo_root / "unit_tests").mkdir()
+        (task.repo_root / "unit_tests" / "test_h.py").write_text("from toyq import HELDOUT_CANARY_NAME\n")
+        (task.repo_root / "docs" / "api.md").write_text("# API\n\n```python\nfrom toyq import add, mul\n```\n")
+        tm = IC.build_manifest(task, out_dir=base / "ic")
+        checks["import check: the manifest reads only the design documents (no held-out, reference or sealed path)"] = (
+            bool(ins) and all(str(p).startswith(str(dd.repo_root / "docs") + "/") for p in ins)
+            and not any(b in str(p) for p in ins for b in sealed_bits)
+            and all(Path(p).parent == task.repo_root / "docs" for p in tm["inputs"])
+            and "HELDOUT_CANARY_NAME" not in json.dumps(tm) and {e["name"] for e in tm["names"]} == {"add", "mul"})
+        icfg = {k: dict(v) for k, v in IC.DEFAULTS.items()}
+        tdocs = {Path(p).name: Path(p).read_text() for p in tm["inputs"]}
+
+        def tree_hash(d):
+            h = _hl.sha256()
+            for q in sorted(Path(d).rglob("*")):
+                if q.is_file():
+                    h.update(str(q.relative_to(d)).encode() + q.read_bytes())
+            return h.hexdigest()
+        half = base / "ic_half"
+        shutil.copytree(rnd.run_dir / "final", half, ignore=shutil.ignore_patterns(".git"))
+        (half / "toyq" / "__init__.py").write_text(ADD_NEG_FIXED)
+        h0 = tree_hash(half)
+        cr = IC.check(half, scope=IC.scope_of(tm, None), package="toyq", venv=VENV, work_dir=base / "ic_work")
+        checks["import check: finds the missing documented name, on a copy (the directory unchanged, no caches)"] = (
+            cr["names_missing"] == ["toyq:mul"] and cr["problems"] == 1 and tree_hash(half) == h0
+            and not any(q.name == "__pycache__" for q in half.rglob("*")))
+        placeholder = "\n\ndef mul(a, b):\n    raise NotImplementedError\n"
+        cases = {
+            "export": [f"mkdir -p toyq && printf 'def mul(a, b):\\n    return a * b\\n' > toyq/_m.py",
+                       "printf 'from toyq._m import mul\\n__all__ = [\"add\", \"mul\"]\\n' >> toyq/__init__.py", SUBMIT],
+            "placeholder": [write("toyq/__init__.py", ADD_NEG_FIXED + placeholder), SUBMIT],
+            "body": [write("toyq/__init__.py", ADD_NEG_FIXED.replace("return a + b", "return b + a") + placeholder), SUBMIT],
+            "long": [write("toyq/__init__.py", ADD_NEG_FIXED + placeholder + "".join(f"\nfrom os import path as p{i}" for i in range(90))), SUBMIT],
+        }
+        fr = {}
+        for name, cmds in cases.items():
+            ws_c = base / f"ic_case_{name}"
+            shutil.copytree(half, ws_c)
+            hb = tree_hash(ws_c)
+            q = [cmds]
+            r = IC.fix(ws=ws_c, result=cr, docs=tdocs, cfg=icfg["importfix"], model=Scripted(q.pop(0), tokens=700),
+                       venv=VENV, fix_dir=base / "ic_fix" / name,
+                       recheck=lambda d: IC.check(d, scope=IC.scope_of(tm, None), package="toyq", venv=VENV, work_dir=base / "ic_work"),
+                       agent_config={"margin_tokens": 2000, "context_window": 10**9, "keep_recent": 6}, command_timeout=60)
+            fr[name] = (r, tree_hash(ws_c) == hb)
+        checks["import fix: a legal export and a legal placeholder are kept (re-check clean)"] = all(
+            fr[n][0].kept and fr[n][0].after_problems == 0 for n in ("export", "placeholder"))
+        checks["import fix: a changed existing body and a change over the line limit are undone (code restored)"] = (
+            not fr["body"][0].kept and fr["body"][1] and any("existing definition add" in w for w in fr["body"][0].reverted_because)
+            and not fr["long"][0].kept and fr["long"][1] and any("lines changed" in w for w in fr["long"][0].reverted_because)
+            and fr["body"][0].after_problems == 1)
+        # a round whose final code lacks mul: the fix runs on its own ledger, the round ledger is not charged
+        def ic_round(name, single, with_ic, qq):
+            obj = IC.ImportCheck(icfg, tm, tdocs) if with_ic else None
+            r = Round(task, sset, base / "rounds" / name / "toyq", cfg, Models(agent=lambda: Scripted(qq.pop(0) if qq else [SUBMIT])),
+                      single=single, importcheck=obj)
+            return r, r.run(), obj
+        build0 = [write("toyq/__init__.py", ADD_NEG_FIXED), SUBMIT]
+        fixq = [write("toyq/__init__.py", ADD_NEG_FIXED + placeholder), SUBMIT]
+        ru, recu, icu = ic_round("ic_unit", False, True, [build0] + [["true", SUBMIT]] * 5 + [fixq])   # u0: build + 3 repairs; u1: build + 1
+        fx = recu["importcheck"]
+        base_sessions = sum(len(u["sessions"]) for u in ru.units)
+        checks["import fix: tokens on its own ledger, not on the round's; booked apart in round.json"] = (
+            fx["fixes_triggered"] == 1 and fx["fixes_kept"] == 1 and fx["fix_tokens"] == 2000
+            and recu["ledger"]["used"]["tokens"] == sum(e["prompt_tokens"] for e in ru.ledger.events if e["event"] == "charge")
+            and not any(e.get("lease", "").endswith("importfix-0") for e in ru.ledger.events)
+            and (ru.run_dir / "final_before_importfix").is_dir() and base_sessions >= 1)
+        rs, recs_, ics = ic_round("ic_single", True, True, [build0] + [["true", SUBMIT]] * 4 + [fixq])
+        checks["import check: both arms use the same module, manifest and caps; the single arm checks only at the end"] = (
+            [r["where"] for r in ics.records] == ["final"] and [r["where"] for r in icu.records] == ["00_u0_add", "01_u1_mul", "final"]
+            and recs_["importcheck"]["manifest_sha256"] == recu["importcheck"]["manifest_sha256"] == tm["sha256"]
+            and recs_["importcheck"]["config"] == recu["importcheck"]["config"] and type(ics) is type(icu)
+            and recs_["importcheck"]["fixes_kept"] == 1)
+        # nothing else changes: without the check the round runs as before; with it (and nothing to fix), the ledger
+        # and the planner's decisions are the same apart from the check's harness time
+        def proj(ev):
+            drop = ("t", "seconds", "allocation", "unused", "used", "cap", "left")
+            return [{k: v for k, v in e.items() if k not in drop} for e in ev
+                    if not (e["event"] == "side" and str(e.get("what", "")).startswith("importcheck"))]
+        qa = [build0, [write("toyq/__init__.py", WITH_MUL_FIXED), SUBMIT]]
+        qb = [list(x) for x in qa]
+        ra, reca, _ = ic_round("ic_off", False, False, qa)
+        rb, recb, icb = ic_round("ic_on", False, True, qb)
+        unchanged = _sp2.run(["git", "diff", "--quiet", "HEAD", "--", "src/adamas_unit/ledger.py", "src/adamas_unit/planner.py",
+                              "src/adamas_unit/submit_check.py", "src/adamas_unit/gate.py", "src/adamas_unit/agent.py"], cwd=ROOT).returncode == 0
+        checks["import check: ledger and planner decisions unchanged by it (off = before the patch; on = same events)"] = (
+            unchanged and "importcheck" not in reca and proj(ra.ledger.events) == proj(rb.ledger.events)
+            and [{k: v for k, v in d.items() if k not in ("t", "time")} for d in ra.planner.decisions]
+            == [{k: v for k, v in d.items() if k not in ("t", "time")} for d in rb.planner.decisions]
+            and icb.summary()["fixes_triggered"] == 0 and reca["measures"] == recb["measures"])
+        sb_ic = breach.scan_run(ru.run_dir, run_id="pc-ic", write=False)
+        checks["import fix: the fix session's commands are captured for the breach scan"] = (
+            sb_ic["critical"] == 0 and any("importfix" in str(e.get("capture", "")) for e in json.loads(
+                (ru.run_dir / "sandbox_manifest.json").read_text())["entries"]))
+
         # a changed frozen suite stops a round
         bad = base / "suites" / "tampered"
         shutil.copytree(sset, bad)

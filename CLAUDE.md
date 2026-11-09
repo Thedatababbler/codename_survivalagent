@@ -30,6 +30,10 @@ be turned off). The section of rule 4 is produced by `uv run python scripts/sand
 The sandbox code is copied from AdaMAS (see `docs/USING_ADAMAS.md` §2.1); until it is in place, no agent may be
 started and no workspace code may be run in this project. Section format of rule 4: `docs/sandbox_breach_log.md`.
 
+## 收尾导入检查（补丁 2026-11-09）
+
+所有对照组共用同一个收尾导入检查与修补（`src/adamas_unit/importcheck.py`，配置 `configs/importcheck.yaml`，说明见 `docs/DESIGN.md` §7.1）。导入清单只由设计文档生成，在轮回开始前用 `scripts/build_importcheck_manifest.py` 冻结。修补用量不计入轮回预算，单独记账。补丁之后的轮回不与补丁之前的轮回混合比较。
+
 ## 正对照与额度
 
 - 每次改动流水线（单元执行器、门、修复证据、预算账本、规划者、进化者、诊断、提交检查、沙盒接入），先通过本项目的正对照（`docs/USING_ADAMAS.md` §4 第 13 项），再做任何运行。

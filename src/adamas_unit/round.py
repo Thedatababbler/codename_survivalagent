@@ -103,8 +103,11 @@ def single_unit(task: Task) -> Task:
 
 class Round:
     def __init__(self, task: Task, suite_set: Path, run_dir: Path, cfg: RoundConfig, models: Models, *,
-                 table: dict[str, Any] | None = None, rules: list[dict[str, Any]] | None = None, single: bool = False):
-        """``single``: the single-session control: one unit, its gate all frozen suites, the same B (repairs too)."""
+                 table: dict[str, Any] | None = None, rules: list[dict[str, Any]] | None = None, single: bool = False,
+                 importcheck: Any = None):
+        """``single``: the single-session control: one unit, its gate all frozen suites, the same B (repairs too).
+        ``importcheck``: an ``importcheck.ImportCheck`` (patch 2026-11-09), or None (no closing check: the round runs
+        as before the patch). The single arm checks only before the final submission."""
         self.suite_set, self.run_dir = Path(suite_set), Path(run_dir)
         if self.run_dir.exists():
             raise FileExistsError(f"{self.run_dir}: a round never reuses a directory")
@@ -115,6 +118,7 @@ class Round:
             task, table = single_unit(task), None
             cfg = RoundConfig(**{**cfg.__dict__, "max_repairs_per_unit": cfg.budget.repairs})
         self.task, self.cfg, self.models = task, cfg, models
+        self.ic = importcheck
         self.run_dir.mkdir(parents=True)
         self.table = table
         self.ledger = Ledger(cfg.budget, len(task.units), path=self.run_dir / "ledger.json", floor_share=cfg.floor_share,
@@ -191,6 +195,20 @@ class Round:
         margin = int(self.cfg.agent_config.get("margin_tokens", 0))
         return self.ledger.exhausted() or ("tokens" if self.ledger.left("tokens") < margin else "")
 
+    def _import_checkpoint(self, where: str, upto: int | None, ws: Path, udir: Path, *, gate_k: int | None):
+        """The closing import check (and its one fix) at a unit's end or before the final submission. Its time is
+        harness time (the agents' clock does not pay); the fix's tokens are on its own ledger, never on this one.
+        A kept fix changes the code, so a unit's gate runs again (returned; None when the code did not change)."""
+        t0 = time.time()
+        rec = self.ic.run(where=where, upto_unit=upto, ws=ws, docs=self.ic.docs, venv=self.task.venv, work_dir=udir,
+                          model_factory=self.models.agent, agent_config=self.cfg.agent_config,
+                          command_timeout=self.cfg.command_timeout, run_dir=self.run_dir)
+        g2 = None
+        if gate_k is not None and any(f["kept"] for f in rec["fixes"]):
+            g2 = self.gate(ws, gate_k, udir)
+        self.ledger.side_charge("harness", seconds=time.time() - t0, what=f"importcheck {where}")
+        return rec, g2
+
     # ------------------------------------------------------------------ one unit
 
     def run_unit(self, k: int, code_in: Path) -> Path:
@@ -236,6 +254,13 @@ class Round:
             rec["repairs"].append({"n": n, "target": target, "before": before, "after": cols.counts(),
                                    "exit_status": s.get("exit_status")})
         shutil.rmtree(udir / "repair_evidence", ignore_errors=True)
+        if self.ic is not None and self.ic.per_unit and not self.single:
+            ic, g2 = self._import_checkpoint(f"{k:02d}_{u.unit_id}", k, ws, udir, gate_k=k)
+            rec["importcheck"] = ic
+            if g2 is not None:
+                g = g2
+                cols = self.columns(g, u.unit_id)
+                rec["gates"].append({"after": "importfix", **cols.counts(), "seconds": g.seconds, "timed_out": g.timed_out})
         rec["passed"] = cols.passes
         rec["columns"] = cols.to_dict()
         rec["exhausted"] = self.budget_out()
@@ -257,6 +282,12 @@ class Round:
                 exhausted_at = self.task.units[k].unit_id
         final = copy_code(code, self.run_dir / "final")
         last = len(self.task.units) - 1
+        final_ic = None
+        if self.ic is not None:
+            copy_code(final, self.run_dir / "final_before_importfix")
+            final_ic, _ = self._import_checkpoint("final", None, final, self.run_dir, gate_k=None)
+            if not final_ic["fixes"] or not any(f["kept"] for f in final_ic["fixes"]):
+                shutil.rmtree(self.run_dir / "final_before_importfix", ignore_errors=True)
         g = self.gate(final, last, self.run_dir)
         known = self.known(last)
         passed = sum(1 for n in known if outcome(g.results, n) == "passed")
@@ -271,5 +302,7 @@ class Round:
                "submit_check": sub, "ledger": self.ledger.snapshot(), "planner_decisions": self.planner.decisions,
                "units": [{k: u[k] for k in ("unit", "passed", "repairs", "gates", "exhausted")} for u in self.units],
                "wall_seconds": round(time.time() - t0, 1)}
+        if self.ic is not None:
+            rec["importcheck"] = {**self.ic.summary(), "final": final_ic}
         (self.run_dir / "round.json").write_text(json.dumps(rec, indent=1, default=str), encoding="utf-8")
         return rec

@@ -19,6 +19,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from adamas_unit.importcheck import ImportCheck, load_config  # noqa: E402
 from adamas_unit.ledger import Budget  # noqa: E402
 from adamas_unit.model import agent_model, complete, summarize  # noqa: E402
 from adamas_unit.planner_state import PlannerState  # noqa: E402
@@ -43,6 +44,8 @@ def main() -> int:
     ap.add_argument("--table-version", type=int, default=0,
                     help="run with this stored budget table (a candidate under trial); 0: the current one (pi_0 if none)")
     ap.add_argument("--pi0", action="store_true", help="no budget table (pi_0), whatever is current")
+    ap.add_argument("--importcheck-config", default="", help="the closing import check's config (default "
+                    "configs/importcheck.yaml; its manifest must be frozen first: scripts/build_importcheck_manifest.py)")
     a = ap.parse_args()
     require_sandbox("round")
     task = load_task(a.task)
@@ -50,10 +53,12 @@ def main() -> int:
     cfg = RoundConfig(budget=Budget(tokens=a.tokens, seconds=a.seconds, compressions=a.compressions,
                                     repairs=a.repairs or 2 * len(task.units)), probe_every=a.probe_every)
     models = Models(agent=agent_model, complete=None if a.fixed_planner else complete, summarize=summarize)
+    icfg = load_config(Path(a.importcheck_config) if a.importcheck_config else None)
+    ic = ImportCheck.for_task(task, icfg) if icfg["importcheck"]["enabled"] else None
     run_dir = ROOT / "outputs" / "rounds" / a.round / a.task
     rnd = Round(task, ROOT / "outputs" / "suites" / a.task / a.set, run_dir, cfg, models,
                 table=None if a.single or a.pi0 else (state.table_version(a.table_version) if a.table_version else state.table()),
-                rules=None if a.single else state.rules(), single=a.single)
+                rules=None if a.single else state.rules(), single=a.single, importcheck=ic)
     rec = rnd.run()
     s = breach.scan_run(run_dir, run_id=f"{a.round}-{a.task}")
     if a.single:                                  # the control arm is not the planner's experience
@@ -64,7 +69,9 @@ def main() -> int:
                        "void": s["void"],
                        "units": [{"unit": u["unit"], "passed": u["passed"], "repairs": len(u["repairs"])} for u in rec["units"]],
                        "ledger": {k: rec["ledger"][k] for k in ("used", "left", "side")}})
-    print(json.dumps({"measures": rec["measures"], "used": rec["ledger"]["used"], "void": s["void"]}, indent=1))
+    print(json.dumps({"measures": rec["measures"], "used": rec["ledger"]["used"], "void": s["void"],
+                      "importcheck": {k: v for k, v in (rec.get("importcheck") or {}).items() if k not in ("records", "final", "config")}},
+                     indent=1))
     print(breach.report_section([s]))
     return 1 if s["void"] else 0
 

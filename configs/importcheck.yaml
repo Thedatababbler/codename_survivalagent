@@ -1,0 +1,10 @@
+# The closing import check and its fix (patch 2026-11-09, src/adamas_unit/importcheck.py). The same for every arm.
+importcheck:
+  enabled: true
+  per_unit: true          # the single-session arm ignores this: it checks only before the final submission
+  unattributed: top_level # names the documents give without a module: top_level (checked at the package top) | record
+importfix:
+  tokens: 50000
+  seconds: 300
+  max_sessions: 1
+  max_lines: 80

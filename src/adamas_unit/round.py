@@ -195,14 +195,16 @@ class Round:
         margin = int(self.cfg.agent_config.get("margin_tokens", 0))
         return self.ledger.exhausted() or ("tokens" if self.ledger.left("tokens") < margin else "")
 
-    def _import_checkpoint(self, where: str, upto: int | None, ws: Path, udir: Path, *, gate_k: int | None):
+    def _import_checkpoint(self, where: str, upto: int | None, ws: Path, udir: Path, *, gate_k: int | None,
+                           allow_fix: bool = True):
         """The closing import check (and its one fix) at a unit's end or before the final submission. Its time is
         harness time (the agents' clock does not pay); the fix's tokens are on its own ledger, never on this one.
         A kept fix changes the code, so a unit's gate runs again (returned; None when the code did not change)."""
         t0 = time.time()
         rec = self.ic.run(where=where, upto_unit=upto, ws=ws, docs=self.ic.docs, venv=self.task.venv, work_dir=udir,
                           model_factory=self.models.agent, agent_config=self.cfg.agent_config,
-                          command_timeout=self.cfg.command_timeout, run_dir=self.run_dir)
+                          command_timeout=self.cfg.command_timeout, run_dir=self.run_dir,
+                          allow_fix=allow_fix)
         g2 = None
         if gate_k is not None and any(f["kept"] for f in rec["fixes"]):
             g2 = self.gate(ws, gate_k, udir)
@@ -255,12 +257,8 @@ class Round:
                                    "exit_status": s.get("exit_status")})
         shutil.rmtree(udir / "repair_evidence", ignore_errors=True)
         if self.ic is not None and self.ic.per_unit and not self.single:
-            ic, g2 = self._import_checkpoint(f"{k:02d}_{u.unit_id}", k, ws, udir, gate_k=k)
-            rec["importcheck"] = ic
-            if g2 is not None:
-                g = g2
-                cols = self.columns(g, u.unit_id)
-                rec["gates"].append({"after": "importfix", **cols.counts(), "seconds": g.seconds, "timed_out": g.timed_out})
+            # recorded only (user decision 2026-11-09): which names were missing when the unit ended; no fix here
+            rec["importcheck"], _ = self._import_checkpoint(f"{k:02d}_{u.unit_id}", k, ws, udir, gate_k=None, allow_fix=False)
         rec["passed"] = cols.passes
         rec["columns"] = cols.to_dict()
         rec["exhausted"] = self.budget_out()

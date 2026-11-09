@@ -20,7 +20,8 @@ budget experiments the same way for every arm.
 2. **Check** (``check``): no model call. In the sandbox, on a copy of the code (never in the agent's directory):
    every manifest name in scope imports; every module of the package in scope imports; every ``__all__`` name
    exists; every documented command-line entry prints its help.
-3. **Fix** (``fix``): when the check finds something, one session (``importfix.max_sessions``) with a fixed cap
+3. **Fix** (``fix``): only before the final submission (user decision 2026-11-09: one fix per round for every arm;
+   the unit-end checks are recorded, never fixed). When the final check finds something, one session (``importfix.max_sessions``) with a fixed cap
    (``importfix.tokens`` / ``importfix.seconds``) on a ledger of its own: nothing is charged to the round ledger,
    the planner never sees it, later units' shares do not change. Input: the missing names (from the documents),
    the documents' lines about them, the code. Then a mechanical scope check (``scope_check``): only imports,
@@ -51,8 +52,8 @@ from orchestra.sandbox.guard import require_sandbox, run_confined
 ROOT = Path(__file__).resolve().parents[2]
 STORE = ROOT / "outputs" / "importcheck"
 DEFAULTS: dict[str, dict[str, Any]] = {
-    "importcheck": {"enabled": True, "per_unit": True, "unattributed": "top_level"},
-    "importfix": {"tokens": 50_000, "seconds": 300, "max_sessions": 1, "max_lines": 80},
+    "importcheck": {"enabled": True, "per_unit": True, "unattributed": "record"},
+    "importfix": {"tokens": 150_000, "seconds": 600, "max_sessions": 1, "max_lines": 150},
 }
 _SKIP = shutil.ignore_patterns(".git", "__pycache__", ".pytest_cache", "*.pyc")
 
@@ -543,8 +544,9 @@ class ImportCheck:
         return bool(self.cfg["importcheck"].get("per_unit", True))
 
     def run(self, *, where: str, upto_unit: int | None, ws: Path, docs: dict[str, str], venv: Path, work_dir: Path,
-            model_factory, agent_config: dict[str, Any], command_timeout: int, run_dir: Path) -> dict[str, Any]:
-        """One checkpoint: check; on problems, at most ``max_sessions`` fixes (each followed by one re-check)."""
+            model_factory, agent_config: dict[str, Any], command_timeout: int, run_dir: Path,
+            allow_fix: bool = True) -> dict[str, Any]:
+        """One checkpoint: check; on problems and ``allow_fix`` (the final checkpoint only), one fix and one re-check."""
         t0 = time.time()
         scope = scope_of(self.manifest, upto_unit, self.cfg["importcheck"].get("unattributed", "top_level"))
         pkg = self.manifest["package"]
@@ -555,7 +557,8 @@ class ImportCheck:
         r = do_check(ws)
         rec: dict[str, Any] = {"where": where, "upto_unit": upto_unit, "before": {k: r[k] for k in (
             "names_checked", "names_missing", "module_errors", "all_missing", "cli", "error", "problems")}, "fixes": []}
-        if r["problems"] and int(self.cfg["importfix"]["max_sessions"]) >= 1:   # one fix, then one re-check; never a second
+        rec["fix_allowed"] = allow_fix
+        if allow_fix and r["problems"] and int(self.cfg["importfix"]["max_sessions"]) >= 1:   # one fix, then one re-check; never a second
             fr = fix(ws=ws, result=r, docs=docs, cfg=self.cfg["importfix"], model=model_factory(), venv=venv,
                      fix_dir=Path(work_dir) / "importfix" / where, recheck=do_check, agent_config=agent_config,
                      command_timeout=command_timeout, manifest_dir=run_dir)

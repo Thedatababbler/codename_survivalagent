@@ -633,7 +633,7 @@ def main() -> int:
                        "printf 'from toyq._m import mul\\n__all__ = [\"add\", \"mul\"]\\n' >> toyq/__init__.py", SUBMIT],
             "placeholder": [write("toyq/__init__.py", ADD_NEG_FIXED + placeholder), SUBMIT],
             "body": [write("toyq/__init__.py", ADD_NEG_FIXED.replace("return a + b", "return b + a") + placeholder), SUBMIT],
-            "long": [write("toyq/__init__.py", ADD_NEG_FIXED + placeholder + "".join(f"\nfrom os import path as p{i}" for i in range(90))), SUBMIT],
+            "long": [write("toyq/__init__.py", ADD_NEG_FIXED + placeholder + "".join(f"\nfrom os import path as p{i}" for i in range(icfg["importfix"]["max_lines"] + 10))), SUBMIT],
         }
         fr = {}
         for name, cmds in cases.items():
@@ -652,6 +652,18 @@ def main() -> int:
             not fr["body"][0].kept and fr["body"][1] and any("existing definition add" in w for w in fr["body"][0].reverted_because)
             and not fr["long"][0].kept and fr["long"][1] and any("lines changed" in w for w in fr["long"][0].reverted_because)
             and fr["body"][0].after_problems == 1)
+        rec_nofix = IC.ImportCheck(icfg, tm, tdocs).run(
+            where="00_u0_add", upto_unit=None, ws=half, docs=tdocs, venv=VENV, work_dir=base / "ic_nofix",
+            model_factory=lambda: Scripted([write("toyq/__init__.py", WITH_MUL_FIXED), SUBMIT]),
+            agent_config={"margin_tokens": 2000, "context_window": 10**9, "keep_recent": 6}, command_timeout=60,
+            run_dir=base / "ic_nofix", allow_fix=False)
+        checks["import check: a unit-end check records the missing names and never fixes (code unchanged)"] = (
+            rec_nofix["before"]["names_missing"] == ["toyq:mul"] and rec_nofix["fixes"] == [] and not rec_nofix["fix_allowed"]
+            and tree_hash(half) == h0)
+        checks["import check config: unattributed names recorded only; fix caps 150k tokens, 600 s, 150 lines, once"] = (
+            IC.load_config()["importcheck"]["unattributed"] == "record"
+            and {k: IC.load_config()["importfix"][k] for k in ("tokens", "seconds", "max_lines", "max_sessions")}
+            == {"tokens": 150000, "seconds": 600, "max_lines": 150, "max_sessions": 1})
         # a round whose final code lacks mul: the fix runs on its own ledger, the round ledger is not charged
         def ic_round(name, single, with_ic, qq):
             obj = IC.ImportCheck(icfg, tm, tdocs) if with_ic else None
@@ -670,7 +682,7 @@ def main() -> int:
             and (ru.run_dir / "final_before_importfix").is_dir() and base_sessions >= 1)
         rs, recs_, ics = ic_round("ic_single", True, True, [build0] + [["true", SUBMIT]] * 4 + [fixq])
         checks["import check: both arms use the same module, manifest and caps; the single arm checks only at the end"] = (
-            [r["where"] for r in ics.records] == ["final"] and [r["where"] for r in icu.records] == ["00_u0_add", "01_u1_mul", "final"]
+            [r["where"] for r in ics.records] == ["final"] and [r["where"] for r in icu.records] == ["00_u0_add", "01_u1_mul", "final"] and [r["fix_allowed"] for r in icu.records] == [False, False, True]
             and recs_["importcheck"]["manifest_sha256"] == recu["importcheck"]["manifest_sha256"] == tm["sha256"]
             and recs_["importcheck"]["config"] == recu["importcheck"]["config"] and type(ics) is type(icu)
             and recs_["importcheck"]["fixes_kept"] == 1)

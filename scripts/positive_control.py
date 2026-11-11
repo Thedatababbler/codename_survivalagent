@@ -664,6 +664,27 @@ def main() -> int:
             IC.load_config()["importcheck"]["unattributed"] == "record"
             and {k: IC.load_config()["importfix"][k] for k in ("tokens", "seconds", "max_lines", "max_sessions")}
             == {"tokens": 150000, "seconds": 600, "max_lines": 150, "max_sessions": 1})
+        dup_b, dup_a = base / "ic_dup_b", base / "ic_dup_a"
+        for d_ in (dup_b, dup_a):
+            (d_ / "toyq").mkdir(parents=True)
+        two = "def f(x):\n    return 1\n\n\ndef g():\n    pass\n\n\ndef f(x):\n    return 2\n"
+        (dup_b / "toyq" / "h.py").write_text(two)
+        (dup_a / "toyq" / "h.py").write_text(two + "\n\nmul = None\n")
+        sc_dup = IC.scope_check(dup_b, dup_a, {"mul"}, 150)
+        (dup_a / "toyq" / "h.py").write_text(two.replace("return 1", "return 3") + "\n\nmul = None\n")
+        sc_dup2 = IC.scope_check(dup_b, dup_a, {"mul"}, 150)
+        checks["import fix scope: a name defined twice is not taken for a change; changing either copy is"] = (
+            sc_dup["ok"] and not sc_dup2["ok"])
+        guard = "\n\ntry:\n    from math import prod as mul\nexcept ImportError:\n    mul = None\n"
+        (dup_a / "toyq" / "h.py").write_text(two + guard)
+        sc_g = IC.scope_check(dup_b, dup_a, {"mul"}, 150)
+        (dup_a / "toyq" / "h.py").write_text(two + guard.replace("    mul = None\n", "    mul = None\n    print('no math')\n"))
+        sc_g2 = IC.scope_check(dup_b, dup_a, {"mul"}, 150)
+        (dup_a / "toyq" / "h.py").write_text(two + guard.replace("except ImportError", "except Exception"))
+        sc_g3 = IC.scope_check(dup_b, dup_a, {"mul"}, 150)
+        checks["import fix scope: a guarded import (imports and allowed-name assignments only) is kept"] = sc_g["ok"]
+        checks["import fix scope: a guarded import carrying other logic, or catching more than ImportError, is undone"] = (
+            not sc_g2["ok"] and not sc_g3["ok"])
         # a round whose final code lacks mul: the fix runs on its own ledger, the round ledger is not charged
         def ic_round(name, single, with_ic, qq):
             obj = IC.ImportCheck(icfg, tm, tdocs) if with_ic else None

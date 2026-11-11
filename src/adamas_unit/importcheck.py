@@ -355,7 +355,34 @@ def _stmt_ok_new(node: ast.AST, allowed: set[str]) -> bool:
         return isinstance(node.target, ast.Name) and node.target.id in allowed
     if isinstance(node, ast.Expr) and isinstance(getattr(node, "value", None), ast.Constant) and isinstance(node.value.value, str):
         return True                                       # a docstring
+    if isinstance(node, ast.Try):
+        return _guarded_import_ok(node, allowed)
     return False
+
+
+_IMPORT_ERRORS = {"ImportError", "ModuleNotFoundError"}
+
+
+def _guarded_import_ok(node: ast.Try, allowed: set[str]) -> bool:
+    """A guarded import (user decision 2026-11-11): ``try: <imports> except ImportError: <fallbacks>``, where every
+    statement in every block is an import or an assignment to an allowed name; any other logic is out of scope."""
+    def simple(st: ast.AST) -> bool:
+        if isinstance(st, (ast.Import, ast.ImportFrom)):
+            return True
+        if isinstance(st, ast.Assign):
+            return all(isinstance(t, ast.Name) and t.id in allowed for t in st.targets)
+        if isinstance(st, ast.AnnAssign):
+            return isinstance(st.target, ast.Name) and st.target.id in allowed
+        return False
+
+    def catches_import_error(h: ast.ExceptHandler) -> bool:
+        t = h.type
+        names = t.elts if isinstance(t, ast.Tuple) else [t]
+        return bool(names) and t is not None and all(isinstance(n, ast.Name) and n.id in _IMPORT_ERRORS for n in names)
+
+    return (bool(node.handlers) and all(catches_import_error(h) for h in node.handlers)
+            and any(isinstance(st, (ast.Import, ast.ImportFrom)) for st in node.body)
+            and all(simple(st) for st in [*node.body, *node.orelse, *node.finalbody, *(x for h in node.handlers for x in h.body)]))
 
 
 def scope_check(before: Path, after: Path, allowed: set[str], max_lines: int) -> dict[str, Any]:
@@ -388,11 +415,18 @@ def scope_check(before: Path, after: Path, allowed: set[str], max_lines: int) ->
             continue
         dump = lambda n: ast.dump(n, include_attributes=False)  # noqa: E731
         new_by_dump = Counter(dump(n) for n in na.body)
-        new_defs = {n.name: dump(n) for n in na.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))}
+        # a module may define one name more than once (2026-11-09, tier50-ic-r2: helper.py defined a function twice
+        # and the second copy was taken for a change of the first): every old definition must still be there
+        new_defs: dict[str, Counter] = {}
+        for n in na.body:
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                new_defs.setdefault(n.name, Counter())[dump(n)] += 1
         for n in oa.body:
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                if new_defs.get(n.name) != dump(n):
+                if new_defs.get(n.name, Counter())[dump(n)] <= 0:
                     why.append(f"{rel}: existing definition {n.name} changed or removed")
+                else:
+                    new_defs[n.name][dump(n)] -= 1
             elif isinstance(n, (ast.Import, ast.ImportFrom)) or _is_all(n):
                 continue                                  # imports and __all__ may be corrected
             elif new_by_dump[dump(n)] <= 0:

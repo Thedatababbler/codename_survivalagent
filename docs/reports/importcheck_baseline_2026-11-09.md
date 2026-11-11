@@ -40,3 +40,17 @@ Unit-end checks (recorded only), missing names at the end of U1..U5: r1 9/14/14/
 - The formal result does not show that, because two of three fixes were undone, one by a bug of mine.
 - Bug fixed after the runs (scope check keyed definitions by name; positive control 77/77 with a new duplicate case);
   not committed yet.
+
+## Clean rerun (232af76, 2026-11-11): tier50-ic2-r1..r3
+
+Breach: 3 runs; WARNING 1 (r2, read_denied /tmp, blocked); CRITICAL 0; nothing voided.
+
+| round | fix | problems before → after | fix tokens / s / calls / lines | ratio before | ratio after | collect before → after | pass-after-collect after | dead files before → after | frozen | gated |
+|---|---|---|---|---|---|---|---|---|---|---|
+| r1 | kept | 38 → 0 | 108,318 / 78 / 9 / 71 | 0.182 | 0.294 | 0.492 → 0.875 | 0.336 | 7 → 1 | 45 | 3 |
+| r2 | kept | 11 → 0 | 70,393 / 50 / 8 / 24 | 0.129 | 0.281 | 0.370 → 0.848 | 0.331 | 8 → 2 | 46 | 3 |
+| r3 | kept | 26 → 0 | 88,148 / 59 / 8 / 60 | 0.102 | 0.274 | 0.327 → 0.848 | 0.323 | 10 → 2 | 49 | 4 |
+
+After the fix: mean 0.2827, range 0.0198, std 0.0082 (before the fix: mean 0.1375, range 0.079, std 0.033; before the
+patch: range 0.195, std 0.083). New E1 baseline (outputs/e1v3): incumbent pi_0 = these 3 rounds, eps = max(0.0099,
+0.01) = 0.01, so a candidate needs both rounds above 0.2927.

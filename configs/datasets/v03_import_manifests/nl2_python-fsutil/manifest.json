@@ -1,0 +1,321 @@
+{
+ "task": "nl2_python-fsutil",
+ "inputs": [
+  "/root/codex-benchmarks/nl2repo/cpe_format/nl2_python-fsutil/docs/PRD.md",
+  "/root/codex-benchmarks/nl2repo/cpe_format/nl2_python-fsutil/docs/architecture_design.md",
+  "/root/codex-benchmarks/nl2repo/cpe_format/nl2_python-fsutil/docs/directory_tree.txt"
+ ],
+ "package": "fsutil",
+ "names": [
+  {
+   "name": "clean_dir",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "convert_size_bytes_to_string",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "convert_size_string_to_bytes",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "copy_dir",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "copy_dir_content",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "create_dir",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "create_file",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "create_tar_file",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "create_zip_file",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "delete_dir",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "delete_dir_content",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "exists",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "extract_tar_file",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "extract_zip_file",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "get_dir_size",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "get_file_basename",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "get_file_creation_date",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "get_file_extension",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "get_file_hash",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "get_file_size",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "get_filename",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "get_parent_dir",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "get_path",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "get_permissions",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "get_unique_name",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "is_dir",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "is_empty",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "is_file",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "join_filename",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "join_filepath",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "join_path",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "list_files",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "make_dirs",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "read_file",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "read_file_lines",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "remove_dir_content",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "require_requests",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "set_permissions",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "split_filename",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "split_filepath",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "split_path",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "transform_filepath",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "write_file",
+   "module": "fsutil",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "__author__",
+   "module": "fsutil.metadata",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "__copyright__",
+   "module": "fsutil.metadata",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "__description__",
+   "module": "fsutil.metadata",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "__email__",
+   "module": "fsutil.metadata",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "__license__",
+   "module": "fsutil.metadata",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "__title__",
+   "module": "fsutil.metadata",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "__version__",
+   "module": "fsutil.metadata",
+   "source": "import_statement",
+   "unit": null
+  }
+ ],
+ "modules": [
+  "fsutil",
+  "fsutil.metadata"
+ ],
+ "cli": [],
+ "module_units": {
+  "fsutil": null,
+  "fsutil.metadata": null
+ },
+ "sha256": "78b176146213ccbc2cdc91cb8692917de6814996e0c9cd992e12b75eac30c04e"
+}

@@ -38,3 +38,13 @@ started and no workspace code may be run in this project. Section format of rule
 
 - 每次改动流水线（单元执行器、门、修复证据、预算账本、规划者、进化者、诊断、提交检查、沙盒接入），先通过本项目的正对照（`docs/USING_ADAMAS.md` §4 第 13 项），再做任何运行。
 - 花额度的运行先向用户说明预计用量，得到同意再跑。提交和推送也先问。
+
+## v0.3（2026-11-18 起）：执行者 + 子智能体，进化规划者的 skill
+
+- 设计：`adamas_unit_v03_refactor.md`；映射、许可证、用户决定与实现细节：`docs/V03_MAPPING.md`。
+- 代码在 `src/survival/`（账本、规划者、skill、执行者与子智能体、一轮、进化）。v0.2 的 `src/adamas_unit/` 冻结为对照（tag `v0.2`），不要改；v0.3 从它复用沙盒接入、收尾导入检查、提交检查、密封评分。
+- skill 文档：`memory/planner/skills/<名称>/SKILL.md`（π_0）。阶段计划：`configs/datasets/v03_plans/`（冻结，只读）。
+- 正对照：改动 v0.3 的任何部分后先跑 `uv run python scripts/positive_control_v03.py`（不花额度）；v0.2 的正对照仍是 `scripts/positive_control.py`。
+- 运行：`scripts/v03_run_round.py`（一轮）、`scripts/v03_evolve.py`（进化）。都花额度，先报预计用量。
+- 上面的沙盒规定、密封规定、提交与推送先询问，对 v0.3 全部适用。回报时"沙盒越界警告"置顶。
+- 参考实现 `context-language-models` 是 CC BY-NC 4.0：只借鉴机制，不复制代码。

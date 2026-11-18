@@ -1,0 +1,45 @@
+{
+ "note": "Frozen stage plans of v0.3 (read-only copies, 2026-11-18). All three: generator llm, split_policy feature, gpt-5.6-luna planner of AdaMAS; the deepdiff plan was generated at an earlier commit than the other two.",
+ "plans": {
+  "nl2_python-pathspec": {
+   "source": "/root/projects/AdaMAS-single/configs/datasets/rsi_pilot_plans/nl2_python-pathspec.plan.json",
+   "source_commit": "AdaMAS-single 31239a54 (RSI set pilot step 2: frozen luna plans)",
+   "sha256": "bc6e07472ff04ef3703e061c192e3d261515979fb8e0902b303659bd9c052cb9",
+   "generator": "llm",
+   "split_policy": "feature",
+   "stages": [
+    "contracts_and_utilities",
+    "git_wildmatch_engine",
+    "pathspec_matching_api",
+    "gitignore_public_integration"
+   ]
+  },
+  "nl2_python-fsutil": {
+   "source": "/root/projects/AdaMAS-single/configs/datasets/rsi_pilot_plans/nl2_python-fsutil.plan.json",
+   "source_commit": "AdaMAS-single 31239a54 (RSI set pilot step 2: frozen luna plans)",
+   "sha256": "7d40322a943143e7f858637adc721ed4290060137b0f0022fa7b2385abebdbc9",
+   "generator": "llm",
+   "split_policy": "feature",
+   "stages": [
+    "foundation_contracts_and_path_utilities",
+    "filesystem_io_information_and_permissions",
+    "archive_creation_and_extraction",
+    "public_api_packaging_and_full_integration"
+   ]
+  },
+  "nl2_deepdiff": {
+   "source": "configs/datasets/nl2repo_hard_plans/nl2_deepdiff.plan.json",
+   "source_commit": "v0.2 of this repository; AdaMAS-single 696f4d00 (NL2Repo hard pilot: frozen plans (luna))",
+   "sha256": "bf5b22c6fb7c6866bb989e04e3a6f10c5a7d52a7ad062f894589435d40db5b71",
+   "generator": "llm",
+   "split_policy": "feature",
+   "stages": [
+    "foundation_contracts_and_utilities",
+    "recursive_diff_engine",
+    "delta_difference_application",
+    "search_and_hash_features",
+    "serialization_cli_and_public_integration"
+   ]
+  }
+ }
+}

@@ -1,0 +1,1153 @@
+{
+ "task": "nl2_deepdiff",
+ "inputs": [
+  "/root/codex-benchmarks/nl2repo/cpe_format/nl2_deepdiff/docs/PRD.md",
+  "/root/codex-benchmarks/nl2repo/cpe_format/nl2_deepdiff/docs/architecture_design.md",
+  "/root/codex-benchmarks/nl2repo/cpe_format/nl2_deepdiff/docs/directory_tree.txt"
+ ],
+ "package": "deepdiff",
+ "names": [
+  {
+   "name": "AnySet",
+   "module": "deepdiff",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "DeepDiff",
+   "module": "deepdiff",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "DeepHash",
+   "module": "deepdiff",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "DeepSearch",
+   "module": "deepdiff",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "Delta",
+   "module": "deepdiff",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "DeltaError",
+   "module": "deepdiff",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "_path_to_elements",
+   "module": "deepdiff",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "extract",
+   "module": "deepdiff",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "grep",
+   "module": "deepdiff",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "parse_path",
+   "module": "deepdiff",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "patch",
+   "module": "deepdiff",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "summarize",
+   "module": "deepdiff",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "AnySet",
+   "module": "deepdiff.anyset",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "ColoredView",
+   "module": "deepdiff.colored_view",
+   "source": "public_symbols",
+   "unit": null
+  },
+  {
+   "name": "diff",
+   "module": "deepdiff.commands",
+   "source": "import_statement",
+   "unit": 4
+  },
+  {
+   "name": "extract",
+   "module": "deepdiff.commands",
+   "source": "import_statement",
+   "unit": 4
+  },
+  {
+   "name": "grep",
+   "module": "deepdiff.commands",
+   "source": "import_statement",
+   "unit": 4
+  },
+  {
+   "name": "patch",
+   "module": "deepdiff.commands",
+   "source": "import_statement",
+   "unit": 4
+  },
+  {
+   "name": "BoolObj",
+   "module": "deepdiff.deephash",
+   "source": "import_statement",
+   "unit": 3
+  },
+  {
+   "name": "HASH_LOOKUP_ERR_MSG",
+   "module": "deepdiff.deephash",
+   "source": "import_statement",
+   "unit": 3
+  },
+  {
+   "name": "UNPROCESSED_KEY",
+   "module": "deepdiff.deephash",
+   "source": "import_statement",
+   "unit": 3
+  },
+  {
+   "name": "combine_hashes_lists",
+   "module": "deepdiff.deephash",
+   "source": "import_statement",
+   "unit": 3
+  },
+  {
+   "name": "prepare_string_for_hashing",
+   "module": "deepdiff.deephash",
+   "source": "import_statement",
+   "unit": 3
+  },
+  {
+   "name": "sha256hex",
+   "module": "deepdiff.deephash",
+   "source": "import_statement",
+   "unit": 3
+  },
+  {
+   "name": "unprocessed",
+   "module": "deepdiff.deephash",
+   "source": "import_statement",
+   "unit": 3
+  },
+  {
+   "name": "BINIARY_MODE_NEEDED_MSG",
+   "module": "deepdiff.delta",
+   "source": "import_statement",
+   "unit": 2
+  },
+  {
+   "name": "DELTA_AT_LEAST_ONE_ARG_NEEDED",
+   "module": "deepdiff.delta",
+   "source": "import_statement",
+   "unit": 2
+  },
+  {
+   "name": "DeltaError",
+   "module": "deepdiff.delta",
+   "source": "import_statement",
+   "unit": 2
+  },
+  {
+   "name": "DeltaNumpyOperatorOverrideError",
+   "module": "deepdiff.delta",
+   "source": "import_statement",
+   "unit": 2
+  },
+  {
+   "name": "ELEM_NOT_FOUND_TO_ADD_MSG",
+   "module": "deepdiff.delta",
+   "source": "import_statement",
+   "unit": 2
+  },
+  {
+   "name": "FAIL_TO_REMOVE_ITEM_IGNORE_ORDER_MSG",
+   "module": "deepdiff.delta",
+   "source": "import_statement",
+   "unit": 2
+  },
+  {
+   "name": "INDEXES_NOT_FOUND_WHEN_IGNORE_ORDER",
+   "module": "deepdiff.delta",
+   "source": "import_statement",
+   "unit": 2
+  },
+  {
+   "name": "INVALID_ACTION_WHEN_CALLING_GET_ELEM",
+   "module": "deepdiff.delta",
+   "source": "import_statement",
+   "unit": 2
+  },
+  {
+   "name": "INVALID_ACTION_WHEN_CALLING_SIMPLE_DELETE_ELEM",
+   "module": "deepdiff.delta",
+   "source": "import_statement",
+   "unit": 2
+  },
+  {
+   "name": "INVALID_ACTION_WHEN_CALLING_SIMPLE_SET_ELEM",
+   "module": "deepdiff.delta",
+   "source": "import_statement",
+   "unit": 2
+  },
+  {
+   "name": "NABLE_TO_GET_PATH_MSG",
+   "module": "deepdiff.delta",
+   "source": "import_statement",
+   "unit": 2
+  },
+  {
+   "name": "NOT_VALID_NUMPY_TYPE",
+   "module": "deepdiff.delta",
+   "source": "import_statement",
+   "unit": 2
+  },
+  {
+   "name": "VERIFICATION_MSG",
+   "module": "deepdiff.delta",
+   "source": "import_statement",
+   "unit": 2
+  },
+  {
+   "name": "VERIFY_BIDIRECTIONAL_MSG",
+   "module": "deepdiff.delta",
+   "source": "import_statement",
+   "unit": 2
+  },
+  {
+   "name": "not_found",
+   "module": "deepdiff.delta",
+   "source": "import_statement",
+   "unit": 2
+  },
+  {
+   "name": "CUTOFF_RANGE_ERROR_MSG",
+   "module": "deepdiff.diff",
+   "source": "import_statement",
+   "unit": 1
+  },
+  {
+   "name": "DELTA_VIEW",
+   "module": "deepdiff.diff",
+   "source": "import_statement",
+   "unit": 1
+  },
+  {
+   "name": "DISTANCE_CALCS_NEEDS_CACHE",
+   "module": "deepdiff.diff",
+   "source": "module_comment",
+   "unit": 1
+  },
+  {
+   "name": "INVALID_VIEW_MSG",
+   "module": "deepdiff.diff",
+   "source": "import_statement",
+   "unit": 1
+  },
+  {
+   "name": "PROGRESS_MSG",
+   "module": "deepdiff.diff",
+   "source": "import_statement",
+   "unit": 1
+  },
+  {
+   "name": "PURGE_LEVEL_RANGE_MSG",
+   "module": "deepdiff.diff",
+   "source": "import_statement",
+   "unit": 1
+  },
+  {
+   "name": "VERBOSE_LEVEL_RANGE_MSG",
+   "module": "deepdiff.diff",
+   "source": "import_statement",
+   "unit": 1
+  },
+  {
+   "name": "DISTANCE_CALCS_NEEDS_CACHE",
+   "module": "deepdiff.distance",
+   "source": "import_statement",
+   "unit": 1
+  },
+  {
+   "name": "_get_item_length",
+   "module": "deepdiff.distance",
+   "source": "import_statement",
+   "unit": 1
+  },
+  {
+   "name": "_get_numbers_distance",
+   "module": "deepdiff.distance",
+   "source": "import_statement",
+   "unit": 1
+  },
+  {
+   "name": "_get_numpy_array_distance",
+   "module": "deepdiff.distance",
+   "source": "import_statement",
+   "unit": 1
+  },
+  {
+   "name": "get_numeric_types_distance",
+   "module": "deepdiff.distance",
+   "source": "import_statement",
+   "unit": 1
+  },
+  {
+   "name": "CannotCompare",
+   "module": "deepdiff.helper",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "DELTA_VIEW",
+   "module": "deepdiff.helper",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "ENUM_INCLUDE_KEYS",
+   "module": "deepdiff.helper",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "FlatDataAction",
+   "module": "deepdiff.helper",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "FlatDeltaRow",
+   "module": "deepdiff.helper",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "Opcode",
+   "module": "deepdiff.helper",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "PydanticBaseModel",
+   "module": "deepdiff.helper",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "SetOrdered",
+   "module": "deepdiff.helper",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "TEXT_VIEW",
+   "module": "deepdiff.helper",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "add_root_to_paths",
+   "module": "deepdiff.helper",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "cartesian_product_numpy",
+   "module": "deepdiff.helper",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "cartesian_product_of_shape",
+   "module": "deepdiff.helper",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "datetime_normalize",
+   "module": "deepdiff.helper",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "detailed__dict__",
+   "module": "deepdiff.helper",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "diff_numpy_array",
+   "module": "deepdiff.helper",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "get_id",
+   "module": "deepdiff.helper",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "get_numpy_ndarray_rows",
+   "module": "deepdiff.helper",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "get_semvar_as_integer",
+   "module": "deepdiff.helper",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "get_truncate_datetime",
+   "module": "deepdiff.helper",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "literal_eval_extended",
+   "module": "deepdiff.helper",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "notpresent",
+   "module": "deepdiff.helper",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "np",
+   "module": "deepdiff.helper",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "np_float64",
+   "module": "deepdiff.helper",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "np_ndarray",
+   "module": "deepdiff.helper",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "number_to_string",
+   "module": "deepdiff.helper",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "py_current_version",
+   "module": "deepdiff.helper",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "py_major_version",
+   "module": "deepdiff.helper",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "py_minor_version",
+   "module": "deepdiff.helper",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "pypy3",
+   "module": "deepdiff.helper",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "short_repr",
+   "module": "deepdiff.helper",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "LFUCache",
+   "module": "deepdiff.lfucache",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "AttributeRelationship",
+   "module": "deepdiff.model",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "ChildRelationship",
+   "module": "deepdiff.model",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "DictRelationship",
+   "module": "deepdiff.model",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "DiffLevel",
+   "module": "deepdiff.model",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "NonSubscriptableIterableRelationship",
+   "module": "deepdiff.model",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "SubscriptableIterableRelationship",
+   "module": "deepdiff.model",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "BaseOperator",
+   "module": "deepdiff.operator",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "BaseOperatorPlus",
+   "module": "deepdiff.operator",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "PrefixOrSuffixOperator",
+   "module": "deepdiff.operator",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "BaseOperator",
+   "module": "deepdiff.operators",
+   "source": "import_statement",
+   "unit": null
+  },
+  {
+   "name": "GET",
+   "module": "deepdiff.path",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "GETATTR",
+   "module": "deepdiff.path",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "_add_to_elements",
+   "module": "deepdiff.path",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "_path_to_elements",
+   "module": "deepdiff.path",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "extract",
+   "module": "deepdiff.path",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "parse_path",
+   "module": "deepdiff.path",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "stringify_path",
+   "module": "deepdiff.path",
+   "source": "import_statement",
+   "unit": 0
+  },
+  {
+   "name": "DELTA_ERROR_WHEN_GROUP_BY",
+   "module": "deepdiff.serialization",
+   "source": "import_statement",
+   "unit": 4
+  },
+  {
+   "name": "DELTA_IGNORE_ORDER_NEEDS_REPETITION_REPORT",
+   "module": "deepdiff.serialization",
+   "source": "import_statement",
+   "unit": 4
+  },
+  {
+   "name": "FORBIDDEN_MODULE_MSG",
+   "module": "deepdiff.serialization",
+   "source": "import_statement",
+   "unit": 4
+  },
+  {
+   "name": "ForbiddenModule",
+   "module": "deepdiff.serialization",
+   "source": "import_statement",
+   "unit": 4
+  },
+  {
+   "name": "MODULE_NOT_FOUND_MSG",
+   "module": "deepdiff.serialization",
+   "source": "import_statement",
+   "unit": 4
+  },
+  {
+   "name": "ModuleNotFoundError",
+   "module": "deepdiff.serialization",
+   "source": "import_statement",
+   "unit": 4
+  },
+  {
+   "name": "UnsupportedFormatErr",
+   "module": "deepdiff.serialization",
+   "source": "import_statement",
+   "unit": 4
+  },
+  {
+   "name": "json_dumps",
+   "module": "deepdiff.serialization",
+   "source": "import_statement",
+   "unit": 4
+  },
+  {
+   "name": "json_loads",
+   "module": "deepdiff.serialization",
+   "source": "import_statement",
+   "unit": 4
+  },
+  {
+   "name": "load_path_content",
+   "module": "deepdiff.serialization",
+   "source": "import_statement",
+   "unit": 4
+  },
+  {
+   "name": "pickle_dump",
+   "module": "deepdiff.serialization",
+   "source": "import_statement",
+   "unit": 4
+  },
+  {
+   "name": "pickle_load",
+   "module": "deepdiff.serialization",
+   "source": "import_statement",
+   "unit": 4
+  },
+  {
+   "name": "pretty_print_diff",
+   "module": "deepdiff.serialization",
+   "source": "import_statement",
+   "unit": 4
+  },
+  {
+   "name": "_truncate",
+   "module": "deepdiff.summarize",
+   "source": "import_statement",
+   "unit": 1
+  },
+  {
+   "name": "summarize",
+   "module": "deepdiff.summarize",
+   "source": "import_statement",
+   "unit": 1
+  },
+  {
+   "name": "CacheNode",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "DeepDiffDeprecationWarning",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "DeepDiffProtocol",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "DeltaResult",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "DoesNotExist",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "DummyLFU",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "EnumBase",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "FreqNode",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "InaccessibleRelationship",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "IndexedHash",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "JSONDecoder",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "ListItemRemovedOrAdded",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "NotHashed",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "NotPresent",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "NumpyArrayRelationship",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "OpcodeTag",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "OtherTypes",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "RepeatedTimer",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "ResultDict",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "SerializationMixin",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "SetRelationship",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "Skipped",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "Unprocessed",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "add_to_frozen_set",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "calculate_weights",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "cartesian_product",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "check_elem",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "cli",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "compare_func_result1",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "compare_func_t1",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "compare_func_t2",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "compounds",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "convert_item_or_items_into_compiled_regexes_else_none",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "convert_item_or_items_into_set_else_none",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "delete_dir_contents",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "ensure_dir",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "flake8",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "get_doc",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "get_homogeneous_numpy_compatible_type_of_seq",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "get_type",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "greedy_tree_summarization_balanced",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "has_timezone",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "indexed_set",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "json_convertor_default",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "logarithmic_distance",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "logarithmic_similarity",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "mypy",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "named_tuple_repr",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "nested_a_affected_paths",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "nested_a_result",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "nested_a_t1",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "nested_a_t2",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "nested_b_result",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "nested_b_t1",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "nested_b_t2",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "np_type",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "numpy_apply_log_keep_sign",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "numpy_dtype_string_to_type",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "pydantic_base_model_type",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "pytest_addoption",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "pytest_collection_modifyitems",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "pytest_configure",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "save_content_to_path",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "sha1hex",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "shrink_tree_balanced",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "stringify_element",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "time_to_seconds",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "type_in_type_group",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  },
+  {
+   "name": "type_is_subclass_of_type_group",
+   "module": "",
+   "source": "api_heading",
+   "unit": null
+  }
+ ],
+ "modules": [
+  "deepdiff",
+  "deepdiff.anyset",
+  "deepdiff.colored_view",
+  "deepdiff.commands",
+  "deepdiff.deephash",
+  "deepdiff.delta",
+  "deepdiff.diff",
+  "deepdiff.distance",
+  "deepdiff.helper",
+  "deepdiff.lfucache",
+  "deepdiff.model",
+  "deepdiff.operator",
+  "deepdiff.operators",
+  "deepdiff.path",
+  "deepdiff.serialization",
+  "deepdiff.summarize"
+ ],
+ "cli": [],
+ "module_units": {
+  "deepdiff": null,
+  "deepdiff.anyset": 0,
+  "deepdiff.colored_view": null,
+  "deepdiff.commands": 4,
+  "deepdiff.deephash": 3,
+  "deepdiff.delta": 2,
+  "deepdiff.diff": 1,
+  "deepdiff.distance": 1,
+  "deepdiff.helper": 0,
+  "deepdiff.lfucache": 0,
+  "deepdiff.model": 0,
+  "deepdiff.operator": 0,
+  "deepdiff.operators": null,
+  "deepdiff.path": 0,
+  "deepdiff.serialization": 4,
+  "deepdiff.summarize": 1
+ },
+ "sha256": "946f7ef1ffd3469e7e249734e1e289ead19f935390ad6ab71e78bed753021c7e"
+}

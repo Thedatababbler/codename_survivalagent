@@ -1,0 +1,951 @@
+{
+  "generator": "llm",
+  "split_policy": "feature",
+  "rationale": "The project is split into five feature modules so each major documented capability has an executable gate before dependent work begins. Shared contracts and utilities come first, followed by the recursive comparison engine, the Delta difference system, search and hashing, and finally serialization, adapters, CLI wiring, packaging, and the complete public API integration. This avoids coupling all behavior into one late milestone while keeping tightly coupled implementations together.",
+  "split": true,
+  "milestones": [
+    {
+      "milestone_id": "foundation_contracts_and_utilities",
+      "title": "Foundational contracts, models, paths, helpers, and caching",
+      "objective": "Implement the shared data structures, constants, path operations, helper functions, operator contracts, set abstractions, and LFU cache that the comparison, Delta, search, hashing, and serialization modules import.",
+      "risk_rationale": "This milestone delivers independently testable substrate behavior: path parsing and stringification, relationship models, set abstractions, operator interfaces, numeric and datetime helpers, and cache semantics. Its gate can exercise these contracts without requiring the later comparison or public CLI layers. If these shapes or constants are wrong, every downstream module can silently encode incompatible paths, result models, or cache behavior.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "chain",
+      "depends_on": [],
+      "focus_paths": [
+        "deepdiff/base.py",
+        "deepdiff/model.py",
+        "deepdiff/path.py",
+        "deepdiff/helper.py",
+        "deepdiff/anyset.py",
+        "deepdiff/operator.py",
+        "deepdiff/lfucache.py",
+        "deepdiff/__init__.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "Path expressions can be parsed into components and converted back to stable string paths for dictionary keys, indexes, and attributes.",
+          "Diff relationship and level objects preserve parent, child, path, and relationship metadata.",
+          "AnySet and SetOrdered provide deterministic membership, iteration, and comparison behavior for unordered and ordered set use cases.",
+          "BaseOperator and related operator contracts can be subclassed and invoked for custom comparison decisions.",
+          "LFUCache supports insertion, lookup, eviction by frequency, clearing, and configured capacity limits.",
+          "Helper functions normalize datetimes and numeric values, detect supported array and model types, and expose the documented constants and sentinel values."
+        ],
+        "corner_cases": [
+          "Empty paths, root paths, quoted keys containing punctuation, negative indexes, and attribute paths.",
+          "Empty sets, duplicate ordered-set inputs, unhashable values, and mixed comparable types.",
+          "LFUCache capacity zero, repeated access, missing keys, and eviction ties.",
+          "Naive and timezone-aware datetimes, numeric values near comparison boundaries, and unavailable optional dependencies.",
+          "Operator subclasses that decline a comparison and malformed path input."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "deepdiff.path",
+            "symbol": "parse_path",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "deepdiff.path",
+            "symbol": "stringify_path",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "deepdiff.path",
+            "symbol": "GET",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "deepdiff.path",
+            "symbol": "GETATTR",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "deepdiff.model",
+            "symbol": "DiffLevel",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "deepdiff.model",
+            "symbol": "DictRelationship",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "deepdiff.operator",
+            "symbol": "BaseOperator",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "deepdiff.lfucache",
+            "symbol": "LFUCache",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "deepdiff.anyset",
+            "symbol": "AnySet",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "deepdiff.anyset",
+            "symbol": "SetOrdered",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "deepdiff.helper",
+            "symbol": "datetime_normalize",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "deepdiff.helper",
+            "symbol": "diff_numpy_array",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "deepdiff.helper",
+            "symbol": "notpresent",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Create executable tests from the design documents for path round trips, model relationships, helper normalization, AnySet and SetOrdered semantics, BaseOperator subclassing, and LFUCache behavior. Do not modify source files.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "deepdiff/base.py",
+            "deepdiff/model.py",
+            "deepdiff/path.py",
+            "deepdiff/helper.py",
+            "deepdiff/anyset.py",
+            "deepdiff/operator.py",
+            "deepdiff/lfucache.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "first_contract_author",
+          "title": "Contract author",
+          "mandate": "Implement the foundational public contracts, relationship classes, path constants, sentinels, helper APIs, and documented cross-module constants exactly at their documented import locations.",
+          "role": "contract_author",
+          "slot_id": "first",
+          "focus_paths": [
+            "deepdiff/base.py",
+            "deepdiff/model.py",
+            "deepdiff/path.py",
+            "deepdiff/helper.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "second_implementer",
+          "title": "Implementer",
+          "mandate": "Build the independently testable AnySet, SetOrdered, BaseOperator, and LFUCache implementations and connect them to the foundational helper and model contracts.",
+          "role": "implementer",
+          "slot_id": "second",
+          "focus_paths": [
+            "deepdiff/anyset.py",
+            "deepdiff/operator.py",
+            "deepdiff/lfucache.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "third_integrator",
+          "title": "Integrator",
+          "mandate": "Expose the completed foundational symbols through the documented package and module import paths without prematurely fabricating later feature behavior.",
+          "role": "integrator",
+          "slot_id": "third",
+          "focus_paths": [
+            "deepdiff/__init__.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "recursive_diff_engine",
+      "title": "Recursive DeepDiff comparison engine",
+      "objective": "Implement DeepDiff and its distance/comparison machinery for dictionaries, lists, tuples, sets, custom objects, numeric values, nested structures, type changes, additions, deletions, order handling, exclusions, and result serialization views.",
+      "risk_rationale": "This milestone owns the core comparison behavior and can be verified by constructing DeepDiff results directly, without Delta, search, hashing, CLI, or serialization integrations. Its gate checks exact difference categories and paths for nested objects, so defects in recursion, order handling, type policy, or exclusions are caught before other features depend on the result format.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "gate_then_repair",
+      "depends_on": [
+        "foundation_contracts_and_utilities"
+      ],
+      "focus_paths": [
+        "deepdiff/diff.py",
+        "deepdiff/distance.py",
+        "deepdiff/summarize.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "DeepDiff recursively compares dictionaries, lists, tuples, sets, and ordinary custom objects.",
+          "Results identify values_changed, type_changes, dictionary_item_added, dictionary_item_removed, iterable_item_added, iterable_item_removed, and set item changes with stable paths.",
+          "ignore_order, ignore_type_in_groups or equivalent type-change controls, exclude_paths, and numeric tolerance options alter comparison behavior as documented.",
+          "Nested combinations of mappings and iterables produce complete differences rather than stopping at the first mismatch.",
+          "The result supports empty/equality checks, useful representations, and summary generation.",
+          "Optional NumPy arrays and supported scalar types are compared through the documented numerical and array pathways when installed."
+        ],
+        "corner_cases": [
+          "Equal objects with different container identities.",
+          "Empty and singleton collections, duplicate list values, repeated nested objects, and mixed tuple/list types.",
+          "Sets containing heterogeneous values and unorderable values.",
+          "Excluded root and nested paths, missing paths, and paths containing special characters.",
+          "NaN, infinities, integer/float comparisons, and values exactly at or just outside the cutoff distance.",
+          "Custom objects with attributes, slots, properties that raise, and circular references."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "deepdiff.diff",
+            "symbol": "DeepDiff",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "deepdiff.diff",
+            "symbol": "DELTA_VIEW",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "deepdiff.diff",
+            "symbol": "CUTOFF_RANGE_ERROR_MSG",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "deepdiff.distance",
+            "symbol": "get_numeric_types_distance",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "deepdiff.summarize",
+            "symbol": "summarize",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "deepdiff.diff",
+            "symbol": "PROGRESS_MSG",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write executable behavior tests for recursive DeepDiff comparisons, result categories and paths, order and type options, exclusions, numeric tolerances, custom objects, and array comparisons. Do not inspect or modify implementation code.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "deepdiff/diff.py",
+            "deepdiff/distance.py",
+            "deepdiff/summarize.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement the recursive DeepDiff engine and distance calculations from the PRD and architecture documents, building on the frozen path, model, helper, operator, and cache contracts.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "deepdiff/diff.py",
+            "deepdiff/distance.py",
+            "deepdiff/summarize.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Read the acceptance-gate failures and repair only the named DeepDiff comparison, distance, result-shape, or summary defects; preserve the foundational contracts and do not add unrelated features.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "deepdiff/diff.py",
+            "deepdiff/distance.py",
+            "deepdiff/summarize.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "delta_difference_application",
+      "title": "Delta creation, application, reversal, and verification",
+      "objective": "Implement Delta as a difference object system that captures DeepDiff output, applies forward and reverse changes, supports serialization-compatible forms, verification, error handling, and ignore-order operations.",
+      "risk_rationale": "Delta is a cohesive feature built on the frozen DeepDiff result contract and can be tested with ordinary Python objects before CLI or package integration exists. Its gate applies generated and hand-built patches in both directions and checks failure modes, catching path mutation and reversibility defects at the module that owns them.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "gate_then_repair",
+      "depends_on": [
+        "recursive_diff_engine"
+      ],
+      "focus_paths": [
+        "deepdiff/delta.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "Delta can be constructed from DeepDiff-compatible changes and applied to a target to produce the expected new state.",
+          "Bidirectional or reverse application restores the original state for supported mapping, iterable, set, and attribute changes.",
+          "Delta handles additions, removals, value changes, type changes, and nested paths.",
+          "Verification detects a target that does not match the expected pre-patch state and raises documented Delta errors.",
+          "Delta supports binary or serialized representations required by the design and preserves enough information for reapplication.",
+          "Ignore-order list operations either resolve valid element positions or report the documented failure rather than silently corrupting data."
+        ],
+        "corner_cases": [
+          "Applying an empty Delta.",
+          "Missing dictionary keys, out-of-range indexes, deleted attributes, immutable tuples, and unsupported target types.",
+          "Repeated list values under ignore_order.",
+          "Forward application followed by reverse application on nested mutations.",
+          "Malformed serialized payloads, invalid actions, verification mismatch, and incompatible NumPy values.",
+          "Applying the same Delta twice."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "deepdiff.delta",
+            "symbol": "Delta",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "deepdiff.delta",
+            "symbol": "DeltaError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "deepdiff.delta",
+            "symbol": "VERIFICATION_MSG",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "deepdiff.delta",
+            "symbol": "VERIFY_BIDIRECTIONAL_MSG",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "deepdiff.delta",
+            "symbol": "INDEXES_NOT_FOUND_WHEN_IGNORE_ORDER",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "deepdiff.delta",
+            "symbol": "DELTA_AT_LEAST_ONE_ARG_NEEDED",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Create executable tests for Delta construction, forward and reverse application, nested changes, verification, serialization-compatible payloads, ignore-order behavior, and all documented error categories without editing implementation.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "deepdiff/delta.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement Delta from the documented design, consuming the frozen DeepDiff result and path/model contracts and supporting reversible mutation, verification, serialization, and explicit failures.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "deepdiff/delta.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Fix only failures reported by the Delta acceptance gate, prioritizing incorrect mutation paths, reverse operations, verification checks, malformed input handling, and required exported error constants.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "deepdiff/delta.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "search_and_hash_features",
+      "title": "DeepSearch and DeepHash analysis features",
+      "objective": "Implement recursive search and deterministic deep hashing for complex objects, including path matching, type filters, regular expressions, custom hashers, SHA-256 helpers, caching, and handling of supported containers and objects.",
+      "risk_rationale": "Search and hashing are outwardly useful independently of Delta, CLI, or serialization and can be verified directly against nested Python values. The gate checks returned paths, filtering semantics, hash stability, cache use, and custom hasher hooks, so defects remain localized before final public wiring.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "test_first",
+      "depends_on": [
+        "foundation_contracts_and_utilities",
+        "recursive_diff_engine"
+      ],
+      "focus_paths": [
+        "deepdiff/search.py",
+        "deepdiff/deephash.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "DeepSearch finds matching values recursively in mappings, sequences, sets, tuples, and custom objects and reports stable paths.",
+          "Search supports exact values, regular expressions, path matching, type filtering, and the documented grep convenience function.",
+          "DeepHash produces deterministic hashes for equal complex objects independent of dictionary insertion order where the design requires order independence.",
+          "DeepHash handles primitive values, nested containers, custom objects, sets, tuples, and optional NumPy-compatible values.",
+          "Custom hashers and hash caching are honored, and sha256hex produces the documented digest format.",
+          "Malformed patterns, unsupported objects, and unhashable values produce controlled documented behavior."
+        ],
+        "corner_cases": [
+          "Searching empty structures, repeated references, cycles, and values equal to the root object.",
+          "Regex patterns that match keys versus values, invalid regular expressions, and non-string values.",
+          "Type filters involving subclasses, None, booleans versus integers, and optional dependency types.",
+          "Hashing empty containers, unordered sets, nested mixed containers, NaN values, and recursive objects.",
+          "Custom hashers that return invalid results or raise exceptions.",
+          "Cache hits, cache-disabled mode, and collisions or equivalent canonical representations."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "deepdiff.search",
+            "symbol": "DeepSearch",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "deepdiff.search",
+            "symbol": "grep",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "deepdiff.deephash",
+            "symbol": "DeepHash",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "deepdiff.deephash",
+            "symbol": "sha256hex",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "deepdiff.deephash",
+            "symbol": "prepare_string_for_hashing",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "deepdiff.deephash",
+            "symbol": "UNPROCESSED_KEY",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "deepdiff.deephash",
+            "symbol": "HASH_LOOKUP_ERR_MSG",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write and freeze an executable suite from the documents covering DeepSearch paths, regexes, type filters, grep, DeepHash canonicalization, custom hashers, caching, SHA-256 output, cycles, and optional types. Do not modify source and do not expose the suite to the implementer.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "deepdiff/search.py",
+            "deepdiff/deephash.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "builder_implementer",
+          "title": "Implementer",
+          "mandate": "Implement DeepSearch, grep, DeepHash, sha256hex, canonical preparation, custom hasher hooks, and cache integration from the design documents alone; do not infer behavior from the frozen hidden test suite.",
+          "role": "implementer",
+          "slot_id": "builder",
+          "focus_paths": [
+            "deepdiff/search.py",
+            "deepdiff/deephash.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Use the acceptance failure report to correct only the named search or hashing defects, preserving the foundation contracts and avoiding changes to DeepDiff or Delta behavior.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "deepdiff/search.py",
+            "deepdiff/deephash.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "serialization_cli_and_public_integration",
+      "title": "Serialization, commands, special structures, packaging, and final API integration",
+      "objective": "Complete JSON/Pickle/YAML-compatible serialization and secure loading, implement diff/patch/grep/extract command functions and CLI behavior, add special structure adapters, finalize pyproject.toml and comprehensive_test.py, and expose the complete documented package API.",
+      "risk_rationale": "This final milestone owns the outward-facing seams where all earlier features meet: serialization must preserve DeepDiff and Delta data, commands must invoke the correct engines, optional NumPy/Pandas/Polars and custom-object paths must degrade safely, and package-root exports must be importable. Its full integration gate can run the public contract and command workflows end to end, which cannot be meaningfully verified before the underlying modules exist.",
+      "gate_level": "integration",
+      "split_reason": "feature_module",
+      "template_id": "parallel_audit",
+      "depends_on": [
+        "foundation_contracts_and_utilities",
+        "recursive_diff_engine",
+        "delta_difference_application",
+        "search_and_hash_features"
+      ],
+      "focus_paths": [
+        "deepdiff/serialization.py",
+        "deepdiff/commands.py",
+        "deepdiff/__init__.py",
+        "pyproject.toml",
+        "comprehensive_test.py",
+        "grader.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "json_dumps/json_loads and pickle_dump/pickle_load serialize and restore supported values and DeepDiff/Delta-compatible payloads.",
+          "Secure deserialization rejects forbidden modules, unsupported formats, malformed payloads, and unsafe object loading according to the documented policy.",
+          "diff, patch, grep, and extract command functions and their CLI entry points operate on supported JSON, Pickle, YAML, and text/file inputs with useful errors.",
+          "NumPy arrays, Pandas DataFrames, Polars DataFrames, enums, Pydantic-style models, and ordinary custom objects use specialized comparison or serialization behavior when dependencies are available and safe fallbacks otherwise.",
+          "deepdiff.__init__ exposes every documented major class, function, helper, constant, cache, operator, and version value at the documented import paths.",
+          "pyproject.toml defines an installable Python 3.10-compatible package, required dependencies and entry points, and editable-install metadata.",
+          "comprehensive_test.py covers comparison, Delta, search, hashing, CLI, serialization, special structures, configuration, boundaries, errors, and caching.",
+          "grader.py deepdiff_expr_eq combines ignore_order, cutoff_distance, exclude_paths, Delta reversibility, datetime normalization, NumPy comparison, and custom BaseOperator handling and returns a boolean plus difference details."
+        ],
+        "corner_cases": [
+          "JSON values with non-string keys, bytes, datetimes, NaN, infinity, and unsupported custom objects.",
+          "Pickle payloads from forbidden or missing modules, truncated data, malicious-looking globals, and invalid format selectors.",
+          "CLI missing files, invalid commands, empty input, nonzero exit behavior, and output encoding.",
+          "Optional NumPy, Pandas, Polars, Pydantic, and YAML dependencies unavailable or given malformed values.",
+          "Package-root imports in a clean interpreter and editable installation from pyproject.toml.",
+          "Delta patches loaded from serialized data, excluded paths combined with tolerance, set order differences, and datetime timezone differences."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "deepdiff.serialization",
+            "symbol": "json_dumps",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "deepdiff.serialization",
+            "symbol": "pickle_load",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "deepdiff.serialization",
+            "symbol": "json_loads",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "deepdiff.commands",
+            "symbol": "diff",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "deepdiff.commands",
+            "symbol": "patch",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "deepdiff.commands",
+            "symbol": "extract",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "deepdiff.commands",
+            "symbol": "grep",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "deepdiff.serialization",
+            "symbol": "FORBIDDEN_MODULE_MSG",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "deepdiff.serialization",
+            "symbol": "MODULE_NOT_FOUND_MSG",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "deepdiff.serialization",
+            "symbol": "DELTA_IGNORE_ORDER_NEEDS_REPETITION_REPORT",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "deepdiff",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "deepdiff",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "deepdiff",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "deepdiff",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "deepdiff",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "deepdiff",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "deepdiff",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "deepdiff",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "deepdiff",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "deepdiff",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "import",
+            "module": "deepdiff",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "deepdiff",
+            "symbol": "__version__",
+            "required_levels": [
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Create the final executable integration suite from the PRD and architecture documents for serialization, secure loading, command workflows, optional structures, package-root exports, installation metadata, comprehensive_test.py coverage, and grader.py equivalence behavior. Do not modify source.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "deepdiff/serialization.py",
+            "deepdiff/commands.py",
+            "deepdiff/__init__.py",
+            "pyproject.toml",
+            "comprehensive_test.py",
+            "grader.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement serialization, command functions and CLI entry points, optional special-structure support, package metadata, comprehensive_test.py, grader.py, and the complete package-root API using all frozen earlier contracts.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "deepdiff/serialization.py",
+            "deepdiff/commands.py",
+            "deepdiff/__init__.py",
+            "pyproject.toml",
+            "comprehensive_test.py",
+            "grader.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "spec_review_spec_auditor",
+          "title": "Specification auditor",
+          "mandate": "Read the implemented final integration against PRD.md and architecture_design.md, reporting every missing public feature, wrong command or serialization behavior, absent optional-structure handling, dependency mismatch, or package-root export deviation without editing.",
+          "role": "spec_auditor",
+          "slot_id": "spec_review",
+          "focus_paths": [
+            "deepdiff/serialization.py",
+            "deepdiff/commands.py",
+            "deepdiff/__init__.py",
+            "pyproject.toml",
+            "comprehensive_test.py",
+            "grader.py"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "contract_review_contract_critic",
+          "title": "Contract critic",
+          "mandate": "Review the final integration against all contracts frozen by earlier milestones, especially DeepDiff result shapes, Delta paths and errors, helper constants, search/hash signatures, serialization boundaries, and documented root imports. Report violations without editing.",
+          "role": "contract_critic",
+          "slot_id": "contract_review",
+          "focus_paths": [
+            "deepdiff/serialization.py",
+            "deepdiff/commands.py",
+            "deepdiff/__init__.py",
+            "grader.py"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Resolve the acceptance-gate, specification-audit, and contract-review findings precisely, then run the visible check_tests and full integration checks to confirm the complete public contract without regressing earlier feature modules.",
+          "role": "gate_repairer",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "deepdiff/serialization.py",
+            "deepdiff/commands.py",
+            "deepdiff/__init__.py",
+            "pyproject.toml",
+            "comprehensive_test.py",
+            "grader.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    }
+  ]
+}

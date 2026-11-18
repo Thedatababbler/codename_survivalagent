@@ -1,0 +1,739 @@
+{
+  "generator": "llm",
+  "split_policy": "feature",
+  "rationale": "The project is split into four feature modules in dependency order. Shared contracts and path/checking primitives come first, filesystem behavior and information access build on them, archives remain a separately verifiable feature group, and the final milestone wires the complete public API, packaging metadata, dependency declarations, and integration behavior. Each milestone owns executable behavior and has a gate that can run before later milestones exist.",
+  "split": true,
+  "milestones": [
+    {
+      "milestone_id": "foundation_contracts_and_path_utilities",
+      "title": "Foundations, contracts, checks, converters, and path utilities",
+      "objective": "Implement the shared fsutil substrate and independently usable path-processing feature set: metadata, exceptions, types, argument/dependency helpers, existence/type checks, size converters, and all documented path manipulation functions.",
+      "risk_rationale": "This milestone delivers the contracts and pure utility behavior imported by every later feature. Its gate can exercise path transformations, checks, conversions, metadata, and dependency helpers directly without file-operation, archive, or public-integration code. Incorrect path semantics or missing shared symbols would cause downstream modules to construct or interpret filesystem paths inconsistently.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "test_first",
+      "depends_on": [],
+      "focus_paths": [
+        "src/fsutil/types.py",
+        "src/fsutil/metadata.py",
+        "src/fsutil/exceptions.py",
+        "src/fsutil/args.py",
+        "src/fsutil/deps.py",
+        "src/fsutil/checks.py",
+        "src/fsutil/converters.py",
+        "src/fsutil/paths.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "Path joining, splitting, normalization, filename extraction, parent traversal, extension handling, and unique-name generation return deterministic values for ordinary POSIX and platform-native paths.",
+          "Existence, file, directory, and emptiness checks distinguish missing paths, regular files, empty files, empty directories, and non-empty directories.",
+          "Byte-size conversion functions round-trip supported human-readable units and reject malformed or unsupported values with the documented exception behavior.",
+          "Metadata exposes a non-empty version and the documented project metadata fields.",
+          "The dependency helper reports whether requests is available without making unrelated filesystem modules necessary to import."
+        ],
+        "corner_cases": [
+          "Empty strings, root paths, trailing separators, multiple separators, filenames with multiple dots, filenames beginning with a dot, and paths without extensions.",
+          "Missing paths and paths whose type differs from the requested check.",
+          "Zero-byte files, empty directories, and nested non-empty directories.",
+          "Zero bytes, fractional size strings, case variations in units, whitespace, and malformed size strings.",
+          "Nonexistent optional dependency environments must produce a controlled result rather than an import-time crash."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "fsutil.paths",
+            "symbol": "join_path",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "fsutil.paths",
+            "symbol": "split_filename",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "fsutil.paths",
+            "symbol": "get_unique_name",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "fsutil.checks",
+            "symbol": "exists",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "fsutil.checks",
+            "symbol": "is_empty",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "fsutil.converters",
+            "symbol": "convert_size_bytes_to_string",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "fsutil.converters",
+            "symbol": "convert_size_string_to_bytes",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "fsutil.deps",
+            "symbol": "require_requests",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "fsutil.exceptions",
+            "symbol": "FSUtilError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "fsutil.metadata",
+            "symbol": "__version__",
+            "required_levels": [
+              "discovery",
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "fsutil.metadata",
+            "symbol": "__author__",
+            "required_levels": [
+              "discovery",
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Create and freeze an executable suite for the documented path, check, converter, metadata, exception, and dependency-helper behavior, including platform-neutral edge cases, without editing source files.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "src/fsutil/paths.py",
+            "src/fsutil/checks.py",
+            "src/fsutil/converters.py",
+            "src/fsutil/metadata.py",
+            "src/fsutil/args.py",
+            "src/fsutil/deps.py",
+            "src/fsutil/exceptions.py",
+            "src/fsutil/types.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "builder_contract_author",
+          "title": "Contract author",
+          "mandate": "Implement the shared contracts and pure utility modules from the design documents, preserving the exact documented symbols and making path, check, converter, metadata, exception, and dependency behavior independently testable.",
+          "role": "contract_author",
+          "slot_id": "builder",
+          "focus_paths": [
+            "src/fsutil/types.py",
+            "src/fsutil/metadata.py",
+            "src/fsutil/exceptions.py",
+            "src/fsutil/args.py",
+            "src/fsutil/deps.py",
+            "src/fsutil/checks.py",
+            "src/fsutil/converters.py",
+            "src/fsutil/paths.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Use the foundation acceptance-gate failure report to fix only the named contract or behavioral defects, then rerun the frozen foundation suite and preserve all documented import paths.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "src/fsutil"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "filesystem_io_information_and_permissions",
+      "title": "Filesystem operations, file I/O, information, and permissions",
+      "objective": "Implement the core filesystem feature group: file and directory creation, copying, moving, deletion, cleaning, replacement, renaming, text/JSON/binary I/O, line processing, file listing and downloads, file and directory information, hashes, and permission management.",
+      "risk_rationale": "This milestone owns the stateful filesystem behavior and can be verified with temporary directories using only the foundation utilities from the previous milestone. Its gate catches overwrite semantics, recursive directory behavior, encoding and atomic-write issues, metadata/hash calculations, and permission handling before archive or public API wiring can hide defects.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "chain",
+      "depends_on": [
+        "foundation_contracts_and_path_utilities"
+      ],
+      "focus_paths": [
+        "src/fsutil/operations.py",
+        "src/fsutil/io.py",
+        "src/fsutil/info.py",
+        "src/fsutil/perms.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "File operations create, copy, move, delete, remove, rename, and replace files while honoring overwrite and autodelete options and reporting failures through the documented exception behavior.",
+          "Directory operations create nested directories, copy trees and directory contents, move, delete, clean, remove contents, rename, replace, and process multiple paths as documented.",
+          "Text, JSON, and binary file operations preserve content, support encodings and append/atomic options, and expose line-range, line-count, and listing functions.",
+          "Information functions return file and directory sizes, timestamps, formatted values, and deterministic hashes for supported algorithms.",
+          "Permission functions retrieve and set permissions using platform-compatible behavior without corrupting unrelated mode bits.",
+          "The core modules remain independently importable and usable without the package root re-export layer."
+        ],
+        "corner_cases": [
+          "Missing sources, existing destinations, destination parents that do not exist, same-source-and-destination operations, and overwrite disabled.",
+          "Empty directories, nested trees, hidden files, symlinks where supported, and batch operations containing multiple paths.",
+          "Empty files, Unicode text, non-UTF-8 encodings, append mode, newline handling, partial line ranges, and malformed JSON.",
+          "Binary payloads containing null bytes and atomic writes interrupted before replacement.",
+          "Empty directories for size/hash calculations, unreadable files, unsupported hash names, and permission changes on platforms with limited mode support."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "fsutil.operations",
+            "symbol": "create_file",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "fsutil.operations",
+            "symbol": "copy_dir",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "fsutil.operations",
+            "symbol": "clean_dir",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "fsutil.operations",
+            "symbol": "make_dirs",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "fsutil.io",
+            "symbol": "read_file",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "fsutil.io",
+            "symbol": "write_file",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "fsutil.io",
+            "symbol": "read_file_json",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "fsutil.io",
+            "symbol": "list_files",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "fsutil.info",
+            "symbol": "get_file_size",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "fsutil.info",
+            "symbol": "get_file_hash",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "fsutil.info",
+            "symbol": "get_dir_size",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "fsutil.perms",
+            "symbol": "get_permissions",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "fsutil.perms",
+            "symbol": "set_permissions",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write and freeze executable temporary-directory tests for file operations, recursive directory operations, text/JSON/binary I/O, listing, metadata, hashes, and permissions, including failure and overwrite cases.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "src/fsutil/operations.py",
+            "src/fsutil/io.py",
+            "src/fsutil/info.py",
+            "src/fsutil/perms.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "first_implementer",
+          "title": "Implementer",
+          "mandate": "Implement the documented file and directory operation APIs with robust overwrite, recursive, batch, rename, replace, and cleanup semantics, using the frozen foundation contracts.",
+          "role": "implementer",
+          "slot_id": "first",
+          "focus_paths": [
+            "src/fsutil/operations.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "second_implementer",
+          "title": "Implementer",
+          "mandate": "Implement text, JSON, binary, line-oriented, listing, network-download, and atomic file I/O behavior while retaining the exact documented signatures and error semantics.",
+          "role": "implementer",
+          "slot_id": "second",
+          "focus_paths": [
+            "src/fsutil/io.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "third_edge_case_hardener",
+          "title": "Edge-case hardener",
+          "mandate": "Complete and harden information and permission behavior, then run the milestone suite against boundary cases such as empty trees, malformed inputs, unsupported hashes, and platform permission limitations.",
+          "role": "edge_case_hardener",
+          "slot_id": "third",
+          "focus_paths": [
+            "src/fsutil/info.py",
+            "src/fsutil/perms.py",
+            "src/fsutil/operations.py",
+            "src/fsutil/io.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "archive_creation_and_extraction",
+      "title": "Tar and ZIP archive operations",
+      "objective": "Implement archive creation and extraction for ZIP and tar formats, including file and directory packaging, destination handling, recursive contents, and safe, predictable extraction behavior.",
+      "risk_rationale": "Archives are a cohesive feature with a self-contained standard-library implementation and can be verified using temporary files and directories plus the earlier filesystem primitives. Its gate independently validates archive contents, round trips, destination creation, and malformed/archive-path failures before public exports are added.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "gate_then_repair",
+      "depends_on": [
+        "filesystem_io_information_and_permissions"
+      ],
+      "focus_paths": [
+        "src/fsutil/archives.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "ZIP creation packages the requested files or directories recursively and produces an archive readable by standard ZIP tooling.",
+          "ZIP extraction recreates files and directory structure under the requested destination and handles existing destinations according to the documented behavior.",
+          "Tar creation and extraction support the documented tar modes and preserve recursive directory contents.",
+          "Archive functions raise controlled fsutil or standard exceptions for missing inputs, invalid destinations, malformed archives, and unsupported archive paths.",
+          "A create-then-extract round trip preserves relative names and file bytes for both archive formats."
+        ],
+        "corner_cases": [
+          "Single files, empty directories, nested directories, duplicate-like names, Unicode filenames, and zero-byte files.",
+          "Missing source paths, an archive path inside the source tree, existing archive files, and extraction into a nonexistent destination.",
+          "Malformed ZIP and tar files, unsupported extensions or modes, and archive members attempting unsafe path traversal.",
+          "Empty source directories and archives containing only directory entries."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "fsutil.archives",
+            "symbol": "create_zip_file",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "fsutil.archives",
+            "symbol": "extract_zip_file",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "fsutil.archives",
+            "symbol": "create_tar_file",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "fsutil.archives",
+            "symbol": "extract_tar_file",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Create and freeze archive-focused tests using temporary trees, standard-library inspection, round trips, malformed archives, empty directories, Unicode names, and traversal-safety cases.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "src/fsutil/archives.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement all documented ZIP and tar creation/extraction functions with recursive packaging, destination management, controlled errors, and safe member extraction.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "src/fsutil/archives.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Read the archive acceptance-gate report and repair only the reported archive behavior or edge-case failures, then rerun the frozen archive suite.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "src/fsutil/archives.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "public_api_packaging_and_full_integration",
+      "title": "Unified public API, packaging, examples, and integration verification",
+      "objective": "Wire every documented symbol through src/fsutil/__init__.py, finalize pyproject.toml, MANIFEST.in, typing marker and package metadata, expose version and metadata attributes, and verify installed/editable imports plus an end-to-end filesystem workflow.",
+      "risk_rationale": "This final milestone owns the outward-facing contract and integrates all prior modules. Its gate verifies that users can import the documented functions from fsutil, install the package, access metadata and version attributes, and complete a reproducible create/write/copy/archive/read/info workflow. Public re-export omissions, packaging misconfiguration, and cross-module signature mismatches are intentionally caught here after underlying features are independently frozen.",
+      "gate_level": "integration",
+      "split_reason": "feature_module",
+      "template_id": "review_then_fix",
+      "depends_on": [
+        "foundation_contracts_and_path_utilities",
+        "filesystem_io_information_and_permissions",
+        "archive_creation_and_extraction"
+      ],
+      "focus_paths": [
+        "src/fsutil/__init__.py",
+        "pyproject.toml",
+        "MANIFEST.in",
+        "src/fsutil/py.typed",
+        "README.md",
+        "examples"
+      ],
+      "acceptance": {
+        "criteria": [
+          "A clean interpreter can import fsutil and access every documented public function, FSUtilError, metadata attribute, and __version__ through the documented paths.",
+          "The package is installable in editable and normal-style build environments using pyproject.toml, with Python >=3.10 metadata and declared pytest, requests, and documented development dependencies.",
+          "MANIFEST.in and build configuration include package modules, metadata, type marker, and required project files so the built distribution retains the public API.",
+          "A complete workflow can create directories and files, write and read content, copy a directory, inspect size/hash information, create and extract an archive, and use path/check/converter helpers through the unified API.",
+          "Visible tests and project test commands execute successfully without relying on undeclared local-only modules."
+        ],
+        "corner_cases": [
+          "Importing every documented symbol from fsutil rather than its private module.",
+          "Fresh virtual-environment installation, editable installation, and source-tree execution.",
+          "Metadata attributes with missing optional fields, repeated imports, and package version discovery.",
+          "End-to-end workflows involving Unicode paths, empty files, nested directories, and archive round trips.",
+          "Requests unavailable at import time while fsutil itself remains importable."
+        ],
+        "checks": [
+          {
+            "type": "export",
+            "module": "fsutil",
+            "symbol": "__version__",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "fsutil",
+            "symbol": "create_file",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "fsutil",
+            "symbol": "copy_dir",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "fsutil",
+            "symbol": "read_file",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "fsutil",
+            "symbol": "get_file_size",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "fsutil",
+            "symbol": "create_zip_file",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "fsutil",
+            "symbol": "extract_tar_file",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "fsutil",
+            "symbol": "join_path",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "fsutil",
+            "symbol": "exists",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "fsutil",
+            "symbol": "get_permissions",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "fsutil",
+            "symbol": "require_requests",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "fsutil",
+            "symbol": "FSUtilError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write and freeze integration tests for documented root-level imports, metadata/version exposure, package installation metadata, distribution contents, and an end-to-end filesystem/archive workflow.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "src/fsutil/__init__.py",
+            "pyproject.toml",
+            "MANIFEST.in",
+            "README.md"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement the complete fsutil root API re-export surface exactly as documented, expose metadata and version attributes, and add any necessary package initialization wiring without changing frozen private-module contracts.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "src/fsutil/__init__.py",
+            "src/fsutil/metadata.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "reviewer_spec_auditor",
+          "title": "Specification auditor",
+          "mandate": "Review the integrated package against PRD.md, architecture_design.md, directory_tree.txt, and the documented API usage guide; report missing exports, incorrect signatures, packaging omissions, dependency declarations, or end-to-end deviations without editing.",
+          "role": "spec_auditor",
+          "slot_id": "reviewer",
+          "focus_paths": [
+            "src/fsutil/__init__.py",
+            "pyproject.toml",
+            "MANIFEST.in",
+            "src/fsutil",
+            "README.md"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_integrator",
+          "title": "Integrator",
+          "mandate": "Apply the reviewer findings and acceptance failures to finalize public exports, build metadata, manifest/type-marker inclusion, dependency declarations, and integration behavior, then run the full visible test and packaging checks.",
+          "role": "integrator",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "src/fsutil/__init__.py",
+            "pyproject.toml",
+            "MANIFEST.in",
+            "src/fsutil",
+            "README.md"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,656 @@
+{
+  "generator": "llm",
+  "split_policy": "feature",
+  "rationale": "The project is split into four feature modules in dependency order: shared contracts and filesystem utilities, the Git wildmatch parser, the PathSpec matching interface, and GitIgnore behavior plus public packaging. Each non-final milestone exposes executable behavior that can be tested independently, while the final milestone verifies the complete documented import surface and cross-module behavior.",
+  "split": true,
+  "milestones": [
+    {
+      "milestone_id": "contracts_and_utilities",
+      "title": "Shared contracts, metadata, and filesystem utilities",
+      "objective": "Implement the foundational pattern contracts, metadata, public constants, path normalization, tree traversal, match result types, and pattern lookup utilities used by later modules.",
+      "risk_rationale": "This milestone freezes the data shapes, exception contracts, encoding and directory-marker constants, and filesystem utility behavior that all later matching layers import. Its gate can directly exercise normalization, traversal, lookup, and result construction without requiring the wildmatch or GitIgnore implementations.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "gate_then_repair",
+      "depends_on": [],
+      "focus_paths": [
+        "pathspec/_meta.py",
+        "pathspec/pattern.py",
+        "pathspec/util.py",
+        "pathspec/patterns/__init__.py",
+        "pyproject.toml"
+      ],
+      "acceptance": {
+        "criteria": [
+          "The package metadata exposes version 0.12.2.dev1 through __version__.",
+          "Pattern and RegexPattern contracts can represent compiled path patterns and expose the matching interface required by PathSpec.",
+          "normalize_file() produces stable slash-normalized paths for strings and path-like inputs.",
+          "iter_tree_entries() and iter_tree_files() traverse a temporary directory tree and honor the documented follow_links and error-handler behavior.",
+          "lookup_pattern() resolves a registered pattern factory and rejects unknown factories with the documented error behavior.",
+          "CheckResult and the utility matching helpers provide the documented result shape and callable interfaces."
+        ],
+        "corner_cases": [
+          "Empty and root-relative paths normalize without producing invalid duplicate separators.",
+          "Windows-style separators are handled consistently when explicitly supplied.",
+          "Empty directories yield no file entries.",
+          "Unreadable or missing tree paths invoke on_error when supplied rather than silently masking the failure.",
+          "Unknown pattern names and invalid factory inputs fail deterministically."
+        ],
+        "checks": [
+          {
+            "type": "export",
+            "module": "pathspec._meta",
+            "symbol": "__version__",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "pathspec.pattern",
+            "symbol": "Pattern",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "pathspec.pattern",
+            "symbol": "RegexPattern",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "pathspec.util",
+            "symbol": "CheckResult",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "pathspec.util",
+            "symbol": "normalize_file",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "pathspec.util",
+            "symbol": "iter_tree_entries",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "pathspec.util",
+            "symbol": "iter_tree_files",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "pathspec.util",
+            "symbol": "lookup_pattern",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "pathspec.util",
+            "symbol": "check_match_file",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "pathspec.util",
+            "symbol": "match_file",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "pathspec.patterns.gitwildmatch",
+            "symbol": "_BYTES_ENCODING",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "pathspec.patterns.gitwildmatch",
+            "symbol": "_DIR_MARK",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Create executable tests from the design documents for metadata, pattern contracts, path normalization, tree traversal, lookup_pattern, CheckResult, and utility matching helpers. Do not modify source files.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "pathspec/_meta.py",
+            "pathspec/pattern.py",
+            "pathspec/util.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_contract_author",
+          "title": "Contract author",
+          "mandate": "Implement the shared Pattern and RegexPattern contracts, metadata, required constants, utility result types, normalization and traversal helpers, pattern lookup, and packaging metadata needed for later modules.",
+          "role": "contract_author",
+          "slot_id": "author",
+          "focus_paths": [
+            "pathspec/_meta.py",
+            "pathspec/pattern.py",
+            "pathspec/util.py",
+            "pathspec/patterns/__init__.py",
+            "pyproject.toml"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Read the acceptance-gate failures and repair only the named foundational contract or utility defects, preserving the documented signatures and exported symbol names.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "pathspec/_meta.py",
+            "pathspec/pattern.py",
+            "pathspec/util.py",
+            "pathspec/patterns/__init__.py",
+            "pyproject.toml"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "git_wildmatch_engine",
+      "title": "Git wildmatch pattern engine",
+      "objective": "Implement GitWildMatchPattern and GitWildMatchPatternError, including pattern parsing, regular-expression compilation, wildcards, recursive wildcards, negation, comments, directory markers, escaping, and match semantics.",
+      "risk_rationale": "This milestone owns the algorithmic interpretation of Git-style patterns. Its gate can compile and apply patterns directly to representative paths, catching wildcard, anchoring, escaping, negation, and directory-marker errors before any higher-level PathSpec or GitIgnore logic depends on them.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "gate_then_repair",
+      "depends_on": [
+        "contracts_and_utilities"
+      ],
+      "focus_paths": [
+        "pathspec/patterns/gitwildmatch.py",
+        "pathspec/patterns/__init__.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "GitWildMatchPattern.from_line() parses supported Git-style pattern lines and returns either a compiled pattern or the documented ignored-line result.",
+          "Literal patterns, single-component wildcards, recursive wildcards, anchored patterns, and directory-marked patterns match the documented paths.",
+          "Negated patterns expose the correct include/exclude state while preserving the compiled matching expression.",
+          "Comments, blank lines, escaped comment and negation characters, and escaped wildcard characters are handled according to Git-style syntax.",
+          "Malformed patterns raise GitWildMatchPatternError with deterministic behavior.",
+          "The compiled pattern inherits the RegexPattern contract and can be used by generic utility matching helpers."
+        ],
+        "corner_cases": [
+          "Blank lines and comment-only lines do not create matching patterns.",
+          "A leading escaped exclamation mark is treated literally rather than as negation.",
+          "Patterns with and without a slash have different anchoring and basename semantics.",
+          "Trailing directory markers match directories and the relevant descendants without incorrectly matching unrelated files.",
+          "Double-star patterns match zero or more directory components, including the root-level case.",
+          "Paths containing spaces, repeated separators, and literal wildcard characters are handled without regex leakage."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "pathspec.patterns.gitwildmatch",
+            "symbol": "GitWildMatchPattern",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "pathspec.patterns.gitwildmatch",
+            "symbol": "GitWildMatchPatternError",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "pathspec.patterns.gitwildmatch",
+            "symbol": "_BYTES_ENCODING",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "pathspec.patterns.gitwildmatch",
+            "symbol": "_DIR_MARK",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "pathspec.patterns.gitwildmatch",
+            "symbol": "GitWildMatchPattern",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write executable behavior tests for Git wildmatch parsing and matching, covering literals, *, ?, **, anchoring, negation, comments, escaping, directory markers, malformed patterns, and the required constants.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "pathspec/patterns/gitwildmatch.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement GitWildMatchPattern and GitWildMatchPatternError from the design documents, using the frozen Pattern and RegexPattern contracts and exact exported constants.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "pathspec/patterns/gitwildmatch.py",
+            "pathspec/patterns/__init__.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Fix only the wildmatch defects named by the acceptance gate, especially mismatched regex semantics, escaping, directory handling, or negation state.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "pathspec/patterns/gitwildmatch.py",
+            "pathspec/patterns/__init__.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "pathspec_matching_api",
+      "title": "PathSpec matching and tree interfaces",
+      "objective": "Implement the PathSpec class and its construction, single-file, batch, entry, and tree matching APIs on top of the frozen pattern engine and utilities.",
+      "risk_rationale": "This milestone owns the reusable public matching interface and its interaction with compiled patterns and filesystem traversal. Its gate can instantiate PathSpec with test patterns and verify all documented methods independently, exposing iterator, normalization, negation, and tree traversal defects before GitIgnore-specific priority logic is added.",
+      "gate_level": "implementation",
+      "split_reason": "feature_module",
+      "template_id": "gate_then_repair",
+      "depends_on": [
+        "contracts_and_utilities",
+        "git_wildmatch_engine"
+      ],
+      "focus_paths": [
+        "pathspec/pathspec.py"
+      ],
+      "acceptance": {
+        "criteria": [
+          "PathSpec can be constructed from an iterable of compiled Pattern objects.",
+          "PathSpec.from_lines() accepts the registered Git wildmatch factory and callable factories and compiles the supplied lines.",
+          "check_file(), check_files(), and match_file() return the documented result types and matching decisions.",
+          "match_files() preserves input path values, supports optional negation of the result, and works with generators.",
+          "match_tree_files(), match_tree(), match_entries(), and match_tree_entries() integrate with utility traversal and honor error and symlink options.",
+          "PathSpec equality compares equivalent pattern collections according to the documented behavior.",
+          "The implementation supports empty pattern collections and multiple matching patterns without losing the final match decision."
+        ],
+        "corner_cases": [
+          "Empty pattern collections never match unless negate is requested.",
+          "Generator inputs are consumed lazily and exactly once by batch methods.",
+          "Path-like objects and explicit separator collections are normalized consistently.",
+          "A tree containing nested directories, hidden files, symlinks, and empty directories yields only the documented entries or files.",
+          "The match result is stable when several patterns match the same path.",
+          "The match_tree alias behaves identically to match_tree_files."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "pathspec.pathspec",
+            "symbol": "PathSpec",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Create executable tests for PathSpec construction, from_lines, check and match methods, tree traversal methods, aliases, equality, iterator behavior, separators, and negate handling using the frozen wildmatch engine.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "pathspec/pathspec.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement the complete PathSpec API from the architecture design, building only on the frozen utility and GitWildMatch contracts and preserving documented signatures and aliases.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "pathspec/pathspec.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "repairer_gate_repairer",
+          "title": "Gate repairer",
+          "mandate": "Repair only acceptance-gate failures in PathSpec behavior, especially iterator laziness, result typing, tree integration, normalization, pattern precedence, or alias wiring.",
+          "role": "gate_repairer",
+          "slot_id": "repairer",
+          "focus_paths": [
+            "pathspec/pathspec.py"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 14,
+          "timeout_seconds": 1500.0
+        }
+      ]
+    },
+    {
+      "milestone_id": "gitignore_public_integration",
+      "title": "GitIgnore semantics and complete public package integration",
+      "objective": "Implement GitIgnoreSpec with Git priority and directory semantics, wire all documented exports through pathspec.__init__, expose utility and wildmatch symbols at their required paths, finalize installable packaging, and verify end-to-end examples.",
+      "risk_rationale": "This final milestone owns the outward-facing contract and the semantics that combine pattern parsing, PathSpec matching, and GitIgnore precedence. Its integration gate can import every documented symbol, install or import the package in a clean environment, and run end-to-end ignore examples, making it the correct place to catch cross-module wiring and full public-contract defects.",
+      "gate_level": "integration",
+      "split_reason": "feature_module",
+      "template_id": "parallel_audit",
+      "depends_on": [
+        "contracts_and_utilities",
+        "git_wildmatch_engine",
+        "pathspec_matching_api"
+      ],
+      "focus_paths": [
+        "pathspec/gitignore.py",
+        "pathspec/__init__.py",
+        "pathspec/patterns/__init__.py",
+        "pyproject.toml",
+        "README.rst"
+      ],
+      "acceptance": {
+        "criteria": [
+          "GitIgnoreSpec inherits from PathSpec and provides Git-compatible pattern priority, negation, directory matching, and descendant behavior.",
+          "GitIgnoreSpec.from_lines() or the documented construction path accepts standard .gitignore examples and produces expected matches.",
+          "Later matching rules override earlier rules, including re-inclusion with negated patterns where Git permits it.",
+          "The package can be installed or imported from a clean environment using pyproject.toml.",
+          "pathspec.__init__ exposes PathSpec, GitIgnoreSpec, __version__, and the documented utility and wildmatch symbols at their required import paths.",
+          "The documented example workflows for compiling lines, matching batches, and applying GitIgnoreSpec execute successfully.",
+          "The visible test suite passes and no duplicate or undeclared package surface interferes with imports."
+        ],
+        "corner_cases": [
+          "A negated child cannot re-include a path whose parent directory remains excluded under Git semantics.",
+          "Directory-only rules affect descendants but do not incorrectly match similarly named files.",
+          "Root-anchored, slashless, and nested ignore rules retain their distinct scopes.",
+          "Comments, blank lines, escaped syntax, and repeated contradictory rules preserve Git-compatible precedence.",
+          "Public imports work both from pathspec and from the documented private modules.",
+          "Missing optional files, empty rule sets, and nonexistent traversal roots fail or return according to the documented APIs."
+        ],
+        "checks": [
+          {
+            "type": "callable_or_class",
+            "module": "pathspec.gitignore",
+            "symbol": "GitIgnoreSpec",
+            "required_levels": [
+              "implementation",
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "pathspec",
+            "symbol": "PathSpec",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "pathspec",
+            "symbol": "GitIgnoreSpec",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "pathspec",
+            "symbol": "__version__",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "pathspec",
+            "symbol": "normalize_file",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "pathspec",
+            "symbol": "iter_tree_entries",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "pathspec",
+            "symbol": "iter_tree_files",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "pathspec",
+            "symbol": "match_file",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "pathspec",
+            "symbol": "CheckResult",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "pathspec",
+            "symbol": "lookup_pattern",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "pathspec",
+            "symbol": "GitWildMatchPattern",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "callable_or_class",
+            "module": "pathspec",
+            "symbol": "GitWildMatchPatternError",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "pathspec",
+            "symbol": "_BYTES_ENCODING",
+            "required_levels": [
+              "integration"
+            ]
+          },
+          {
+            "type": "export",
+            "module": "pathspec",
+            "symbol": "_DIR_MARK",
+            "required_levels": [
+              "integration"
+            ]
+          }
+        ]
+      },
+      "agents": [
+        {
+          "role_id": "test_author_test_author",
+          "title": "Specification test author",
+          "mandate": "Write the final executable suite for GitIgnore precedence, directory semantics, negation, public imports, package installation metadata, and end-to-end examples. Include full documented API smoke tests and representative .gitignore cases.",
+          "role": "test_author",
+          "slot_id": "test_author",
+          "focus_paths": [
+            "pathspec/gitignore.py",
+            "pathspec/__init__.py",
+            "pyproject.toml"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 16,
+          "timeout_seconds": 1500.0
+        },
+        {
+          "role_id": "author_implementer",
+          "title": "Implementer",
+          "mandate": "Implement GitIgnoreSpec and complete all documented package exports and packaging metadata, then validate the documented programmatic examples against the frozen lower-level modules.",
+          "role": "implementer",
+          "slot_id": "author",
+          "focus_paths": [
+            "pathspec/gitignore.py",
+            "pathspec/__init__.py",
+            "pathspec/patterns/__init__.py",
+            "pyproject.toml",
+            "README.rst"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        },
+        {
+          "role_id": "spec_review_spec_auditor",
+          "title": "Specification auditor",
+          "mandate": "Audit the completed implementation against PRD.md and architecture_design.md, concentrating on GitIgnore behavior, exact import paths, signatures, constants, version metadata, packaging, and documented examples. Report every deviation without editing.",
+          "role": "spec_auditor",
+          "slot_id": "spec_review",
+          "focus_paths": [
+            "pathspec/gitignore.py",
+            "pathspec/__init__.py",
+            "pathspec/patterns/gitwildmatch.py",
+            "pathspec/util.py",
+            "pyproject.toml",
+            "README.rst"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "contract_review_contract_critic",
+          "title": "Contract critic",
+          "mandate": "Review the final integration against all contracts frozen by earlier milestones. Check that GitIgnoreSpec and public re-exports preserve PathSpec, Pattern, utility, wildmatch, constant, exception, and metadata contracts. Report violations without editing.",
+          "role": "contract_critic",
+          "slot_id": "contract_review",
+          "focus_paths": [
+            "pathspec/gitignore.py",
+            "pathspec/__init__.py",
+            "pathspec/pathspec.py",
+            "pathspec/pattern.py",
+            "pathspec/patterns/gitwildmatch.py",
+            "pathspec/util.py"
+          ],
+          "max_tokens": 6144,
+          "max_steps": 8,
+          "timeout_seconds": 900.0
+        },
+        {
+          "role_id": "fixer_implementer",
+          "title": "Implementer",
+          "mandate": "Apply the specification and contract audit findings, prioritizing exact documented import paths, GitIgnore precedence and directory behavior, packaging correctness, and preservation of earlier frozen interfaces. Run the complete visible suite after repairs.",
+          "role": "implementer",
+          "slot_id": "fixer",
+          "focus_paths": [
+            "pathspec/gitignore.py",
+            "pathspec/__init__.py",
+            "pathspec/patterns/__init__.py",
+            "pyproject.toml",
+            "README.rst"
+          ],
+          "max_tokens": 8192,
+          "max_steps": 12,
+          "timeout_seconds": 1200.0
+        }
+      ]
+    }
+  ]
+}

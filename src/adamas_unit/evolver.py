@@ -128,6 +128,10 @@ the suites collect); then the pass ratio of the final code on a set of hidden te
 records), where a difference must exceed the noise between repeated rounds. The records also carry process figures
 (the frozen gate tests' pass count, units whose gate passed, waste); they do not decide.
 
+Each unit's record also carries "missing_documented_names_at_end": how many of the names the design documents list
+(for the modules built so far) did not import when the unit ended (null when not measured). Nothing is fixed at a unit
+end; only before the final submission does one bounded fix run. It is a count only; it does not decide.
+
 You see only numbers from the ledger: no code, no tests. Propose the budget table for the next round. Constraints
 (checked mechanically; a table that breaks one is returned to you once with the problems):
 - every unit appears, with "tokens", "seconds", "compressions" (shares of B) and "repairs" (an integer 0..3);
@@ -171,6 +175,10 @@ def round_record(run_dir: Path, diagnostics: dict[str, Any], hidden_ratio: float
             "unused_tokens": round((use.get("unused") or {}).get("tokens", 0)),
             "used_seconds": round((use.get("used") or {}).get("seconds", 0), 1),
             "repair_limit": u["allocation"].get("repairs"), "repairs_used": len(u["repairs"]),
+            # unit-end closing import check (recorded only, patch 2026-11-09): how many documented names were missing
+            # when the unit ended; the count only, never the names (None: the round ran without the check)
+            "missing_documented_names_at_end": (len((u["importcheck"].get("before") or {}).get("names_missing") or [])
+                                                if isinstance(u.get("importcheck"), dict) else None),
             "gate_passed": u["passed"], "gates": [{k: g[k] for k in ("after", "new", "inherited", "regression")} for g in u["gates"]],
             "sessions": [{"role": s.get("role"), "exit": s.get("exit_status") or s.get("skipped"),
                           "tokens": s.get("used_tokens"),

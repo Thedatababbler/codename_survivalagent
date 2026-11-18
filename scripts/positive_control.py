@@ -728,6 +728,40 @@ def main() -> int:
         checks["import fix: the fix session's commands are captured for the breach scan"] = (
             sb_ic["critical"] == 0 and any("importfix" in str(e.get("capture", "")) for e in json.loads(
                 (ru.run_dir / "sandbox_manifest.json").read_text())["entries"]))
+        # the evolver reads, per unit, the count of documented names missing at the unit's end (never the names)
+        er_u, er_a = round_record(ru.run_dir, {}), round_record(ra.run_dir, {})
+        want = [len(r["before"]["names_missing"] or []) for r in icu.records if r["where"] != "final"]
+        # a copy of that round whose first unit ended with two documented names missing
+        rm = base / "rounds" / "ic_missing" / "toyq"
+        shutil.copytree(ru.run_dir, rm, ignore=shutil.ignore_patterns("final*", "submit", "gate*", "*.spec_tests"))
+        uj = sorted((rm / "units").glob("*/unit.json"))[0]
+        uu = json.loads(uj.read_text())
+        uu["importcheck"]["before"]["names_missing"] = ["toyq:mul_secret", "toyq.sub:div_secret"]
+        uj.write_text(json.dumps(uu))
+        er_m = round_record(rm, {})
+        blob_m = json.dumps(er_m)
+        checks["evolver: per unit the count of documented names missing at the unit's end, no names (None without the check)"] = (
+            [u["missing_documented_names_at_end"] for u in er_u["units"]] == want
+            and er_m["units"][0]["missing_documented_names_at_end"] == 2
+            and "mul_secret" not in blob_m and "div_secret" not in blob_m
+            and all(u["missing_documented_names_at_end"] is None for u in er_a["units"])
+            and "missing_documented_names_at_end" in EVOLVER_SYSTEM)
+        # E1 driver helpers (stop conditions, 2026-11-11): a round's tokens = ledger + side accounts + fix; a reverted fix
+        import importlib.util as _ilu
+        _spec = _ilu.spec_from_file_location("e1_driver", ROOT / "scripts" / "e1.py")
+        E1 = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(E1)
+        rev = base / "rounds" / "rev" / "toyq"
+        rev.mkdir(parents=True)
+        rj = json.loads((ru.run_dir / "round.json").read_text())
+        rj["importcheck"]["final"]["fixes"] = [{**rj["importcheck"]["final"]["fixes"][0], "kept": False}]
+        (rev / "round.json").write_text(json.dumps(rj))
+        E1.rdir = lambda t, r: {"u": ru.run_dir, "a": ra.run_dir, "rev": rev}[r]
+        side_t = sum(v["tokens"] for v in recu["ledger"]["side"].values())
+        checks["E1 driver: round tokens = ledger + side + fix; a reverted final fix is seen; stop bar 1.2 x 1.7M"] = (
+            E1.round_tokens("toyq", "u") == recu["ledger"]["used"]["tokens"] + side_t + 2000
+            and E1.fix_reverted("toyq", "rev") and not E1.fix_reverted("toyq", "u") and not E1.fix_reverted("toyq", "a")
+            and E1.OVERRUN * E1.ROUND_TOKENS_EST == 2_040_000)
 
         # a changed frozen suite stops a round
         bad = base / "suites" / "tampered"

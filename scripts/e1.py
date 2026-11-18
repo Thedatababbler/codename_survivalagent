@@ -11,8 +11,17 @@ proposes a table (shares, repair limits, approval parameters). The table is stor
 while under trial) and run in 2 rounds side by side; ``evolver.decide`` (submittable, then the feedback-half ratio
 against the incumbent's mean + eps) accepts, rejects or asks a 3rd round. Accepted: it becomes current and the
 incumbent, and eps is recomputed from its rounds. At most ``--iterations`` iterations, and E1 stops after 2
-rejections in a row. A void round is run again once. Recorded only, never deciding: frozen figures, gated units,
-waste, "direction" (not shown to the evolver).
+rejections in a row. Recorded only, never deciding: frozen figures, gated units, waste, "direction" (not shown to the
+evolver).
+
+Stop conditions (user decisions 2026-11-11): the driver stops and waits for the user (``e1_state.json`` "stopped";
+a later start refuses until ``--resume``) on
+  - a void round (nothing is run again);
+  - a round whose closing import fix was reverted (the round is still judged as it is first);
+  - an iteration whose rounds used more than 1.2 x 1.7M tokens per round (ledger + side accounts + import fix);
+  - an accepted candidate: it becomes ``accept_pending_confirmation`` and is NOT made current; the paired 3 + 3
+    confirmation with pi_0 is a separate run the user approves.
+Round names carry the out directory's name (``<out>-i<i>-v<v>-r<k>``).
 
 ``--import-first``: iteration 1 is an iteration already run (its rounds exist); it is judged again by the rule here
 (only the feedback ratios are computed, nothing is run) and marked as proposed with the old prompt.
@@ -40,6 +49,8 @@ from adamas_unit.task import load_task  # noqa: E402
 from orchestra.sandbox import breach  # noqa: E402
 from orchestra.sandbox.guard import require_sandbox  # noqa: E402
 
+ROUND_TOKENS_EST = 1_700_000
+OVERRUN = 1.2
 OLD_PROMPT = "proposed with the old evolver prompt (third priority in the scoring text, real unit names)"
 
 
@@ -67,6 +78,21 @@ def run_rounds(task: str, sset: str, tokens: int, version: int, names: list[str]
                                       cwd=ROOT, start_new_session=True))
     for p in procs:
         p.wait()
+
+
+def round_tokens(task: str, rnd: str) -> int:
+    """All tokens of one round: the round ledger, its side accounts (planner, ...) and the import fix's own ledger."""
+    rec = json.loads((rdir(task, rnd) / "round.json").read_text())
+    led = rec.get("ledger") or {}
+    side = sum(int((v or {}).get("tokens", 0)) for v in (led.get("side") or {}).values())
+    return int((led.get("used") or {}).get("tokens", 0)) + side + int((rec.get("importcheck") or {}).get("fix_tokens", 0))
+
+
+def fix_reverted(task: str, rnd: str) -> bool:
+    """The closing import check's fix before the final submission ran and was reverted."""
+    rec = json.loads((rdir(task, rnd) / "round.json").read_text())
+    final = (rec.get("importcheck") or {}).get("final") or {}
+    return any(not f.get("kept") for f in final.get("fixes") or [])
 
 
 def stats(task: str, rnd: str, last_unit: str) -> dict:
@@ -113,6 +139,7 @@ def main() -> int:
     ap.add_argument("--import-first", default="", help="an earlier iteration file to take as iteration 1")
     ap.add_argument("--iterations", type=int, default=5)
     ap.add_argument("--judge-only", action="store_true", help="set up the state (and judge an imported iteration); run nothing")
+    ap.add_argument("--resume", action="store_true", help="the user has seen why E1 stopped: clear the stop and go on")
     a = ap.parse_args()
     require_sandbox("E1")
     task = load_task(a.task)
@@ -146,6 +173,11 @@ def main() -> int:
             (out / "iter_01.json").write_text(json.dumps(it, indent=1, default=str))
             st["iterations"].append({"iteration": 1, "version": it.get("version"), "decision": d,
                                      "direction_ok": it["direction"]["ok"], "imported": True})
+    if st.get("stopped"):
+        if not a.resume:
+            print(json.dumps({"refused": "E1 stopped and waits for the user", "stopped": st["stopped"]}, indent=1))
+            return 2
+        st.setdefault("stops_cleared", []).append({**st.pop("stopped"), "cleared": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
     stf.write_text(json.dumps(st, indent=1))
     if st["incumbent"]["version"]:
         state.set_current(st["incumbent"]["version"])
@@ -159,7 +191,8 @@ def main() -> int:
         d = [x["decision"] for x in st["iterations"]]
         return len(d) >= 2 and d[-1] != "accept" and d[-2] != "accept"
 
-    while len(st["iterations"]) < a.iterations and not two_rejections():
+    prefix = Path(a.out).name
+    while len(st["iterations"]) < a.iterations and not two_rejections() and not st.get("stopped"):
         i = len(st["iterations"]) + 1
         records = [round_record(rdir(a.task, r), diagnose(rdir(a.task, r)), feedback_ratio(a.task, r, rdir(a.task, r)))
                    for r in st["rounds"] if usable(a.task, r)]
@@ -183,44 +216,64 @@ def main() -> int:
                 state.save_rules(state.rules() + [{"text": r, "status": "trial", "source": f"e1v2 iteration {i}"} for r in prop["rules"]])
             inc_runs = [stats(a.task, r, unit_ids[-1]) for r in st["incumbent"]["rounds"]]
             names: list[str] = []
+            stops: list[dict] = []
             n = 0
 
             def trial(want: int) -> None:
-                """``want`` usable rounds more; a void one is run again once."""
+                """``want`` rounds more; a void round is not run again (it stops E1)."""
                 nonlocal n
-                batch = [f"e1v2-i{i}-v{v}-r{n + j + 1}" for j in range(want)]
+                batch = [f"{prefix}-i{i}-v{v}-r{n + j + 1}" for j in range(want)]
                 n += want
                 run_rounds(a.task, a.set, a.tokens, v, batch)
                 for b in batch:
-                    if not usable(a.task, b):
-                        it["rounds"].append({"round": b, "usable": False})
-                        b = f"e1v2-i{i}-v{v}-r{n + 1}"
-                        n += 1
-                        run_rounds(a.task, a.set, a.tokens, v, [b])
-                    it["rounds"].append({"round": b, "usable": usable(a.task, b)})
-                    if usable(a.task, b):
+                    ok = usable(a.task, b)
+                    r = {"round": b, "usable": ok}
+                    if not ok:
+                        stops.append({"why": "void round", "round": b})
+                    else:
+                        r["tokens"] = round_tokens(a.task, b)
+                        r["fix_reverted"] = fix_reverted(a.task, b)
+                        if r["fix_reverted"]:
+                            stops.append({"why": "import fix reverted (judged as it is)", "round": b})
                         names.append(b)
+                    it["rounds"].append(r)
+
+            def overrun() -> bool:
+                used = [r["tokens"] for r in it["rounds"] if r.get("tokens") is not None]
+                if used and sum(used) > OVERRUN * ROUND_TOKENS_EST * len(used):
+                    stops.append({"why": f"usage over {OVERRUN} x {ROUND_TOKENS_EST} per round", "tokens": sum(used),
+                                  "rounds": len(used)})
+                    return True
+                return False
 
             trial(2)
-            d = judge(it, a.task, names, inc_runs, st["eps"], unit_ids)
-            if d == "more":
+            d = judge(it, a.task, names, inc_runs, st["eps"], unit_ids) if names else "reject"
+            if d == "more" and not stops and not overrun():
                 trial(max(1, 3 - len(names)))
                 d = judge(it, a.task, names, inc_runs, st["eps"], unit_ids)
-                if d == "more":
-                    it["decision"] = d = "reject"
+            if d == "more":
+                d = "reject" if not stops else "undecided (stopped)"
+            overrun()
+            it["iteration_tokens"] = sum(r.get("tokens") or 0 for r in it["rounds"])
             st["rounds"] += names
             if d == "accept":
-                state.set_current(v)
-                hid = [stats(a.task, r, unit_ids[-1])["hidden"] for r in names]
-                st["incumbent"] = {"name": f"table v{v}", "version": v, "rounds": list(names), "hidden": hid}
-                st["eps"] = eps_of(hid)
+                d = "accept_pending_confirmation"       # never made current here: paired 3 + 3 with pi_0 first
+                stops.append({"why": "accepted candidate waits for the paired 3 + 3 confirmation", "version": v})
+            it["decision"] = d
+            if stops:
+                it["stops"] = stops
+                st["stopped"] = {"iteration": i, "version": v, "reasons": stops,
+                                 "time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
         (out / f"iter_{i:02d}.json").write_text(json.dumps(it, indent=1, default=str))
         st["iterations"].append({"iteration": i, "version": it.get("version"), "decision": it["decision"],
                                  "direction_ok": (it.get("direction") or {}).get("ok")})
         stf.write_text(json.dumps(st, indent=1))
         print(json.dumps({"iteration": i, "decision": it["decision"], "version": it.get("version"),
                           "hidden": it.get("candidate_hidden"), "why": it.get("why")}), flush=True)
-    print(json.dumps({"stopped": "two rejections in a row" if two_rejections() else "iterations", "incumbent": st["incumbent"]["name"]}))
+    why = (st["stopped"]["reasons"] if st.get("stopped") else
+           "two rejections in a row" if two_rejections() else "iterations")
+    stf.write_text(json.dumps(st, indent=1))
+    print(json.dumps({"stopped": why, "incumbent": st["incumbent"]["name"]}))
     return 0
 
 

@@ -40,7 +40,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import _guard as G  # noqa: E402
 
-SEALED = Path("/root/.adamas_unit_sealed")
+# ADAMAS_UNIT_SEALED (2026-11-14, migration): the default path is unusable on the new server (a broken overlay entry);
+# any other path must be equally out of the agents' reach (under /root, which the agent policy denies)
+SEALED = Path(os.environ.get("ADAMAS_UNIT_SEALED") or "/root/.adamas_unit_sealed")
 SEED = 20261108
 _LINE = re.compile(r"^(PASSED|FAILED|ERROR|SKIPPED|XFAIL|XPASS) (\S+)")
 

@@ -584,6 +584,14 @@ def main() -> int:
                          ("require_selftest", "accepted"), ("require_review", "held"),
                          ("require_selftest", "accepted"), ("require_review", "accepted")])
 
+        exl = Scripted([write("toyq/__init__.py", MUL), "stage_done", "stage_done"])
+        rl, recl, _ = run("last-declaration", [exl], with_ic=False)
+        ran_l = breach._trajectory_commands(rl.run_dir / "executor" / "trajectory.json")
+        got_l = len(breach._captured(rl.run_dir / "executor" / "commands.jsonl"))
+        scan_l = breach.scan_run(rl.run_dir, run_id="pc-last-declaration", write=False)
+        checks["2 capture: the declaration that ends the session is captured too (every command of the trajectory is in the capture)"] = (
+            recl["exit_status"] == "Submitted" and ran_l == got_l == 3 and scan_l["critical"] == 0)
+
         # ---- sealed scoring is isolated (user decision 2026-11-19): an ordinary user, file rules on, attempts recorded
         import os as _os
         import stat as _stat

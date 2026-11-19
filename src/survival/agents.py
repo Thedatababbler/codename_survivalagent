@@ -248,7 +248,13 @@ class ManagedAgent(DefaultAgent):
                     counted = counted or code_changed or not mem_changed
                     self.after_command(code_changed)
                     m, cmd = m2, last
-            out = self.handle_management(m.group(1), m.group(2)) if m else None
+            try:
+                out = self.handle_management(m.group(1), m.group(2)) if m else None
+            except BaseException:
+                # the declaration that ends the session (the last `stage_done`) raises: it is a command of the
+                # trajectory all the same and must be in the capture (probe-1 deepdiff, 2026-11-19: 49 ran, 48 captured)
+                self._capture_management(cmd, {"output": "(this command ended the session)"})
+                raise
             if out is not None and pre and not out.get("replaced"):
                 out["output"] = (pre + "\n" + str(out.get("output") or "")).strip()
             if out is None and self.no_submit and SUBMIT_MARKER in cmd:

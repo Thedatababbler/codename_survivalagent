@@ -87,12 +87,14 @@ def main() -> int:
     ap.add_argument("--out-root", default=str(OUT))
     ap.add_argument("--first-stage-only", action="store_true", help="harness test: only the plan's first stage")
     ap.add_argument("--transfer-final", action="store_true", help="the final comparison on a frozen transfer-test task")
+    ap.add_argument("--reviews", type=int, default=None, help="harness test / probe: the review-call limit")
+    ap.add_argument("--subagents", type=int, default=None, help="harness test / probe: the limit of all sub-agent calls")
     ap.add_argument("--compressions", type=int, default=None, help="harness test: the compaction pool")
     a = ap.parse_args()
     out = run_round(task_id=a.task, round_id=a.round, arm=a.arm, tokens=a.tokens, seconds=a.seconds, window=a.window,
                     skills_dir=Path(a.skills), skills_id=a.skills_id, score=not a.no_score, out_root=Path(a.out_root),
                     first_stage_only=a.first_stage_only, transfer_final=a.transfer_final,
-                    **({"compressions": a.compressions} if a.compressions is not None else {}))
+                    **{k: getattr(a, k) for k in ("compressions", "reviews", "subagents") if getattr(a, k) is not None})
     section = out.pop("breach_section")
     print(section)
     print(json.dumps({k: v for k, v in out.items() if k != "digest"}, indent=1, default=str))

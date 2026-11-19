@@ -60,9 +60,11 @@ SCHEMA: dict[str, dict[str, Any]] = {
     "budget-approval": {"actions": (),
                         "params": {"mode": ("approve_within_cap", "judge"), "max_grant_share": "ratio"}},
     # user decision 2026-11-19: asked when the executor declares a stage done (the last declaration is the
-    # submission). Its triggers are not edge-triggered: the first one whose condition holds decides; none: accept.
+    # submission). Its triggers are not edge-triggered: those whose condition holds are gone through in order; the first that
+    # holds the declaration ends it; `accept`, or the end of the list, accepts.
     "completion-check": {"actions": ("accept", "prompt_continue", "require_review", "require_selftest"),
-                         "params": {"idle_prompts_to_accept": "count", "max_prompts": "count", "max_refusals": "count"}},
+                         "params": {"idle_prompts_to_accept": "count", "max_prompts": "count", "max_refusals": "count",
+                                    "change_after_review": "flag"}},
 }
 ON_DECLARATION = ("completion-check",)   # skills whose triggers are evaluated at a declaration, not before every call
 SKILL_NAMES = tuple(SCHEMA)

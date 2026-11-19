@@ -454,61 +454,86 @@ class ExecutorAgent(ManagedAgent):
     def _completion_check(self, k: int) -> str | None:
         """The completion-check skill decides before a declaration is looked at (user decision 2026-11-19). None:
         accepted, the declaration goes on as before. Otherwise the text the executor gets instead; the stage stays
-        open. Nothing here can hold a stage for ever: prompts stop after ``idle_prompts_to_accept`` prompts in a row
-        that changed no code (or ``max_prompts``), a requirement is dropped after ``max_refusals`` refusals."""
+        open. The triggers whose condition holds are gone through in order: one that is satisfied passes on to the
+        next, one that is not holds the declaration. Nothing here can hold a stage for ever: prompts stop after
+        ``idle_prompts_to_accept`` prompts in a row that changed no code (or ``max_prompts``), a requirement is
+        dropped after ``max_refusals`` refusals."""
         state = self.state()
-        act, when = self.planner.completion(state)
-        if act == "accept":
+        todo = self.planner.completion(state)
+        if not todo or todo[0][0] == "accept":
             return None
         sk = self.planner.skills
-        cc = self.completion.setdefault(k, {"prompts": 0, "idle": 0, "hash": None, "refusals": 0, "accepted_by": ""})
+        cc = self.completion.setdefault(k, {"prompts": 0, "idle": 0, "hash": None, "refusals": {}, "accepted_by": {}})
         par = lambda key, d: int(sk.param("completion-check", key, d))  # noqa: E731
         what = sk["completion-check"].section("What to do")
-        text, why = None, ""
-        if act == "prompt_continue":
-            h = MEM.code_hash(self.ws)
-            if cc["prompts"]:
-                cc["idle"] = cc["idle"] + 1 if h == cc["hash"] else 0
-            cc["hash"] = h
-            if cc["idle"] >= par("idle_prompts_to_accept", 2):
-                why = f"{cc['idle']} prompts in a row changed no code"
-            elif cc["prompts"] >= par("max_prompts", 3):
-                why = f"{cc['prompts']} prompts given"
-            else:
-                cc["prompts"] += 1
-                text = (f"stage_done: not accepted yet (completion check, prompt {cc['prompts']}). {what}\n"
-                        f"Used so far: {int(round(100 * state['stage_tokens']))}% of this stage's tokens, "
-                        f"{int(round(100 * state['round_tokens']))}% of the round's. Declare the stage done again when you are finished.")
-        elif act == "require_review":
-            here = sum(1 for r in self.subagent_records if r.get("kind") == "review" and r.get("stage") == k)
-            if self.arm == "single" or state["reviews"] >= state["reviews_limit"] or state["subagents"] >= state["subagents_limit"]:
-                why = "no review call is available"
-            elif here:
-                why = "a review was made in this stage"
-            elif cc["refusals"] >= par("max_refusals", 2):
-                why = f"refused {cc['refusals']} times"
-            else:
-                cc["refusals"] += 1
-                share = self.planner.quota_share("review", state)
-                text = ("stage_done: not accepted yet (completion check). Have this stage's work reviewed first: "
-                        f"`subagent type=review budget={share:.2f} task=\"...\"`, act on what it finds, then declare the stage done again. {what}")
-        elif act == "require_selftest":
-            self.measure()
-            passing = self.signals["tests_passed"]
-            if passing:
-                why = "own tests pass"
-            elif cc["refusals"] >= par("max_refusals", 2):
-                why = f"refused {cc['refusals']} times"
-            else:
-                cc["refusals"] += 1
-                text = ("stage_done: not accepted yet (completion check). None of your own tests passes at the moment: write "
-                        f"and run tests of this stage's work, then declare the stage done again. {what}")
-        outcome = "held" if text is not None else f"accepted ({why})"
-        cc["accepted_by"] = "" if text is not None else why
-        self.planner.note_completion(act, when, state, outcome=outcome)
-        self.events.append({"event": "completion_check", "call": self.n_calls, "action": act, "outcome": outcome})
-        self.ledger.note("completion_check", stage=k, action=act, outcome=outcome)
-        return text
+
+        def refuse(act: str) -> bool:
+            n = cc["refusals"].get(act, 0)
+            if n >= par("max_refusals", 2):
+                return False
+            cc["refusals"][act] = n + 1
+            return True
+
+        for act, when in todo:
+            if act == "accept":
+                break
+            text, why = None, ""
+            if act == "prompt_continue":
+                h = MEM.code_hash(self.ws)
+                if cc["prompts"]:
+                    cc["idle"] = cc["idle"] + 1 if h == cc["hash"] else 0
+                cc["hash"] = h
+                if cc["idle"] >= par("idle_prompts_to_accept", 2):
+                    why = f"{cc['idle']} prompts in a row changed no code"
+                elif cc["prompts"] >= par("max_prompts", 3):
+                    why = f"{cc['prompts']} prompts given"
+                else:
+                    cc["prompts"] += 1
+                    text = (f"stage_done: not accepted yet (completion check, prompt {cc['prompts']}). {what}\n"
+                            f"Used so far: {int(round(100 * state['stage_tokens']))}% of this stage's tokens, "
+                            f"{int(round(100 * state['round_tokens']))}% of the round's. Declare the stage done again when you are finished.")
+            elif act == "require_selftest":
+                # more of the executor's own tests pass than when this stage was opened (the first stage: at least one)
+                base = int((self.stage_records[-1].get("tests_passed") or 0)) if self.stage_records else 0
+                self.measure()
+                passing = int(self.signals["tests_passed"] or 0)
+                if passing > base:
+                    why = "own tests of this stage pass"
+                elif not refuse(act):
+                    why = f"refused {cc['refusals'][act]} times"
+                else:
+                    text = ("stage_done: not accepted yet (completion check). No test of your own for this stage's work passes "
+                            f"yet ({passing} of your tests pass now, {base} did when the stage began): write and run tests of "
+                            f"this stage's work, then declare the stage done again. {what}")
+            elif act == "require_review":
+                revs = [r for r in self.subagent_records if r.get("kind") == "review" and r.get("stage") == k]
+                if not revs and (self.arm == "single" or state["reviews"] >= state["reviews_limit"]
+                                 or state["subagents"] >= state["subagents_limit"]):
+                    why = "no review call is available"
+                elif not revs:
+                    if refuse(act):
+                        share = self.planner.quota_share("review", state)
+                        text = ("stage_done: not accepted yet (completion check). Have this stage's work reviewed first: "
+                                f"`subagent type=review budget={share:.2f} task=\"...\"`, act on what it finds, then declare "
+                                f"the stage done again. {what}")
+                    else:
+                        why = f"refused {cc['refusals'][act]} times"
+                elif bool(sk.param("completion-check", "change_after_review", False)) and MEM.code_hash(self.ws) == revs[-1].get("code_hash_after"):
+                    if refuse(act + ":change"):
+                        text = ("stage_done: not accepted yet (completion check). The code is unchanged since the review: act on "
+                                f"what the reviewer found (change the code), then declare the stage done again. {what}")
+                    else:
+                        why = f"reviewed; no change after {cc['refusals'][act + ':change']} refusals"
+                else:
+                    why = "a review was made in this stage" + (" and the code changed after it" if sk.param("completion-check", "change_after_review", False) else "")
+            outcome = "held" if text is not None else f"accepted ({why})"
+            cc["accepted_by"][act] = "" if text is not None else why
+            self.planner.note_completion(act, when, state, outcome=outcome)
+            self.events.append({"event": "completion_check", "call": self.n_calls, "action": act, "outcome": outcome})
+            self.ledger.note("completion_check", stage=k, action=act, outcome=outcome)
+            if text is not None:
+                return text
+        return None
 
     def _request_budget(self, args: str) -> str:
         kv = parse_kv(args)
@@ -561,6 +586,7 @@ class ExecutorAgent(ManagedAgent):
             back = self.ledger.release(quota.quota_id)
         self.tracker.observe()                         # the sub-agent's changes are the code's state now
         rec = {**rec, "kind": kind, "quota": quota.tokens, "used": quota.used, "returned": back, "stage": quota.stage,
+               "code_hash_after": MEM.code_hash(self.ws),
                "cut": tokens is not None and quota.tokens < tokens}
         self.subagent_records.append(rec)
         result = str(rec.get("result") or "(the sub-agent returned nothing)")[:6000]

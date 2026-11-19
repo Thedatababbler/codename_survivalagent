@@ -65,11 +65,13 @@ file and compact; force_compaction -> the program compacts now (from the memory 
 use_memory is true, else a summary); suggest_handoff / suggest_review / suggest_repair -> the executor is advised
 to call that sub-agent, with a quota of the given share of what the stage has left. A trigger fires when its
 condition turns true and is armed again when it turns false. completion-check is different: it is asked each time
-the executor declares a stage done (declaring the last stage submits the repository), and the first of its triggers
-whose condition holds decides (none holds: accept). accept -> the declaration goes on; prompt_continue -> the
+the executor declares a stage done (declaring the last stage submits the repository), and its triggers whose condition holds are gone
+through in order: one that is satisfied passes on to the next, the first that is not holds the declaration (accept,
+or the end of the list, accepts). accept -> the declaration goes on; prompt_continue -> the
 declaration is held and the executor is told to keep checking and improving, with its usage so far, until
 idle_prompts_to_accept prompts in a row changed no code or max_prompts were given; require_review -> held until a
-review was made in the stage; require_selftest -> held until at least one of the executor's own tests passes; a
+review was made in the stage (with change_after_review true: and the code changed after it); require_selftest ->
+held until more of the executor's own tests pass than when the stage began; a
 requirement is dropped after max_refusals refusals. budget-approval has no triggers: mode
 approve_within_cap grants what is asked up to max_grant_share of the mechanical cap; mode judge lets a planner
 model decide from the skill's text.

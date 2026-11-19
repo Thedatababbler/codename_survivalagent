@@ -540,17 +540,49 @@ def main() -> int:
         checks["5 completion-check require_review: held until a review was made in the stage, then accepted"] = (
             recr2["exit_status"] == "Submitted" and sum("Have this stage's work reviewed first" in o for o in o2) == 1
             and recr2["counts"]["reviews"] == 1 and recr2["sessions"][0]["calls"] == 5)
+        TEST_MUL = "from toyq import mul\n\ndef test_mul():\n    assert mul(2, 3) == 6\n"
         exs = Scripted([write("toyq/__init__.py", MUL), "stage_done", "stage_done",
-                        write("tests/test_add.py", TEST), "stage_done", "stage_done"])
+                        write("tests/test_add.py", TEST), "stage_done",        # one test passes -> stage 1 accepted
+                        "stage_done",                                           # stage 2: no new passing test -> held
+                        write("tests/test_mul.py", TEST_MUL), "stage_done"])
         rs2, recs2, _ = run("req-selftest", [exs], sk=cc_skills("req-selftest", "stage_progress >= 0.0", "require_selftest", max_refusals=5), with_ic=False)
-        checks["5 completion-check require_selftest: held while none of the executor's own tests passes, accepted once one does"] = (
-            recs2["exit_status"] == "Submitted" and sum("None of your own tests passes" in o for o in observations(exs)) == 2
-            and recs2["sessions"][0]["calls"] == 6)
+        checks["5 completion-check require_selftest: held until more of the executor's own tests pass than when the stage began"] = (
+            recs2["exit_status"] == "Submitted" and sum("No test of your own for this stage's work passes" in o for o in observations(exs)) == 3
+            and recs2["sessions"][0]["calls"] == 8)
         exd = Scripted([write("toyq/__init__.py", MUL), "stage_done", "stage_done", "stage_done", "stage_done"])
         rd2, recd2, _ = run("req-drop", [exd], sk=cc_skills("req-drop", "stage_progress >= 0.0", "require_selftest", max_refusals=1), with_ic=False)
         checks["5 completion-check: a requirement is dropped after max_refusals (a stage is never held for ever)"] = (
-            recd2["exit_status"] == "Submitted" and sum("None of your own tests passes" in o for o in observations(exd)) == 2
+            recd2["exit_status"] == "Submitted" and sum("No test of your own for this stage's work passes" in o for o in observations(exd)) == 2
             and any("refused 1 times" in f["outcome"] for f in recd2["planner"]["fired"]))
+
+        probe_sk = load_skillset(ROOT / "tests" / "v03_probe_skills")
+        DOC = '"""toyq."""\n'
+        exp = Scripted([write("toyq/__init__.py", ADD), write("tests/test_add.py", TEST),
+                        "stage_done",                                                   # tests pass -> review asked
+                        'subagent type=review budget=0.2 task="check stage 1"',
+                        "stage_done",                                                   # reviewed, code unchanged -> held
+                        write("toyq/__init__.py", MUL), "stage_done",                  # changed after the review -> stage 2
+                        "stage_done",                                                   # no new passing test -> held
+                        write("tests/test_mul.py", TEST_MUL), "stage_done",            # -> review asked
+                        'subagent type=review budget=0.2 task="check stage 2"',
+                        "stage_done",                                                   # unchanged -> held
+                        write("toyq/__init__.py", DOC + MUL), "stage_done"])           # -> submitted
+        rp, recp, _ = run("probe", [exp, Scripted([SUBMIT + "; echo add a docstring"]), Scripted([SUBMIT + "; echo add a docstring"])],
+                          sk=probe_sk, with_ic=False)
+        op = observations(exp)
+        outs = [(f["action"], f["outcome"].split(" (")[0]) for f in recp["planner"]["fired"] if f["skill"] == "completion-check"]
+        checks["5 completion-check chain (probe skills): each stage is held for own tests, then a review, then a change after the review, then accepted"] = (
+            recp["exit_status"] == "Submitted" and recp["counts"]["reviews"] == 2 and recp["counts"]["stages_declared"] == 2
+            and sum("No test of your own for this stage's work passes" in o for o in op) == 1
+            and sum("Have this stage's work reviewed first" in o for o in op) == 2
+            and sum("The code is unchanged since the review" in o for o in op) == 2
+            and outs == [("require_selftest", "accepted"), ("require_review", "held"),
+                         ("require_selftest", "accepted"), ("require_review", "held"),
+                         ("require_selftest", "accepted"), ("require_review", "accepted"),
+                         ("require_selftest", "held"),
+                         ("require_selftest", "accepted"), ("require_review", "held"),
+                         ("require_selftest", "accepted"), ("require_review", "held"),
+                         ("require_selftest", "accepted"), ("require_review", "accepted")])
 
         # ---- sealed scoring is isolated (user decision 2026-11-19): an ordinary user, file rules on, attempts recorded
         import os as _os

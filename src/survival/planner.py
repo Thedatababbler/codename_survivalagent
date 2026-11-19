@@ -103,13 +103,11 @@ class Planner:
                                        "stage": self.ledger.current})
         return out
 
-    def completion(self, state: dict[str, Any]) -> tuple[str, str]:
-        """completion-check at a declaration: (action, the condition that decided). The first trigger whose
-        condition holds; none holds: accept."""
-        for t in self.skills["completion-check"].triggers:
-            if evaluate(t.tree, state):
-                return t.action, t.when
-        return "accept", ""
+    def completion(self, state: dict[str, Any]) -> list[tuple[str, str]]:
+        """completion-check at a declaration: (action, condition) of every trigger whose condition holds, in the
+        document's order. The executor's side goes through them one after the other: the first that holds the
+        declaration ends it; ``accept`` (or the end of the list) accepts."""
+        return [(t.action, t.when) for t in self.skills["completion-check"].triggers if evaluate(t.tree, state)]
 
     def note_completion(self, action: str, when: str, state: dict[str, Any], *, outcome: str) -> None:
         self.fired.append({"tick": self.ticks, "skill": "completion-check", "action": action, "when": when, "outcome": outcome,

@@ -112,7 +112,9 @@ class Round:
                  arm: str = "pi0", importcheck: IC.ImportCheck | None = None, skills_id: str = "pi0"):
         if arm not in ARMS:
             raise ValueError(arm)
-        self.task, self.run_dir, self.cfg, self.models, self.skills, self.arm = task, Path(run_dir), cfg, models, skills, arm
+        # absolute: a relative path in a sandbox policy matches nothing (smoke forced-1, 2026-11-18: the agents could
+        # not open their own repository)
+        self.task, self.run_dir, self.cfg, self.models, self.skills, self.arm = task, Path(run_dir).resolve(), cfg, models, skills, arm
         self.ic, self.skills_id = importcheck, skills_id
         if self.run_dir.exists():
             raise FileExistsError(f"{self.run_dir}: a round never reuses a directory")
@@ -166,7 +168,7 @@ class Round:
         instance = f"{task_text}\n\n## The stage this belongs to\n\n{stage.brief()}"
         if kind == "worker":
             instance += f"\n\n## The other agent's memory file ({MEM.MEMORY_FILE})\n\n{MEM.read_memory(self.ws)}"
-        instance += (f"\n\nYour token allowance for this job is limited; in the resource line, `stage tokens` is the "
+        instance += (f"\n\nYour token allowance for this job is limited; in the resource line, `grant tokens` (shown in place of `stage tokens`) is the "
                      "share of your own allowance already used. Finish before it runs out.")
         agent = ManagedAgent(self.models.agent(), env, ledger=self.ledger, name=quota.quota_id, ws=self.ws, token=self.token,
                              quota_id=quota.quota_id, summarizer=self.models.summarize, state_fn=self._sub_state,

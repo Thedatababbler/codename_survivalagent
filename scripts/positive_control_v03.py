@@ -188,6 +188,16 @@ def main() -> int:
             reca["measures"]["submittable"] == 1 and reca["counts"]["stages_declared"] == 2 and reca["counts"]["topups"] == 1
             and reca["exit_status"] == "Submitted" and not (ra.run_dir / "final" / MEM.MEMORY_FILE).exists())
         sb = breach.scan_run(ra.run_dir, run_id="pc3-A", write=False)
+        cap = [json.loads(x) for x in (ra.run_dir / "executor" / "commands.jsonl").read_text().splitlines()]
+        checks["sandbox: management commands are in the command capture (the scanner audits every command)"] = (
+            sum(1 for c in cap if c.get("management")) >= 6 and any(c["command"].startswith("stage_done") for c in cap))
+        import os as _os
+        rel_dir = Path(_os.path.relpath(base / "rounds" / "rel" / "toyq"))
+        rr = Round(task, rel_dir, cfg(), Models(agent=factory([Scripted([write("toyq/__init__.py", ADD), "stage_done", "stage_done",
+                                                                         "stage_done", "stage_done"])])), skills, arm="pi0")
+        rr.run()
+        checks["sandbox: a relative round directory is made absolute; the agent can write its repository"] = (
+            rr.run_dir.is_absolute() and (rr.ws / "toyq" / "__init__.py").is_file())
         checks["A breach scan: every command of every session captured, no CRITICAL"] = (
             sb["critical"] == 0 and sb["commands"] >= 9)
 

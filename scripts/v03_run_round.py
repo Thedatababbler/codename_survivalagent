@@ -10,6 +10,7 @@ Writes outputs/rounds_v03/<round>/<task>/, scans it for breaches, scores the fin
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import sys
 from pathlib import Path
@@ -32,15 +33,20 @@ OUT = ROOT / "outputs" / "rounds_v03"
 
 
 def run_round(*, task_id: str, round_id: str, arm: str, tokens: int, skills_dir: Path = PI0, skills_id: str = "pi0",
-              window: int = 64_000, seconds: float = 14400, score: bool = True, **limits) -> dict:
+              window: int = 64_000, seconds: float = 14400, score: bool = True, out_root: Path = OUT,
+              first_stage_only: bool = False, **limits) -> dict:
     load_env()
     require_sandbox("v0.3 round")
     task = load_task(task_id)
+    ic = import_check(task)
+    if first_stage_only:                 # harness tests only: one stage, no closing import check, never compared
+        task = dataclasses.replace(task, units=task.units[:1])
+        ic, score = None, False
     skills = load_skillset(skills_dir, forbidden=forbidden_names())
     cfg = RoundConfig(limits=Limits(tokens=tokens, seconds=seconds, **limits), context_window=window)
-    run_dir = OUT / round_id / task_id
+    run_dir = Path(out_root) / round_id / task_id
     rnd = Round(task, run_dir, cfg, Models(agent=agent_model, complete=complete, summarize=summarize), skills, arm=arm,
-                importcheck=import_check(task), skills_id=skills_id)
+                importcheck=ic, skills_id=skills_id)
     rec = rnd.run()
     s = breach.scan_run(run_dir, run_id=f"{round_id}-{task_id}")
     ratio = None
@@ -67,9 +73,14 @@ def main() -> int:
     ap.add_argument("--skills", default=str(PI0), help="a directory with the five skills (default: pi_0)")
     ap.add_argument("--skills-id", default="pi0")
     ap.add_argument("--no-score", action="store_true")
+    ap.add_argument("--out-root", default=str(OUT))
+    ap.add_argument("--first-stage-only", action="store_true", help="harness test: only the plan's first stage")
+    ap.add_argument("--compressions", type=int, default=None, help="harness test: the compaction pool")
     a = ap.parse_args()
     out = run_round(task_id=a.task, round_id=a.round, arm=a.arm, tokens=a.tokens, seconds=a.seconds, window=a.window,
-                    skills_dir=Path(a.skills), skills_id=a.skills_id, score=not a.no_score)
+                    skills_dir=Path(a.skills), skills_id=a.skills_id, score=not a.no_score, out_root=Path(a.out_root),
+                    first_stage_only=a.first_stage_only,
+                    **({"compressions": a.compressions} if a.compressions is not None else {}))
     section = out.pop("breach_section")
     print(section)
     print(json.dumps({k: v for k, v in out.items() if k != "digest"}, indent=1, default=str))

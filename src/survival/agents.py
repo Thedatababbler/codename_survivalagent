@@ -19,6 +19,7 @@ environment checks that its session holds the write token before it runs a comma
 
 from __future__ import annotations
 
+import json
 import re
 import shlex
 import time
@@ -149,7 +150,7 @@ class ManagedAgent(DefaultAgent):
     def readout_line(self) -> str:
         st = self.state()
         q = self.ledger.quotas[self.quota_id]
-        return readout(st, self.ledger.current, self.ledger.n_stages, stage_tokens=min(1.0, q.used / q.tokens) if q.tokens else 1.0)
+        return readout(st, self.ledger.current, self.ledger.n_stages, grant_tokens=min(1.0, q.used / q.tokens) if q.tokens else 1.0)
 
     # ------------------------------------------------------------------ the loop
 
@@ -212,6 +213,7 @@ class ManagedAgent(DefaultAgent):
             if out is None and self.no_submit and SUBMIT_MARKER in cmd:
                 out = {"output": self.no_submit, "returncode": 1, "exception_info": ""}
             if out is not None:
+                self._capture_management(cmd, out)
                 if out.get("replaced"):          # the message list was rebuilt (handoff, compaction): no observation
                     self.free_turns += 1
                     return []
@@ -237,6 +239,17 @@ class ManagedAgent(DefaultAgent):
 
     def after_command(self, code_changed: bool) -> None:
         pass
+
+    def _capture_management(self, cmd: str, out: dict[str, Any]) -> None:
+        """A management command never reaches the shell; it is still written to the session's command capture, so
+        that the breach scanner sees every command of the trajectory (and reads these too)."""
+        path = getattr(getattr(self.env, "config", None), "capture", None)
+        if not path:
+            return
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"role": getattr(self.env.config, "role", ""), "command": cmd,
+                                 "output": str(out.get("output") or "")[:4000], "exit_code": 0, "seconds": 0.0,
+                                 "management": True}) + "\n")
 
     # ------------------------------------------------------------------ compaction
 

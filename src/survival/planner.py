@@ -54,18 +54,21 @@ def build_state(ledger: RoundLedger, *, context_share: float, idle_steps: int, m
     return st
 
 
-def readout(state: dict[str, Any], stage_index: int, n_stages: int, *, stage_tokens: float | None = None) -> str:
-    """The one line appended to every tool result (§3.1): the same format for every arm and every session."""
+def readout(state: dict[str, Any], stage_index: int, n_stages: int, *, grant_tokens: float | None = None) -> str:
+    """The one line appended to every tool result (§3.1): the same format for every arm and every session.
+
+    A sub-agent's line carries ``grant tokens`` (the share of its own allowance used) where the executor's carries
+    ``stage tokens`` (user decision 2026-11-18: two names, so the two are never confused)."""
     pct = lambda x: f"{int(round(100 * x))}%"  # noqa: E731
-    st = state["stage_tokens"] if stage_tokens is None else stage_tokens
-    return (f"[resources: stage {stage_index + 1}/{n_stages} | stage tokens {pct(st)} used | "
+    label, st = ("stage", state["stage_tokens"]) if grant_tokens is None else ("grant", grant_tokens)
+    return (f"[resources: stage {stage_index + 1}/{n_stages} | {label} tokens {pct(st)} used | "
             f"round tokens {pct(state['round_tokens'])} used | context {pct(state['context'])} | "
             f"compressions {state['compressions']}/{state['compressions_limit']} | "
             f"repairs {state['repairs']}/{state['repairs_limit']} | "
             f"subagents {state['subagents']}/{state['subagents_limit']}]")
 
 
-READOUT_RE = re.compile(r"^\[resources: stage \d+/\d+ \| stage tokens \d+% used \| round tokens \d+% used \| context \d+% \| "
+READOUT_RE = re.compile(r"^\[resources: stage \d+/\d+ \| (?:stage|grant) tokens \d+% used \| round tokens \d+% used \| context \d+% \| "
                         r"compressions \d+/\d+ \| repairs \d+/\d+ \| subagents \d+/\d+\]$")
 
 

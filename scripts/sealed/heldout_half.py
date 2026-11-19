@@ -119,7 +119,7 @@ def run_functions(task: str, repo_src: Path, keys: list[str], file_timeout: int 
         repo = Path(tmp) / task
         shutil.copytree(repo_src, repo, symlinks=True, ignore=shutil.ignore_patterns(
             "__pycache__", ".pytest_cache", ".git", sub, "_unit_suite__*", "check_tests"))
-        shutil.copytree(G.heldout_dir(task), repo / sub)
+        shutil.copytree(G.heldout_dir(task), repo / sub, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
         (repo / "_heldout_pytest.ini").write_text("[pytest]\n", encoding="utf-8")       # pytest >= 8: no project config
         env = {"PYTHONPATH": os.pathsep.join(p for p in [str(repo), str(repo / "src") if (repo / "src").is_dir() else ""] if p),
                "PATH": f"{py.parent}:/usr/bin:/bin", "HOME": str(repo), "PYTHONDONTWRITEBYTECODE": "1"}

@@ -38,6 +38,7 @@ from survival.ledger import Refused, RoundLedger
 from survival.planner import Planner, build_state, readout
 
 MANAGEMENT = re.compile(r"^\s*(stage_done|request_budget|subagent|compact)\b(.*)$", re.S)
+TRAILING = re.compile(r"^\s*(stage_done|request_budget|subagent|compact)\b([^\n]*)$")
 
 
 class ManagedConfig(AgentConfig):
@@ -188,19 +189,25 @@ class ManagedAgent(DefaultAgent):
         return message
 
     def _overflow(self) -> None:
-        """The next request would not fit the window: undo the newest turns and ask for a compaction (§3.2)."""
+        """The next request would not fit the window: undo the newest turns and ask for a compaction (§3.2). Once
+        the retries are used up a compaction is forced first; whatever is still over the window after it is undone
+        as well (smoke forced-2: a session must not end because one result was too large)."""
         if not self.window.can_retry():
-            if not self.compact(use_memory=True, why="forced after the last retry"):
-                raise _stop("ContextExhausted", "the context is over the window; no retry and no compaction is left")
-            if self.window.over(self.messages):
-                raise _stop("ContextExhausted", "the context is still over the window after a compaction")
-            return
+            any(self.compact(use_memory=True, why="forced after the last retry", keep_recent=k)
+                for k in (self.compact_keep(), 2, 1))
+            if not self.window.over(self.messages):
+                return
         before = self.window.count(self.messages)
         dropped, after = self.window.roll_back(self.messages)
         self.window.pin_note(self.messages, self.window.rollback_text(len(dropped)))
+        # a planner message fires once per crossing: undone with the turns, it would never come again
+        kept = [m for m in dropped if m.get("role") == "user" and str(m.get("content") or "").startswith("[planner:")]
+        self.messages.extend(kept)
         self.ledger.note_rollback(session=self.name, dropped=len(dropped), before=before, after=after,
                                   retry=self.window.retries)
         self.events.append({"event": "rollback", "call": self.n_calls, "dropped": len(dropped)})
+        if self.window.over(self.messages):
+            raise _stop("ContextExhausted", "the context is over the window with nothing left to undo or compact")
 
     def execute_actions(self, message: dict) -> list[dict]:
         actions = message.get("extra", {}).get("actions", [])
@@ -209,7 +216,25 @@ class ManagedAgent(DefaultAgent):
         for action in actions:
             cmd = str(action.get("command") or "")
             m = MANAGEMENT.match(cmd)
+            pre = ""
+            if not m:
+                # a management command written as the last line of a shell script (smoke forced-2: the memory file
+                # rewritten and `compact` in one command -> "compact: command not found"): the shell part runs
+                # first, then the management command
+                head, _, last = cmd.rstrip().rpartition("\n")
+                m2 = TRAILING.match(last)
+                if head.strip() and m2:
+                    self.token.check(self.name)
+                    left = int(max(1, self.ledger.seconds_left()))
+                    o = self.env.execute({**action, "command": head}, timeout=min(left, getattr(self.env.config, "timeout", left)))
+                    pre = truncate_output(str(o.get("output") or ""), self.config.max_output_chars).rstrip()
+                    code_changed, mem_changed = self.tracker.observe()
+                    counted = counted or code_changed or not mem_changed
+                    self.after_command(code_changed)
+                    m, cmd = m2, last
             out = self.handle_management(m.group(1), m.group(2)) if m else None
+            if out is not None and pre and not out.get("replaced"):
+                out["output"] = (pre + "\n" + str(out.get("output") or "")).strip()
             if out is None and self.no_submit and SUBMIT_MARKER in cmd:
                 out = {"output": self.no_submit, "returncode": 1, "exception_info": ""}
             if out is not None:

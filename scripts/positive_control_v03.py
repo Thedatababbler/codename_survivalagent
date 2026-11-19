@@ -305,6 +305,18 @@ def main() -> int:
             rw.ledger.used == sum(charged) and all(a <= b for a, b in zip(
                 [sum(charged[:i]) for i in range(len(charged))], [sum(charged[:i + 1]) for i in range(len(charged))])))
 
+        # a management command as the last line of a script; the forced compaction when few turns are left
+        ext = Scripted([write("toyq/__init__.py", ADD), "true", "true", "true", "true", "true", "true", "true",
+                        write("AGENT_MEMORY.md", MEMORY_OK) + "\ncompact", "true", "stage_done", "stage_done", "stage_done", "stage_done"])
+        rt, rect, _ = run("trailing", [ext], with_ic=False)
+        checks["management: `compact` as the last line of a script runs the script, then compacts"] = (
+            rect["resources"]["compressions"] == 1 and not any("command not found" in o for o in observations(ext))
+            and any("Context compacted" in str(m.get("content")) for msgs in ext.seen for m in msgs))
+        exf = Scripted([big, big, big, big, big, big], tokens=None, last="stage_done")
+        rf, recf, _ = run("forced", [exf], with_ic=False, context_window=4000, max_rollbacks=1)
+        checks["2 context: past the retry cap an oversized turn is still undone; the session does not end on it"] = (
+            recf["counts"]["rollbacks"] >= 3 and recf["exit_status"] != "ContextExhausted")
+
         # ------------------------------------------------------------------ 10: pi_0's triggers on a simulated run
         ledp = RoundLedger(Limits(tokens=100_000), 2, path=base / "p0.json")
         ledp.open_stage(0)

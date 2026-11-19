@@ -52,6 +52,10 @@ class ManagedConfig(AgentConfig):
     reserve_tokens: int = 4_000          # room a call needs beyond the context it sends
     step_limit: int = 0
     cost_limit: float = 0.0
+    # a reply without a tool call is answered by a hint (how to submit, or call a tool), not by ending the session
+    # (user decision 2026-11-19, after calib-1 deepdiff ended RepeatedFormatError); the session still ends when
+    # this many replies in a row carry no tool call, so a model that never calls one cannot run to the call cap
+    max_consecutive_format_errors: int = 10
 
 
 class WriteToken:
@@ -114,6 +118,8 @@ class ManagedAgent(DefaultAgent):
         self.tracker = MEM.MemoryTracker(self.ws)
         self.events: list[dict[str, Any]] = []
         self.no_submit = ""              # the executor has no submit command (it declares stages); the text it gets
+        self.submit_hint = f"`echo {SUBMIT_MARKER}` as a command of its own"
+        self.format_hints = 0
 
     # ------------------------------------------------------------------ what the subclasses change
 
@@ -182,6 +188,11 @@ class ManagedAgent(DefaultAgent):
             p, c = usage_of(e.messages[0])
             self.ledger.charge(p, c, quota_id=self.quota_id, what="format_error")
             self.window.calibrate(sent, p)
+            self.format_hints += 1
+            self.events.append({"event": "format_hint", "call": self.n_calls})
+            e.messages[0]["content"] = (str(e.messages[0].get("content") or "").rstrip()
+                                        + f"\n\nIf you want to submit, use the submit command ({self.submit_hint}); "
+                                          "if you want to continue, call a tool.")
             raise
         p, c = usage_of(message)
         self.ledger.charge(p, c, quota_id=self.quota_id)
@@ -312,6 +323,7 @@ class ManagedAgent(DefaultAgent):
 
     def record(self) -> dict[str, Any]:
         return {"name": self.name, "calls": self.n_calls, "steps": self.steps, "free_turns": self.free_turns,
+                "format_hints": self.format_hints,
                 "compactions": self.compactions, "context": self.window.stats(), "events": self.events}
 
 
@@ -333,6 +345,8 @@ class ExecutorAgent(ManagedAgent):
         self.requests: list[dict[str, Any]] = []
         self._last_probe_step = 0
         self.no_submit = "There is no submit command in this run: declare the current stage with `stage_done`."
+        self.submit_hint = "`stage_done` as a command of its own; declaring the last stage done submits the repository"
+        self.completion: dict[int, dict[str, Any]] = {}
 
     # ------------------------------------------------------------------ state and readout
 
@@ -410,6 +424,9 @@ class ExecutorAgent(ManagedAgent):
         k = self.ledger.current
         if self.all_done:
             return "stage_done: every stage is already declared done."
+        held = self._completion_check(k)
+        if held is not None:
+            return held
         n = self.declare_attempts.get(k, 0) + 1
         self.declare_attempts[k] = n
         t0 = time.time()
@@ -433,6 +450,65 @@ class ExecutorAgent(ManagedAgent):
                     "repository until it is used up (compare the code with the design documents again, extend "
                     "your tests, fix what they show).")
         raise _stop("Submitted", f"all {len(self.stages)} stages declared done")
+
+    def _completion_check(self, k: int) -> str | None:
+        """The completion-check skill decides before a declaration is looked at (user decision 2026-11-19). None:
+        accepted, the declaration goes on as before. Otherwise the text the executor gets instead; the stage stays
+        open. Nothing here can hold a stage for ever: prompts stop after ``idle_prompts_to_accept`` prompts in a row
+        that changed no code (or ``max_prompts``), a requirement is dropped after ``max_refusals`` refusals."""
+        state = self.state()
+        act, when = self.planner.completion(state)
+        if act == "accept":
+            return None
+        sk = self.planner.skills
+        cc = self.completion.setdefault(k, {"prompts": 0, "idle": 0, "hash": None, "refusals": 0, "accepted_by": ""})
+        par = lambda key, d: int(sk.param("completion-check", key, d))  # noqa: E731
+        what = sk["completion-check"].section("What to do")
+        text, why = None, ""
+        if act == "prompt_continue":
+            h = MEM.code_hash(self.ws)
+            if cc["prompts"]:
+                cc["idle"] = cc["idle"] + 1 if h == cc["hash"] else 0
+            cc["hash"] = h
+            if cc["idle"] >= par("idle_prompts_to_accept", 2):
+                why = f"{cc['idle']} prompts in a row changed no code"
+            elif cc["prompts"] >= par("max_prompts", 3):
+                why = f"{cc['prompts']} prompts given"
+            else:
+                cc["prompts"] += 1
+                text = (f"stage_done: not accepted yet (completion check, prompt {cc['prompts']}). {what}\n"
+                        f"Used so far: {int(round(100 * state['stage_tokens']))}% of this stage's tokens, "
+                        f"{int(round(100 * state['round_tokens']))}% of the round's. Declare the stage done again when you are finished.")
+        elif act == "require_review":
+            here = sum(1 for r in self.subagent_records if r.get("kind") == "review" and r.get("stage") == k)
+            if self.arm == "single" or state["reviews"] >= state["reviews_limit"] or state["subagents"] >= state["subagents_limit"]:
+                why = "no review call is available"
+            elif here:
+                why = "a review was made in this stage"
+            elif cc["refusals"] >= par("max_refusals", 2):
+                why = f"refused {cc['refusals']} times"
+            else:
+                cc["refusals"] += 1
+                share = self.planner.quota_share("review", state)
+                text = ("stage_done: not accepted yet (completion check). Have this stage's work reviewed first: "
+                        f"`subagent type=review budget={share:.2f} task=\"...\"`, act on what it finds, then declare the stage done again. {what}")
+        elif act == "require_selftest":
+            self.measure()
+            passing = self.signals["tests_passed"]
+            if passing:
+                why = "own tests pass"
+            elif cc["refusals"] >= par("max_refusals", 2):
+                why = f"refused {cc['refusals']} times"
+            else:
+                cc["refusals"] += 1
+                text = ("stage_done: not accepted yet (completion check). None of your own tests passes at the moment: write "
+                        f"and run tests of this stage's work, then declare the stage done again. {what}")
+        outcome = "held" if text is not None else f"accepted ({why})"
+        cc["accepted_by"] = "" if text is not None else why
+        self.planner.note_completion(act, when, state, outcome=outcome)
+        self.events.append({"event": "completion_check", "call": self.n_calls, "action": act, "outcome": outcome})
+        self.ledger.note("completion_check", stage=k, action=act, outcome=outcome)
+        return text
 
     def _request_budget(self, args: str) -> str:
         kv = parse_kv(args)
@@ -505,4 +581,5 @@ class ExecutorAgent(ManagedAgent):
 
     def record(self) -> dict[str, Any]:
         return {**super().record(), "stages": self.stage_records, "subagents": self.subagent_records,
-                "requests": self.requests, "signals": self.signals, "declare_attempts": self.declare_attempts}
+                "requests": self.requests, "signals": self.signals, "declare_attempts": self.declare_attempts,
+                "completion_check": self.completion}

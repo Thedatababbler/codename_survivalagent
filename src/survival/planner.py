@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from survival.ledger import RoundLedger
-from survival.skills import STATE, SkillSet, evaluate
+from survival.skills import ON_DECLARATION, STATE, SkillSet, evaluate
 
 Complete = Callable[[list[dict]], tuple[str, int, int]]
 
@@ -87,6 +87,8 @@ class Planner:
         self.ticks += 1
         out: list[Action] = []
         for name, skill in self.skills.skills.items():
+            if name in ON_DECLARATION:
+                continue
             for i, t in enumerate(skill.triggers):
                 key = (name, i)
                 on = evaluate(t.tree, state)
@@ -100,6 +102,19 @@ class Planner:
                                        "state": {k: state[k] for k in ("stage_tokens", "round_tokens", "context")},
                                        "stage": self.ledger.current})
         return out
+
+    def completion(self, state: dict[str, Any]) -> tuple[str, str]:
+        """completion-check at a declaration: (action, the condition that decided). The first trigger whose
+        condition holds; none holds: accept."""
+        for t in self.skills["completion-check"].triggers:
+            if evaluate(t.tree, state):
+                return t.action, t.when
+        return "accept", ""
+
+    def note_completion(self, action: str, when: str, state: dict[str, Any], *, outcome: str) -> None:
+        self.fired.append({"tick": self.ticks, "skill": "completion-check", "action": action, "when": when, "outcome": outcome,
+                           "state": {k: state[k] for k in ("stage_tokens", "round_tokens", "context")},
+                           "stage": self.ledger.current})
 
     def message(self, name: str, action: str, state: dict[str, Any]) -> str:
         sk = self.skills[name]

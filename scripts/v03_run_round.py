@@ -34,9 +34,13 @@ OUT = ROOT / "outputs" / "rounds_v03"
 
 def run_round(*, task_id: str, round_id: str, arm: str, tokens: int, skills_dir: Path = PI0, skills_id: str = "pi0",
               window: int = 64_000, seconds: float = 14400, score: bool = True, out_root: Path = OUT,
-              first_stage_only: bool = False, **limits) -> dict:
+              first_stage_only: bool = False, transfer_final: bool = False, **limits) -> dict:
     load_env()
     require_sandbox("v0.3 round")
+    import yaml
+    frozen = (yaml.safe_load((ROOT / "configs" / "v03_transfer_tasks.yaml").read_text()) or {}).get("transfer") or []
+    if task_id in frozen and not transfer_final:
+        raise SystemExit(f"{task_id} is a frozen transfer-test task: it is not run during evolution (--transfer-final for the final comparison)")
     task = load_task(task_id)
     ic = import_check(task)
     if first_stage_only:                 # harness tests only: one stage, no closing import check, never compared
@@ -77,16 +81,17 @@ def main() -> int:
     ap.add_argument("--tokens", type=int, required=True, help="the round budget B (prompt tokens)")
     ap.add_argument("--seconds", type=float, default=14400)
     ap.add_argument("--window", type=int, default=64_000)
-    ap.add_argument("--skills", default=str(PI0), help="a directory with the five skills (default: pi_0)")
+    ap.add_argument("--skills", default=str(PI0), help="a directory with the six skills (default: pi_0)")
     ap.add_argument("--skills-id", default="pi0")
     ap.add_argument("--no-score", action="store_true")
     ap.add_argument("--out-root", default=str(OUT))
     ap.add_argument("--first-stage-only", action="store_true", help="harness test: only the plan's first stage")
+    ap.add_argument("--transfer-final", action="store_true", help="the final comparison on a frozen transfer-test task")
     ap.add_argument("--compressions", type=int, default=None, help="harness test: the compaction pool")
     a = ap.parse_args()
     out = run_round(task_id=a.task, round_id=a.round, arm=a.arm, tokens=a.tokens, seconds=a.seconds, window=a.window,
                     skills_dir=Path(a.skills), skills_id=a.skills_id, score=not a.no_score, out_root=Path(a.out_root),
-                    first_stage_only=a.first_stage_only,
+                    first_stage_only=a.first_stage_only, transfer_final=a.transfer_final,
                     **({"compressions": a.compressions} if a.compressions is not None else {}))
     section = out.pop("breach_section")
     print(section)

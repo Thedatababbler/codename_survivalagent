@@ -1,0 +1,8 @@
+# Transfer-test tasks of v0.3 (refactor §4.6 / §6.5). Frozen by the user on 2026-11-19: tablib and tenacity.
+# During evolution they are not run and nothing of them is read; scripts/v03_run_round.py refuses them unless
+# --transfer-final is given (the final comparison against pi_0, 3 runs each).
+# Checked on 2026-11-19 before freezing (sealed program, numbers only): reference feedback-half ratio
+# tablib 1.000 (86/86 functions per half), tenacity 0.984 (63/63); an empty repository scores 0 on both.
+transfer:
+  - nl2_tablib
+  - nl2_tenacity

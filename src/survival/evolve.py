@@ -1,8 +1,8 @@
 """Evolution of the planner's skill documents (refactor §6).
 
-One *combination* is five skill documents. Each generation: a parent is taken from the frontier; the evolver reads
+One *combination* is six skill documents. Each generation: a parent is taken from the frontier; the evolver reads
 the parent's documents and the note on its runs (``note.build_note``: figures only) and rewrites at most two of
-the five, with its reasons and a prediction; the rewritten documents are validated (``skills.parse_skill`` and the
+the six, with its reasons and a prediction; the rewritten documents are validated (``skills.parse_skill`` and the
 sealed leak check; one return to the evolver with the problems, then dropped); the new combination runs on every
 evolution task; the frontier is recomputed (``frontier.select``). Evolution stops after ``patience`` proposals in a
 row that leave the frontier as it was, or when the caller's quota says so.
@@ -51,12 +51,12 @@ context after the executor has written its memory file. Its context has a fixed 
 it is undone. Hard limits that you cannot change: the token budget, the floor of every later stage, the number of
 compactions, the call limits of each sub-agent kind and of all together.
 
-A planner watches the run and acts through five SKILL documents. You improve those documents; nothing else.
+A planner watches the run and acts through six SKILL documents. You improve those documents; nothing else.
 
 The planner state (the only names a condition may use; ratios are 0..1, counts are small integers):
 {", ".join(f"{k} ({v})" for k, v in STATE.items())}
 
-The five skills, the actions their triggers may fire, and their parameters:
+The six skills, the actions their triggers may fire, and their parameters:
 {_schema_text()}
 
 What the actions do: remind -> the skill's "What to do" text is sent to the executor; framework_compaction -> the
@@ -64,7 +64,13 @@ framework replaces the older turns by a summary; request_compaction -> the execu
 file and compact; force_compaction -> the program compacts now (from the memory file when it is fresh and
 use_memory is true, else a summary); suggest_handoff / suggest_review / suggest_repair -> the executor is advised
 to call that sub-agent, with a quota of the given share of what the stage has left. A trigger fires when its
-condition turns true and is armed again when it turns false. budget-approval has no triggers: mode
+condition turns true and is armed again when it turns false. completion-check is different: it is asked each time
+the executor declares a stage done (declaring the last stage submits the repository), and the first of its triggers
+whose condition holds decides (none holds: accept). accept -> the declaration goes on; prompt_continue -> the
+declaration is held and the executor is told to keep checking and improving, with its usage so far, until
+idle_prompts_to_accept prompts in a row changed no code or max_prompts were given; require_review -> held until a
+review was made in the stage; require_selftest -> held until at least one of the executor's own tests passes; a
+requirement is dropped after max_refusals refusals. budget-approval has no triggers: mode
 approve_within_cap grants what is asked up to max_grant_share of the mechanical cap; mode judge lets a planner
 model decide from the skill's text.
 
@@ -83,7 +89,7 @@ You see figures only: no code, no tests. The runs are compared first by quality 
 difference must exceed the noise between repeated runs) and, at equal quality, by four resources: tokens, repair
 calls, compactions, peak context.
 
-Rewrite AT MOST {MAX_REWRITES} of the five documents (each as a whole). Every reason must point at figures in the
+Rewrite AT MOST {MAX_REWRITES} of the six documents (each as a whole). Every reason must point at figures in the
 note (a run label such as T2-R1 and what it shows). Answer with exactly these blocks and nothing else:
 
 <<<ANALYSIS>>>
@@ -92,7 +98,7 @@ what the better runs did differently from the worse ones, with run labels; which
 <<<PREDICTION>>>
 {{"quality": "up|same|down", "tokens": "up|same|down", "repairs": "up|same|down", "compressions": "up|same|down", "peak_context": "up|same|down"}}
 <<<END>>>
-<<<SKILL name=<one of the five names>>>>
+<<<SKILL name=<one of the six names>>>>
 (the whole SKILL.md)
 <<<END>>>
 (optionally a second SKILL block)"""
@@ -127,7 +133,7 @@ def validate(prop: dict[str, Any], *, forbidden: set[str], leak_check: Callable[
         problems.append(f"{len(prop['skills'])} documents rewritten; at most {MAX_REWRITES}")
     for name, text in prop["skills"][:MAX_REWRITES]:
         if name not in SKILL_NAMES:
-            problems.append(f"{name}: not one of the five skills")
+            problems.append(f"{name}: not one of the six skills")
             continue
         if name in ok:
             problems.append(f"{name}: rewritten twice")
@@ -145,7 +151,7 @@ def validate(prop: dict[str, Any], *, forbidden: set[str], leak_check: Callable[
 
 
 def user_message(skill_texts: dict[str, str], note: str, history: list[dict[str, Any]]) -> str:
-    parts = ["## THE CURRENT COMBINATION (the five SKILL.md documents)"]
+    parts = ["## THE CURRENT COMBINATION (the six SKILL.md documents)"]
     for n in SKILL_NAMES:
         parts += [f"### {n}", "```", skill_texts[n].strip(), "```"]
     parts += ["", "## NOTE ON ITS RUNS (figures only)", note]

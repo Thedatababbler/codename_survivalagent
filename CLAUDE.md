@@ -46,7 +46,7 @@ started and no workspace code may be run in this project. Section format of rule
 
 - 设计：`adamas_unit_v03_refactor.md`；映射、许可证、用户决定与实现细节：`docs/V03_MAPPING.md`。
 - 代码在 `src/survival/`（账本、规划者、skill、执行者与子智能体、一轮、进化）。v0.2 的 `src/adamas_unit/` 冻结为对照（tag `v0.2`），不要改；v0.3 从它复用沙盒接入、收尾导入检查、提交检查、密封评分。
-- skill 文档：`memory/planner/skills/<名称>/SKILL.md`（π_0）。阶段计划：`configs/datasets/v03_plans/`（冻结，只读）。
+- skill 文档：`memory/planner/skills/<名称>/SKILL.md`（π_0）。共 6 个；第 6 个 `completion-check`（2026-11-19）在执行者声明阶段完成或提交时先被询问（accept / prompt_continue / require_review / require_selftest），π_0 一律 accept。执行者提示词里不加“必须写测试”之类的硬性要求。校准用的“π_0 + 提示继续”在 `configs/v03_calibration_skills/`。迁移检验题冻结为 tablib、tenacity（`configs/v03_transfer_tasks.yaml`），进化期间不运行、不读取。阶段计划：`configs/datasets/v03_plans/`（冻结，只读）。
 - 正对照：改动 v0.3 的任何部分后先跑 `uv run python scripts/positive_control_v03.py`（不花额度）；v0.2 的正对照仍是 `scripts/positive_control.py`。
 - 运行：`scripts/v03_run_round.py`（一轮）、`scripts/v03_evolve.py`（进化）。都花额度，先报预计用量。
 - 上面的沙盒规定、密封规定、提交与推送先询问，对 v0.3 全部适用。回报时"沙盒越界警告"置顶。

@@ -59,7 +59,12 @@ SCHEMA: dict[str, dict[str, Any]] = {
                                           "repair_quota_share": "ratio", "mode": ("fixed", "judge")}},
     "budget-approval": {"actions": (),
                         "params": {"mode": ("approve_within_cap", "judge"), "max_grant_share": "ratio"}},
+    # user decision 2026-11-19: asked when the executor declares a stage done (the last declaration is the
+    # submission). Its triggers are not edge-triggered: the first one whose condition holds decides; none: accept.
+    "completion-check": {"actions": ("accept", "prompt_continue", "require_review", "require_selftest"),
+                         "params": {"idle_prompts_to_accept": "count", "max_prompts": "count", "max_refusals": "count"}},
 }
+ON_DECLARATION = ("completion-check",)   # skills whose triggers are evaluated at a declaration, not before every call
 SKILL_NAMES = tuple(SCHEMA)
 
 # words of the harness itself that look like identifiers and are allowed in a body
@@ -283,7 +288,7 @@ def parse_skill(text: str, *, name: str | None = None, forbidden: set[str] | Non
 
 @dataclass(frozen=True)
 class SkillSet:
-    """The five skills of one combination."""
+    """The skills of one combination (six since 2026-11-19: completion-check)."""
     skills: dict[str, Skill]
 
     def __getitem__(self, name: str) -> Skill:

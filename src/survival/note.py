@@ -41,7 +41,8 @@ def digest(rec: dict[str, Any], feedback_ratio: float | None) -> dict[str, Any]:
                                for x in subs if x.get("stage") == k],
             "topups": [{"share_of_cap_granted": d["share_of_cap"], "granted_share_of_round": round(d["granted"] / B, 3)}
                        for d in decisions if d.get("stage") == k and d.get("kind") == "topup"],
-            "planner_actions": [{"skill": f["skill"], "action": f["action"], **f["state"]} for f in fired if f.get("stage") == k],
+            "planner_actions": [{"skill": f["skill"], "action": f["action"], **({"outcome": f["outcome"]} if "outcome" in f else {}),
+                                 **f["state"]} for f in fired if f.get("stage") == k],
         })
     sessions = rec.get("sessions") or []
     ex = sessions[0] if sessions else {}
@@ -54,7 +55,7 @@ def digest(rec: dict[str, Any], feedback_ratio: float | None) -> dict[str, Any]:
         "counts": rec["counts"],
         "executor": {"model_calls": ex.get("calls"), "counted_steps": ex.get("steps"), "management_turns": ex.get("free_turns"),
                      "context_peak_share_of_window": round((ex.get("context") or {}).get("peak", 0) / window, 3),
-                     "events": [{k: v for k, v in e.items() if k in ("event", "why", "from_memory", "skill", "action", "dropped")}
+                     "events": [{k: v for k, v in e.items() if k in ("event", "why", "from_memory", "skill", "action", "dropped", "outcome")}
                                 for e in ex.get("events") or [] if e.get("event") != "probe"][:60]},
         "stages": stages,
     }

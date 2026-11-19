@@ -376,7 +376,7 @@ def main() -> int:
             rejected(good.replace("## What to do\n", "## What to do\nIn toyq keep the notes on add_numbers.\n"), "names 'toyq'",
                      forbidden={"toyq", "add_numbers"})
             and rejected(good.replace("## What to do\n", "## What to do\nRe-read helpers.py first.\n"), "reads as a file"))
-        checks["5 skill: the five pi_0 documents pass, each with the four body sections"] = (
+        checks["5 skill: the six pi_0 documents pass, each with the four body sections"] = (
             set(skills.skills) == set(SKILL_NAMES) and all(len(s.sections) >= 4 for s in skills.skills.values()))
 
         # ------------------------------------------------------------------ 8: the closing import check, every arm
@@ -473,6 +473,85 @@ def main() -> int:
             len(selm["frontier"]) == 8 and "unsub" not in selm["frontier"] and "submittable" in selm["eliminated"]["unsub"])
         checks["evolver prompt: rewrites at most 2 documents; names no task"] = (
             "AT MOST 2" in EV_SYSTEM and not any(w in EV_SYSTEM.lower() for w in ("deepdiff", "pathspec", "fsutil", "toyq")))
+        # ---- a reply without a tool call gets a hint, the session goes on (user decision 2026-11-19)
+        from minisweagent.exceptions import FormatError as _FE
+
+        class NoCall(Scripted):
+            def query(self, messages, **kw):
+                if self.commands and self.commands[0] == "NOCALL":
+                    self.commands.pop(0)
+                    self.seen.append([dict(m) for m in messages])
+                    raise _FE({"role": "user", "content": "No tool calls found in the response. Every response MUST include at least one tool call.",
+                               "extra": {"response": {"usage": {"prompt_tokens": 1000, "completion_tokens": 10}}}})
+                return super().query(messages, **kw)
+
+        exn = NoCall([write("toyq/__init__.py", MUL), "stage_done", "NOCALL", "NOCALL", "NOCALL", "NOCALL", "stage_done"])
+        rn, recn, _ = run("nocall", [exn], with_ic=False)
+        hints = [str(m.get("content")) for m in exn.seen[-1] if "If you want to submit, use the submit command" in str(m.get("content"))]
+        checks["2 no tool call: the executor is told how to submit or to call a tool, four times in a row, and the session goes on to submit"] = (
+            recn["exit_status"] == "Submitted" and len(hints) == 4 and all("`stage_done`" in h and "call a tool" in h for h in hints)
+            and recn["sessions"][0]["format_hints"] == 4 and recn["sessions"][0]["calls"] == 7
+            and sum(e["prompt_tokens"] for e in rn.ledger.events if e["event"] == "charge") == 7000)
+        exn2 = NoCall(["NOCALL"] * 12)
+        rn2, recn2, _ = run("nocall-forever", [exn2], with_ic=False)
+        checks["2 no tool call: a session that never calls a tool still ends (ten in a row), every call charged"] = (
+            recn2["exit_status"] == "RepeatedFormatError" and recn2["sessions"][0]["calls"] == 10
+            and sum(e["prompt_tokens"] for e in rn2.ledger.events if e["event"] == "charge") == 10_000)
+
+        # ---- completion-check (the sixth skill, user decision 2026-11-19)
+        cc_text = (PI0 / "completion-check" / "SKILL.md").read_text()
+
+        def cc_skills(name: str, when: str, action: str, **params):
+            d = base / "skills" / name
+            shutil.copytree(PI0, d)
+            t = cc_text.replace('when: "true"', f'when: "{when}"').replace("action: accept", f"action: {action}")
+            for k, v in params.items():
+                t = re.sub(rf"(?m)^  {k}: .*$", f"  {k}: {v}", t)
+            (d / "completion-check" / "SKILL.md").write_text(t)
+            return load_skillset(d)
+
+        import re
+        checks["5 completion-check: pi_0 accepts every declaration (no hold, nothing recorded, the round as before)"] = (
+            not any(f["skill"] == "completion-check" for f in reca["planner"]["fired"])
+            and not any(e["event"] == "completion_check" for e in ev) and reca["exit_status"] == "Submitted")
+        checks["5 completion-check: an unknown action, a state outside the planner's, an absolute amount are refused"] = (
+            rejected(cc_text.replace("action: accept", "action: run_hidden_tests"), "is not an action of completion-check")
+            and rejected(cc_text.replace('when: "true"', 'when: "hidden_ratio < 0.5"'), "not part of the planner state")
+            and rejected(cc_text.replace('when: "true"', 'when: "idle_steps > 5000"'), "is not a count")
+            and rejected(cc_text.replace("max_prompts: 3", "max_prompts: 5000"), "is not a count"))
+        calib = load_skillset(ROOT / "configs" / "v03_calibration_skills")
+        exc = Scripted([write("toyq/__init__.py", ADD), "stage_done",      # stage 1: accepted (not the last stage)
+                        "stage_done",                                       # last stage: prompt 1
+                        write("toyq/__init__.py", MUL), "stage_done",      # code changed -> prompt 2
+                        write("AGENT_MEMORY.md", MEMORY_OK), "stage_done",  # only the memory file -> idle 1, prompt 3
+                        "stage_done"])                                      # idle 2 -> accepted, submitted
+        rc_, recc, _ = run("continue", [exc], sk=calib, with_ic=False)
+        held = [o for o in observations(exc) if "not accepted yet (completion check, prompt" in o]
+        ccs = [f for f in recc["planner"]["fired"] if f["skill"] == "completion-check"]
+        checks["5 completion-check prompt_continue: the last declaration is held with the usage so far, until two prompts in a row changed no code"] = (
+            recc["exit_status"] == "Submitted" and len(held) == 3 and all("Used so far:" in h and "% of this stage's tokens" in h for h in held)
+            and [f["outcome"] for f in ccs] == ["held", "held", "held", "accepted (2 prompts in a row changed no code)"]
+            and recc["stages"][0]["declared_done"] and recc["sessions"][0]["calls"] == 8
+            and "def mul" in (rc_.run_dir / "final" / "toyq" / "__init__.py").read_text())
+        exr2 = Scripted([write("toyq/__init__.py", MUL), "stage_done",
+                         'subagent type=review budget=0.2 task="check the stage"', "stage_done", "stage_done", "stage_done"])
+        rr2, recr2, _ = run("req-review", [exr2, Scripted([SUBMIT + "; echo fine"])], sk=cc_skills("req-review", "reviews < 1", "require_review"), with_ic=False)
+        o2 = observations(exr2)
+        checks["5 completion-check require_review: held until a review was made in the stage, then accepted"] = (
+            recr2["exit_status"] == "Submitted" and sum("Have this stage's work reviewed first" in o for o in o2) == 1
+            and recr2["counts"]["reviews"] == 1 and recr2["sessions"][0]["calls"] == 5)
+        exs = Scripted([write("toyq/__init__.py", MUL), "stage_done", "stage_done",
+                        write("tests/test_add.py", TEST), "stage_done", "stage_done"])
+        rs2, recs2, _ = run("req-selftest", [exs], sk=cc_skills("req-selftest", "stage_progress >= 0.0", "require_selftest", max_refusals=5), with_ic=False)
+        checks["5 completion-check require_selftest: held while none of the executor's own tests passes, accepted once one does"] = (
+            recs2["exit_status"] == "Submitted" and sum("None of your own tests passes" in o for o in observations(exs)) == 2
+            and recs2["sessions"][0]["calls"] == 6)
+        exd = Scripted([write("toyq/__init__.py", MUL), "stage_done", "stage_done", "stage_done", "stage_done"])
+        rd2, recd2, _ = run("req-drop", [exd], sk=cc_skills("req-drop", "stage_progress >= 0.0", "require_selftest", max_refusals=1), with_ic=False)
+        checks["5 completion-check: a requirement is dropped after max_refusals (a stage is never held for ever)"] = (
+            recd2["exit_status"] == "Submitted" and sum("None of your own tests passes" in o for o in observations(exd)) == 2
+            and any("refused 1 times" in f["outcome"] for f in recd2["planner"]["fired"]))
+
         # ---- sealed scoring is isolated (user decision 2026-11-19): an ordinary user, file rules on, attempts recorded
         import os as _os
         import stat as _stat

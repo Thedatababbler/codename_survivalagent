@@ -52,6 +52,7 @@ class RoundConfig:
     limits: Limits
     context_window: int = 64_000
     max_rollbacks: int = 6
+    rollback_limit: int = 20
     keep_recent: int = 6
     executor_max_steps: int = 400
     subagent_max_steps: int = 80
@@ -143,7 +144,7 @@ class Round:
 
     def _agent_kwargs(self, max_steps: int) -> dict[str, Any]:
         return {"system_template": "{{system_text}}", "instance_template": "{{task}}", "context_window": self.cfg.context_window,
-                "max_rollbacks": self.cfg.max_rollbacks, "keep_recent": self.cfg.keep_recent, "max_steps": max_steps}
+                "max_rollbacks": self.cfg.max_rollbacks, "rollback_limit": self.cfg.rollback_limit, "keep_recent": self.cfg.keep_recent, "max_steps": max_steps}
 
     def _sub_state(self, agent: ManagedAgent) -> dict[str, Any]:
         ex = self.executor
@@ -334,7 +335,8 @@ class Round:
                      "peak_context": round(sum(peaks) / len(peaks), 1) if peaks else 0.0}
         counts = {"reviews": self.ledger.calls["review"], "workers": self.ledger.calls["worker"],
                   "subagents": self.ledger.subagents_used(), "handoffs": self.ledger.handoffs,
-                  "rollbacks": self.ledger.rollbacks, "topups": sum(1 for d in self.planner.decisions if d["granted"] > 0),
+                  "rollbacks": self.ledger.rollbacks, "rollback_limit_sessions": sum(1 for x in self.sessions if any(
+                      e.get("event") == "rollback_limit" for e in x.get("events", []))), "topups": sum(1 for d in self.planner.decisions if d["granted"] > 0),
                   "stages_declared": sum(1 for s in ex["stages"] if s["declared_done"]),
                   "stages_below_minimum": sum(1 for s in ex["stages"] if s["below_minimum"]),
                   "stages_closed_by_program": sum(1 for s in ex["stages"] if not s["declared_done"]),

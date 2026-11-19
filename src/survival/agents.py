@@ -44,6 +44,7 @@ TRAILING = re.compile(r"^\s*(stage_done|request_budget|subagent|compact)\b([^\n]
 class ManagedConfig(AgentConfig):
     context_window: int = 64_000
     max_rollbacks: int = 6
+    rollback_limit: int = 20             # roll-backs of one session in all: at this many the session ends (no endless loop)
     keep_recent: int = 6
     max_output_chars: int = 10_000
     max_steps: int = 300                 # counted steps (management actions are free)
@@ -192,6 +193,10 @@ class ManagedAgent(DefaultAgent):
         """The next request would not fit the window: undo the newest turns and ask for a compaction (§3.2). Once
         the retries are used up a compaction is forced first; whatever is still over the window after it is undone
         as well (smoke forced-2: a session must not end because one result was too large)."""
+        if self.window.retries >= self.config.rollback_limit:
+            self.events.append({"event": "rollback_limit", "call": self.n_calls, "rollbacks": self.window.retries})
+            self.ledger.note("rollback_limit", session=self.name, rollbacks=self.window.retries)
+            raise _stop("RollbackLimit", f"the context overflowed {self.window.retries} times in this session")
         if not self.window.can_retry():
             any(self.compact(use_memory=True, why="forced after the last retry", keep_recent=k)
                 for k in (self.compact_keep(), 2, 1))

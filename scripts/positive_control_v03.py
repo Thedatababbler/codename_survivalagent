@@ -317,6 +317,13 @@ def main() -> int:
         checks["2 context: past the retry cap an oversized turn is still undone; the session does not end on it"] = (
             recf["counts"]["rollbacks"] >= 3 and recf["exit_status"] != "ContextExhausted")
 
+        exl = Scripted([big] * 12, tokens=None, last="stage_done")
+        rl, recl, _ = run("rblimit", [exl], with_ic=False, context_window=4000, max_rollbacks=1, rollback_limit=4)
+        checks["2 context: a session that keeps overflowing ends at the roll-back limit, and the diagnosis says so"] = (
+            recl["exit_status"] == "RollbackLimit" and recl["counts"]["rollbacks"] == 4
+            and recl["counts"]["rollback_limit_sessions"] == 1
+            and any(e["event"] == "rollback_limit" for e in rl.ledger.events))
+
         # ------------------------------------------------------------------ 10: pi_0's triggers on a simulated run
         ledp = RoundLedger(Limits(tokens=100_000), 2, path=base / "p0.json")
         ledp.open_stage(0)

@@ -23,7 +23,7 @@
 6. 智能体在工作区以外按本题原项目的名称或其模块名搜索、列目录、查找文件、尝试导入，定为 CRITICAL，运行作废（2026-10-21 用户决定；扫描器事件 `original_project_search`）。在工作区内导入自己正在编写的包属于正常操作，不算。写文件时，或在工作区里运行自己正在编写的包时，包的源码里读取本包版本号（如 `importlib_metadata.version("<本包名>")`）不算；单独去探测本机是否装了这个包，仍定为 CRITICAL（2026-11-05 用户决定）。是否作废按是否获取到内容区分（2026-11-08 用户决定，与 AdaMAS 一致）：被拦下或返回"找不到"，并经核实未获取任何内容（命令输出为空、报错或显示不存在；智能体可读的环境里没有本项目的副本；最终代码与参考实现的相似度不是离群值），记为 CRITICAL 并标记（`SANDBOX_FLAGGED`），运行保留；获取到任何内容（导入成功、读到原项目文件或元数据），或无法核实，运行作废，并查清漏洞。
 7. 不得修改 /root、/root/.ssh 及任何系统目录的权限或属主。不得用 chmod 777 这类方式排查权限问题。遇到权限异常，先停下报告，由用户决定。恢复权限时，只能恢复到已知的原始值，并在报告中列出改动。（2026-11-19 用户决定；同时约束实现 agent 自己。`/root` 的 755 是用户手动设置的值，保持不动。）
 
-智能体一律以普通用户身份运行（2026-11-19 用户决定）：执行者、所有子智能体、收尾修补，以及程序代为运行工作区代码时，启动器在沙盒规则生效后切换到 `configs/sandbox.yaml` 里的 `agent_uid`，切换不了就拒绝运行。每轮的工作区归这个用户所有。每个智能体开始前，程序先确认它能读写自己的工作区（只读的审阅者：能读、不能写），不能就报错停止。扫描器把对工作区以外路径的 chmod / chown / chgrp / setfacl 定为 CRITICAL（事件 `permission_change`）。密封评分（文件规则关闭）仍以原用户运行。
+智能体一律以普通用户身份运行（2026-11-19 用户决定）：执行者、所有子智能体、收尾修补，以及程序代为运行工作区代码时，启动器在沙盒规则生效后切换到 `configs/sandbox.yaml` 里的 `agent_uid`，切换不了就拒绝运行。每轮的工作区归这个用户所有。每个智能体开始前，程序先确认它能读写自己的工作区（只读的审阅者：能读、不能写），不能就报错停止。扫描器把对工作区以外路径的 chmod / chown / chgrp / setfacl 定为 CRITICAL（事件 `permission_change`）。密封评分以专门的普通用户运行（`scoring_uid`，既不是 root 也不是智能体用户；2026-11-19 用户决定），文件规则开启：只能读本次评分的临时副本（被评分代码 + 本次 held out）、系统目录和解释器，网络照常限制；被评分代码改权限或读其他目录的尝试由内核拒绝，并记入 `outputs/scoring_audit.jsonl`（改权限为 CRITICAL）。
 
 How the rules are enforced in code (2026-10-11): `src/orchestra/sandbox/guard.py` (refuses any agent start or
 workspace-code run without the sandbox), `src/orchestra/sandbox/exec.py` (the launcher verifies its own

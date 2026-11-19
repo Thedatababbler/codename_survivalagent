@@ -21,7 +21,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from adamas_unit.feedback import feedback_ratio  # noqa: E402
 from adamas_unit.model import agent_model, complete, load_env, summarize  # noqa: E402
 from orchestra.sandbox import breach  # noqa: E402
-from orchestra.sandbox.guard import require_sandbox  # noqa: E402
+from orchestra.sandbox.guard import SCORING_AUDIT_LOG, require_sandbox  # noqa: E402
 from survival.ledger import Limits  # noqa: E402
 from survival.note import digest  # noqa: E402
 from survival.round import ARMS, Models, Round, RoundConfig  # noqa: E402
@@ -50,13 +50,20 @@ def run_round(*, task_id: str, round_id: str, arm: str, tokens: int, skills_dir:
     rec = rnd.run()
     s = breach.scan_run(run_dir, run_id=f"{round_id}-{task_id}")
     ratio = None
+    audit: dict = {}
     if score and not s["void"]:
+        n0 = len(SCORING_AUDIT_LOG.read_text().splitlines()) if SCORING_AUDIT_LOG.is_file() else 0
         ratio = feedback_ratio(task_id, round_id, run_dir)
+        # what the scored code tried during sealed scoring (the scoring user, file rules on: all of it was refused)
+        new = SCORING_AUDIT_LOG.read_text().splitlines()[n0:] if SCORING_AUDIT_LOG.is_file() else []
+        mine = [e for e in map(json.loads, new) if e.get("cwd", "").endswith("/" + task_id)]
+        audit = {"warning": sum(e["level"] == "WARNING" for e in mine), "critical": sum(e["level"] == "CRITICAL" for e in mine),
+                 "critical_events": [e for e in mine if e["level"] == "CRITICAL"][:20]}
     out = {"round": round_id, "task": task_id, "arm": arm, "skills": skills_id, "usable": not s["void"], "void": s["void"],
            "ratio": ratio, "submittable": rec["measures"]["submittable"], "resources": rec["resources"], "counts": rec["counts"],
            "exit_status": rec["exit_status"], "digest": digest(rec, ratio),
            "importcheck": {k: v for k, v in (rec.get("importcheck") or {}).items() if k not in ("records", "final", "config")},
-           "breach": {k: s[k] for k in ("commands", "warning", "critical", "void")}, "wall_seconds": rec["wall_seconds"]}
+           "breach": {k: s[k] for k in ("commands", "warning", "critical", "void")}, "scoring_audit": audit, "wall_seconds": rec["wall_seconds"]}
     (run_dir / "result.json").write_text(json.dumps(out, indent=1, default=str), encoding="utf-8")
     out["breach_section"] = breach.report_section([s])
     return out

@@ -6,6 +6,9 @@ sandbox:
   # user decision 2026-11-19: every file-confined command (agents, sub-agents, the closing fix, driver runs of
   # workspace code) runs as this ordinary user, which owns only the directories of its own run. No passwd entry.
   agent_uid: 61234
+  # user decision 2026-11-19: sealed held-out scoring runs as its own ordinary user (not root, not the agent user),
+  # file rules on: it reads only its scratch copy (the scored code + this run's held-out suite).
+  scoring_uid: 61235
   allow_loopback: true
   allow_external_network: false
   # user decision 2026-10-15: tasks whose dataset tests hard-code /tmp. Their gate tests (and held-out scoring, which

@@ -473,6 +473,70 @@ def main() -> int:
             len(selm["frontier"]) == 8 and "unsub" not in selm["frontier"] and "submittable" in selm["eliminated"]["unsub"])
         checks["evolver prompt: rewrites at most 2 documents; names no task"] = (
             "AT MOST 2" in EV_SYSTEM and not any(w in EV_SYSTEM.lower() for w in ("deepdiff", "pathspec", "fsutil", "toyq")))
+        # ---- sealed scoring is isolated (user decision 2026-11-19): an ordinary user, file rules on, attempts recorded
+        import os as _os
+        import stat as _stat
+        from orchestra.sandbox import policy as _SB
+        from orchestra.sandbox.guard import run_confined as _rc
+        (ROOT / "outputs" / "sandbox").mkdir(parents=True, exist_ok=True)
+        sc = Path(tempfile.mkdtemp(prefix="pc-score-", dir=ROOT / "outputs" / "sandbox")) / "repo"
+        sc.mkdir()
+        other = ROOT / "outputs" / "sandbox" / (sc.parent.name + "-other")
+        other.mkdir()
+        (other / "secret.txt").write_text("not yours\n")
+        (sc / "own.txt").write_text("mine\n")
+        (sc / "probe.py").write_text("""
+import json, os, subprocess
+out = {"uid": os.getuid(), "euid": os.geteuid()}
+def t(name, fn):
+    try:
+        fn(); out[name] = "ok"
+    except Exception as e:
+        out[name] = type(e).__name__
+t("chmod_root", lambda: os.chmod("/root", 0o777))
+out["chmod_prog"] = subprocess.run(["chmod", "777", "/root"], capture_output=True).returncode
+t("read_config", lambda: open(%r).read())
+t("read_other", lambda: open(%r).read())
+t("list_other", lambda: os.listdir(%r))
+t("list_root", lambda: os.listdir("/root"))
+t("read_own", lambda: open("own.txt").read())
+t("chmod_own", lambda: os.chmod("own.txt", 0o600))
+t("write_own", lambda: open("new.txt", "w").write("x"))
+print(json.dumps(out))
+""" % (str(ROOT / "configs" / "sandbox.yaml"), str(other / "secret.txt"), str(other)))
+        root_mode = _stat.S_IMODE(_os.stat("/root").st_mode)
+        try:
+            pr = _rc(["/usr/bin/python3", "probe.py"], cwd=sc, mode="scoring", role="pc_scoring", capture_output=True, text=True,
+                     timeout=120, env={"PATH": "/usr/bin:/bin", "HOME": str(sc)})
+            got = json.loads(pr.stdout.strip().splitlines()[-1])
+            ev = getattr(pr, "scoring_audit", [])
+        except Exception as e:  # noqa: BLE001
+            got, ev = {"error": repr(e), "out": getattr(locals().get("pr"), "stderr", "")}, []
+            print("scoring probe failed:", got)
+        finally:
+            shutil.rmtree(sc.parent, ignore_errors=True)
+            shutil.rmtree(other, ignore_errors=True)
+        perm = [e for e in ev if e["event"] == "permission_change" and e["target"] == "/root"]
+        checks["scoring: the scored code runs as the scoring user (not root, not the agent user)"] = (
+            got.get("uid") == got.get("euid") == _SB.scoring_uid() and _SB.scoring_uid() not in (0, _SB.agent_uid()))
+        checks["scoring: chmod /root by the scored code fails (call and program), /root keeps its mode, both recorded CRITICAL"] = (
+            got.get("chmod_root") == "PermissionError" and got.get("chmod_prog") not in (0, None)
+            and _stat.S_IMODE(_os.stat("/root").st_mode) == root_mode
+            and {e["how"] for e in perm} >= {"os.chmod", "subprocess.Popen:chmod"} and all(e["level"] == "CRITICAL" for e in perm))
+        checks["scoring: reading or listing any other directory fails and is recorded"] = (
+            got.get("read_config") == "PermissionError" and got.get("read_other") == "PermissionError"
+            and got.get("list_other") == "PermissionError" and got.get("list_root") == "PermissionError"
+            and {e["target"] for e in ev if e["event"] == "read_denied"} >= {str(ROOT / "configs" / "sandbox.yaml"), str(other / "secret.txt")}
+            and {e["target"] for e in ev if e["event"] == "list_denied"} >= {str(other), "/root"})
+        checks["scoring: its own copy stays readable and writable; nothing of that is recorded"] = (
+            got.get("read_own") == "ok" and got.get("chmod_own") == "ok" and got.get("write_own") == "ok"
+            and not any(str(sc) in e["target"] for e in ev))
+        try:
+            _SB.confine_scoring(["/usr/bin/python3", "-c", "pass"], {"PATH": "/usr/bin:/bin"})
+            refused = False
+        except _SB.SandboxRequiredError:
+            refused = True
+        checks["scoring: refuses to run without a scratch copy to confine it to (no open-file scoring any more)"] = refused
     finally:
         for p in sorted(base.rglob("*"), reverse=True):
             try:

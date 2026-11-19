@@ -43,7 +43,7 @@ def _verify(policy: Policy) -> str:
 
 def _drop_root(policy: Policy) -> str:
     """Become the ordinary agent user for good; '' when done (or when already not root), else why not. Sealed
-    held-out scoring (file rules off: it must read the sealed files, which only root can) keeps its user."""
+    held-out scoring is file-confined too since 2026-11-19 and becomes the scoring user the same way."""
     if not policy.restrict_fs or os.geteuid() != 0:
         os.environ.pop("ADAMAS_SANDBOX_UID", None)
         return ""

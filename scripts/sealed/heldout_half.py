@@ -101,6 +101,9 @@ def _key_of(node: str, sub: str) -> str | None:
     return f"{f}::{parts[-1].split('[', 1)[0]}"
 
 
+AUDIT: dict[str, int] = {}             # what the scored code tried in this process's scoring runs (counts by event)
+
+
 def run_functions(task: str, repo_src: Path, keys: list[str], file_timeout: int = 600) -> tuple[int, int]:
     """(passed, total) among ``keys`` on a scratch copy of ``repo_src`` (confined, scoring mode). A function passes
     when every one of its nodes passed (skips allowed, at least one pass); one that did not run fails."""
@@ -128,6 +131,8 @@ def run_functions(task: str, repo_src: Path, keys: list[str], file_timeout: int 
                                  cwd=repo, mode="scoring", role="heldout_half", capture_output=True, text=True,
                                  timeout=file_timeout, check=False, env=env)
                 stdout = p.stdout
+                for e in getattr(p, "scoring_audit", []):
+                    AUDIT[e["event"]] = AUDIT.get(e["event"], 0) + 1
             except subprocess.TimeoutExpired:
                 stdout = ""
             for line in stdout.splitlines():
@@ -171,9 +176,15 @@ def main() -> int:
         _emit(a.task, {"task": a.task, "seed": s["seed"], "feedback": len(s["halves"]["feedback"]),
                        "evaluation": len(s["halves"]["evaluation"])})
     elif a.cmd == "score":
-        _emit(a.task, {"task": a.task, "half": "feedback", "ratios": [feedback_ratio(a.task, Path(r)) for r in a.repos]})
+        ratios, audits = [], []
+        for r in a.repos:
+            AUDIT.clear()
+            ratios.append(feedback_ratio(a.task, Path(r)))
+            audits.append(dict(AUDIT))
+        _emit(a.task, {"task": a.task, "half": "feedback", "ratios": ratios, "audit": audits})
     elif a.cmd == "refcheck":
-        _emit(a.task, {"task": a.task, "half": "feedback", "reference_ratio": feedback_ratio(a.task, G.reference_root(a.task))})
+        _emit(a.task, {"task": a.task, "half": "feedback", "reference_ratio": feedback_ratio(a.task, G.reference_root(a.task)),
+                       "audit": dict(AUDIT)})
     else:
         stored = load_split(a.task)
         again = make_split(a.task, stored["seed"])

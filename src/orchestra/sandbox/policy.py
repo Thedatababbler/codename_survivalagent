@@ -344,25 +344,65 @@ def gate_policy(*, workspace: str | Path, private: str | Path, venv: str | Path 
                   list_dirs=list_only(venv))
 
 
-def scoring_policy() -> Policy:
-    """Held-out scoring: file access unchanged (no filesystem rules), network as for agents."""
-    return Policy(read=[], write=[], connect_ports=net_ports(), restrict_net=True, restrict_fs=False)
+def scoring_policy(*, cwd: str | Path, private: str | Path, venv: str | Path | None, audit_dir: str | Path | None = None,
+                   extra_read: list[str] | None = None) -> Policy:
+    """Sealed held-out scoring (user decision 2026-11-19): file rules ON. Readable: the system trees, the task's
+    interpreter, and ``cwd`` -- the scratch copy the sealed program made of the code being scored with this run's
+    held-out suite beside it. Writable: ``cwd`` and a private tmp. Nothing else of the machine; network as for agents."""
+    read = system_reads() + venv_reads(venv) + [str(ensure_netguard().parent)] + list(extra_read or [])
+    if audit_dir:
+        read.append(str(audit_dir))
+    return Policy(read=read, write=[str(cwd), str(Path(private) / "tmp"), *DEV_WRITE], connect_ports=net_ports(),
+                  list_dirs=list_only(venv))
 
 
-def confine_scoring(command: list[str], env: dict[str, str]) -> tuple[list[str], dict[str, str], Path | None]:
-    """Held-out scoring under the network rules only (sandbox spec A §1); file access as before."""
+SCORING_AUDIT_HOOK = Path(__file__).with_name("scoring_audit_hook.py")
+
+
+def confine_scoring(command: list[str], env: dict[str, str], *, cwd: str | Path | None = None,
+                    audit_fd: int | None = None) -> tuple[list[str], dict[str, str], Path | None]:
+    """Held-out scoring: confined to its scratch copy and run as the scoring user (``sandbox.scoring_uid``), never
+    as root. ``audit_fd``: the write end of a pipe on which the audit hook (loaded into the scoring interpreter
+    before any scored code) reports attempts to change permissions or to read outside the copy."""
     if not enforced():
         return command, env, None
+    if cwd is None:
+        raise SandboxRequiredError("held-out scoring needs the scratch copy it runs in (cwd); refusing to run with open file access")
+    import shutil
     import tempfile
 
+    cwd = Path(os.path.realpath(cwd))
     private = Path(tempfile.mkdtemp(prefix="adamas-score-"))
-    pol_path = write_policy(scoring_policy(), private / "policy.json")
-    out = launcher_env(dict(env))
+    (private / "tmp").mkdir()
+    audit = private / "audit"
+    audit.mkdir()
+    shutil.copyfile(SCORING_AUDIT_HOOK, audit / "sitecustomize.py")
+    os.chmod(audit, 0o755)
+    os.chmod(audit / "sitecustomize.py", 0o644)
+    py = Path(command[0])
+    venv = py.parent.parent if py.parent.name == "bin" and (py.parent.parent / "pyvenv.cfg").is_file() else None
+    extra = [str(py.parent)] if venv is None and py.is_absolute() else []
+    pol = scoring_policy(cwd=cwd, private=private, venv=venv, audit_dir=audit, extra_read=extra)
+    pol_path = write_policy(pol, private / "policy.json")
+    uid = scoring_uid()
+    base = dict(env)
+    base["PYTHONPATH"] = os.pathsep.join([str(audit), *[p for p in (base.get("PYTHONPATH") or "").split(os.pathsep) if p]])
+    base.update({"TMPDIR": str(private / "tmp"), "TMP": str(private / "tmp"), "TEMP": str(private / "tmp"),
+                 "PYTHONDONTWRITEBYTECODE": "1",
+                 "ADAMAS_SCORING_AUDIT_ROOTS": json.dumps(sorted({*pol.read, *pol.write})),
+                 "ADAMAS_SCORING_AUDIT_WRITE": json.dumps([str(cwd), str(private / "tmp")])})
+    if audit_fd is not None:
+        base["ADAMAS_SCORING_AUDIT_FD"] = str(int(audit_fd))
+    for k in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy"):
+        base.pop(k, None)
+    out = launcher_env(base, uid=uid)
     out["LD_PRELOAD"] = str(ensure_netguard())
+    grant(private / "tmp", uid=uid)
+    grant(cwd, uid=uid)
     full = [*launcher(pol_path), *command]
     from orchestra.sandbox.guard import assert_confined_launch
 
-    assert_confined_launch(full, out, role="heldout_scoring", allow_open_fs=True)
+    assert_confined_launch(full, out, role="heldout_scoring")
     return full, out, private
 
 
@@ -468,13 +508,23 @@ def agent_uid() -> int:
     return uid
 
 
+def scoring_uid() -> int:
+    """The ordinary user sealed scoring runs as (user decision 2026-11-19): not root, and not the agent user, so
+    the code being scored owns nothing of any agent's run either."""
+    uid = int((load_config().get("sandbox") or {}).get("scoring_uid") or 0)
+    if uid < 1000 or uid == agent_uid():
+        raise SandboxRequiredError("configs/sandbox.yaml: sandbox.scoring_uid must name an ordinary user (>= 1000) "
+                                   "other than agent_uid; refusing to run")
+    return uid
+
+
 def _reach_roots() -> list[str]:
     import tempfile
 
     return [os.path.realpath(tempfile.gettempdir()), os.path.realpath(str(ROOT / "outputs"))]
 
 
-def grant(path: str | Path) -> None:
+def grant(path: str | Path, *, uid: int | None = None) -> None:
     """Hand a directory the driver made for one confined run (a round's repository, a check's copy, a private tmp)
     to the agent user: owner of the tree. A directory above it that the agent user cannot pass and that the driver
     made itself (a 0700 temporary directory under the system tmp or under outputs/) gets the search bit for others;
@@ -482,7 +532,7 @@ def grant(path: str | Path) -> None:
     changed (CLAUDE.md, sandbox rule 7)."""
     if not enforced() or os.geteuid() != 0:
         return
-    uid = agent_uid()
+    uid = agent_uid() if uid is None else int(uid)
     top = Path(path)
     if not top.is_dir() or top.is_symlink():
         return
@@ -510,11 +560,11 @@ def grant(path: str | Path) -> None:
         anc = anc.parent
 
 
-def launcher_env(env: dict[str, str]) -> dict[str, str]:
+def launcher_env(env: dict[str, str], *, uid: int | None = None) -> dict[str, str]:
     """The launcher imports orchestra.sandbox before it confines itself; it is told which user to become."""
     out = dict(env)
     if enforced():
-        out["ADAMAS_SANDBOX_UID"] = str(agent_uid())
+        out["ADAMAS_SANDBOX_UID"] = str(agent_uid() if uid is None else int(uid))
     out["ADAMAS_SANDBOX_ORIG_PYTHONPATH"] = env.get("PYTHONPATH", "")
     out["PYTHONPATH"] = os.pathsep.join([str(ROOT / "src"), *[p for p in (env.get("PYTHONPATH") or "").split(os.pathsep) if p]])
     return out
@@ -597,7 +647,7 @@ def clean_private(private: Path) -> None:
 
 
 __all__ = [
-    "agent_uid", "grant",
+    "agent_uid", "scoring_uid", "grant",
     "CONFIG_PATH", "ENFORCED_ENV", "EXPLICIT_DENY", "SEALED_ARCHIVE_DIR", "SandboxRequiredError", "check_explicit_deny",
     "explicit_deny_paths", "TEST_UNCONFINED_ENV", "VENV_ENV", "agent_policy", "confine_command", "confine_scoring", "default_probes", "enforced", "ensure_netguard", "gate_policy",
     "git_dirs", "launcher", "launcher_env", "load_config", "net_ports", "private_env", "proxy_port", "scoring_policy",

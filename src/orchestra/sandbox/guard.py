@@ -98,8 +98,9 @@ def run_confined(cmd: list[str], *, cwd: str | Path, env: dict[str, str] | None 
 
     ``workspace``: file and network rules (the gate's policy: system trees, the
     interpreter's venv, paths named on the command line, ``cwd`` writable).
-    ``scoring``: network rules only, for sealed scripts that must read held-out
-    or reference files next to the code they run.
+    ``scoring``: sealed held-out scoring -- file and network rules, the scoring
+    user; readable is only ``cwd`` (the scratch copy of the code with this run's
+    held-out suite beside it), the system trees and the interpreter.
     """
     base = dict(os.environ if env is None else env)
     if not SB.enforced():                  # only inside a pytest test (policy._test_unconfined); never in a real run
@@ -108,8 +109,7 @@ def run_confined(cmd: list[str], *, cwd: str | Path, env: dict[str, str] | None 
         full, run_env, private = SB.confine_command(list(cmd), cwd=cwd, env=base)
         assert_confined_launch(full, run_env, role=role)
     elif mode == "scoring":
-        full, run_env, private = SB.confine_scoring(list(cmd), base)
-        assert_confined_launch(full, run_env, role=role, allow_open_fs=True)
+        return _run_scoring(list(cmd), cwd, base, role, kwargs)
     else:
         raise ValueError(f"mode must be workspace or scoring, not {mode!r}")
     try:
@@ -117,6 +117,59 @@ def run_confined(cmd: list[str], *, cwd: str | Path, env: dict[str, str] | None 
     finally:
         if private is not None:
             SB.clean_private(private)
+
+
+SCORING_AUDIT_LOG = SB.ROOT / "outputs" / "scoring_audit.jsonl"
+
+
+def _run_scoring(cmd: list[str], cwd: str | Path, base: dict[str, str], role: str, kwargs: dict[str, Any]) -> subprocess.CompletedProcess:
+    """Sealed scoring (user decision 2026-11-19): file rules on, the scoring user, and a record of what the scored
+    code tried. The record comes over a pipe the scored code cannot rewind; it is appended to
+    ``outputs/scoring_audit.jsonl`` and returned as ``.scoring_audit`` on the result."""
+    import threading
+    import time
+
+    r, w = os.pipe()
+    chunks: list[bytes] = []
+
+    def pump() -> None:
+        while True:
+            b = os.read(r, 65536)
+            if not b:
+                return
+            if sum(map(len, chunks)) < 4_000_000:
+                chunks.append(b)
+
+    th = threading.Thread(target=pump, daemon=True)
+    th.start()
+    private = None
+    try:
+        full, run_env, private = SB.confine_scoring(cmd, base, cwd=cwd, audit_fd=w)
+        assert_confined_launch(full, run_env, role=role)
+        p = subprocess.run(full, cwd=str(cwd), env=run_env, pass_fds=(w,), **kwargs)
+    finally:
+        os.close(w)
+        th.join(timeout=10)
+        os.close(r)
+        if private is not None:
+            SB.clean_private(private)
+    events = []
+    for line in b"".join(chunks).decode("utf-8", "replace").splitlines():
+        try:
+            e = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(e, dict) and e.get("event") in ("permission_change", "read_denied", "list_denied"):
+            events.append({"time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "role": role, "cwd": str(cwd),
+                           "event": e["event"], "level": "CRITICAL" if e["event"] == "permission_change" else "WARNING",
+                           "target": str(e.get("target"))[:300], "how": str(e.get("how"))[:80]})
+    if events:
+        SCORING_AUDIT_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with SCORING_AUDIT_LOG.open("a", encoding="utf-8") as fh:
+            for e in events:
+                fh.write(json.dumps(e) + "\n")
+    p.scoring_audit = events  # type: ignore[attr-defined]
+    return p
 
 
 __all__ = ["MIN_ABI", "SandboxRequiredError", "assert_confined_launch", "require_sandbox", "run_confined"]

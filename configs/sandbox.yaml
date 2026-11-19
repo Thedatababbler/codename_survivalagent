@@ -3,6 +3,9 @@
 # ADAMAS_SANDBOX_ENFORCED can turn it off (orchestra.sandbox.policy.enforced).
 sandbox:
   enforced: true           # fixed (sandbox-only rule, 2026-10-11); a false value makes every run refuse to start
+  # user decision 2026-11-19: every file-confined command (agents, sub-agents, the closing fix, driver runs of
+  # workspace code) runs as this ordinary user, which owns only the directories of its own run. No passwd entry.
+  agent_uid: 61234
   allow_loopback: true
   allow_external_network: false
   # user decision 2026-10-15: tasks whose dataset tests hard-code /tmp. Their gate tests (and held-out scoring, which

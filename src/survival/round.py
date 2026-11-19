@@ -90,6 +90,7 @@ class OwnedEnvironment(ConfinedEnvironment):
             moved = [w for w in pol.write if w == ws or w in gd]
             self.policy = replace(pol, read=[*pol.read, *moved], write=[w for w in pol.write if w not in moved])
             self.policy_path = SB.write_policy(self.policy, self.private / "policy.json")
+            self.preflight(writable=False)
 
     def execute(self, action: dict, cwd: str = "", *, timeout: int | None = None) -> dict[str, Any]:
         self.token.check(self.owner)

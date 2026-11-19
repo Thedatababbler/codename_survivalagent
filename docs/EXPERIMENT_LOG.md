@@ -40,3 +40,10 @@
 - **Decided by the user (2026-11-19):** agents run as an ordinary user that owns only the round's repository; the
   scanner flags `chmod`/`chown`/`chgrp`/`setfacl` outside the repository as CRITICAL; a start-up check that each
   agent can read and write its repository; a new sandbox rule in `CLAUDE.md`.
+- **Done 2026-11-19 (before any further run):** the launcher drops to `sandbox.agent_uid` (61234, owns nothing
+  else, no passwd entry) after the Landlock rules are in force and refuses to run if it cannot; `policy.grant`
+  hands the run's repository and private tmp to that user; `ConfinedEnvironment.preflight` checks read/write
+  (reviewer: read, no write) before the first command; scanner event `permission_change` (CRITICAL); prompts of
+  every agent (v0.3 and v0.2 `common.md`) say to stop and report; `CLAUDE.md` sandbox rule 7. Sealed scoring
+  (file rules off) still runs as the driver's user. Positive controls: v0.3 46/46, v0.2 81/81, sandbox self-check
+  11/11 (its AdaMAS-source probe now passes: the directory is refused to the agent user).

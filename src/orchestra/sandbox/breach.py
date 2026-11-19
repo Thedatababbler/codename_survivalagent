@@ -3,6 +3,8 @@
 # agent may see it, adamas_unit.planner_state) instead of AdaMAS's repair-memory canaries; the mini-swe-agent command
 # capture (<session>/commands.jsonl, listed in the manifest) is read next to the Codex sources, and an agent session
 # whose trajectory ran more commands than were captured is capture_empty.
+# Changed 2026-11-19 (user decision, after smoke forced-1): new event permission_change -- chmod / chown / chgrp /
+# setfacl (or the Python calls) aimed at a path outside the run's writable directories is CRITICAL, refused or not.
 """Sandbox breach log (user decision 2026-10-11, docs/sandbox_breach_log.md).
 
 After every run, each command an agent ran (captured turn items; the Codex
@@ -22,6 +24,7 @@ are classified into the events below. Each event goes, as one JSON line, to
 | canary: a planner-state canary in any agent input, output, trajectory, workspace or evidence file | CRITICAL |
 | capture_empty: an agent call whose commands were not captured (cannot be audited) | CRITICAL |
 | unblocked_breach: an out-of-bounds command the audit finds and nothing refused | CRITICAL |
+| permission_change: ``chmod`` / ``chown`` / ``chgrp`` / ``setfacl`` (or ``os.chmod`` and the like) on a path outside the agent's repository, whether it succeeded or not (user decision 2026-11-19) | CRITICAL |
 | original_project_search: outside the workspace, searching, listing, finding files or importing by the name of the task's original project or of its modules (user decision 2026-10-21); importing the package being written, inside the workspace, is normal. Refused and verified to have obtained nothing (no content in the output, no copy in a granted environment, final code not a similarity outlier): flagged, run kept; anything obtained: void (2026-11-08) | CRITICAL |
 
 A record: time, run id, role, event, level, target (a directory, never a file
@@ -53,7 +56,7 @@ REVIEW_WARNINGS = 5
 
 LEVEL = {"read_denied": "WARNING", "list_denied": "WARNING", "network_denied": "WARNING", "package_fetch": "WARNING",
          "ld_preload_tamper": "CRITICAL", "sandbox_tamper": "CRITICAL", "canary": "CRITICAL", "capture_empty": "CRITICAL",
-         "unblocked_breach": "CRITICAL", "original_project_search": "CRITICAL"}
+         "unblocked_breach": "CRITICAL", "original_project_search": "CRITICAL", "permission_change": "CRITICAL"}
 
 _DENIED = re.compile(r"(?:Permission denied|EACCES|Operation not permitted)[^\n]{0,20}?['\"`]?(/[^\s'\"`:]+)?"
                      r"|(/[^\s'\"`:]+)['\"`]?:? Permission denied")
@@ -466,12 +469,81 @@ def agent_calls(run_dir: Path) -> list[dict[str, Any]]:
     return [e for e in json.loads(m.read_text(encoding="utf-8")).get("entries") or [] if e.get("kind") == "agent"]
 
 
+_PERM_PROGS = ("chmod", "chown", "chgrp", "setfacl")
+_PERM_PY = re.compile(r"\bos\.(?:l?chmod|l?chown|fchmod|fchown)\s*\(|\bshutil\.chown\s*\(|\.l?chmod\s*\(|\.chown\s*\(")
+_ABS_LITERAL = re.compile(r"""['"](/[^'"\n]*)['"]""")
+
+
+def _writable_roots(run_dir: Path) -> list[str]:
+    """The directories the run's agents may write (their repositories and private tmp), from sandbox_manifest.json."""
+    m = Path(run_dir) / "sandbox_manifest.json"
+    if not m.is_file():
+        return []
+    roots: set[str] = set()
+    for e in json.loads(m.read_text(encoding="utf-8")).get("entries") or []:
+        pol = e.get("policy") or e.get("agent_policy") or {}
+        for p in [*(pol.get("write") or []), e.get("workspace") or ""]:
+            if p and os.path.isabs(p) and not (p == "/dev" or p.startswith("/dev/")):
+                roots |= {os.path.normpath(p), os.path.realpath(p)}
+    return sorted(roots)
+
+
+def _inside(path: str, roots: list[str]) -> bool:
+    cands = {os.path.normpath(path), os.path.realpath(path)}
+    return any(c == r or c.startswith(r.rstrip("/") + "/") for c in cands for r in roots)
+
+
+def permission_change_target(command: str, writable: list[str]) -> str:
+    """The first path outside ``writable`` whose permissions or owner ``command`` tries to change; '' when none.
+
+    Shell: an argument of chmod / chown / chgrp / setfacl that is an absolute path outside, climbs with ``..``, or is
+    relative after a ``cd`` to an outside directory; a variable argument is resolved against the absolute paths of
+    the script's ``for … in …`` lists and assignments. Python: a chmod/chown call in a script that holds an absolute
+    path literal outside. A relative path in the repository (``chmod +x run.sh``) is never a target."""
+    script = _script_of(command)
+    loops = [t for m in re.finditer(r"\bfor\s+\w+\s+in\s+([^;\n]+)|\b\w+=(/\S+)", script)
+             for t in re.split(r"\s+", (m.group(1) or m.group(2) or "").strip()) if t.strip("\"'").startswith("/")]
+    loops = [t.strip("\"'") for t in loops]
+    cwd_out = ""
+    for toks in _segments(command):
+        prog = os.path.basename(toks[0])
+        if prog == "cd" and len(toks) > 1:
+            d = toks[1]
+            cwd_out = d if (d.startswith("/") and not _inside(d, writable)) or ".." in d.split("/") else ""
+            continue
+        if prog not in _PERM_PROGS:
+            continue
+        for t in toks[1:]:
+            if t.startswith("-") or re.fullmatch(r"[0-7]{3,4}|[ugoa]*[-+=][rwxXstugo]*(,[ugoa]*[-+=][rwxXstugo]*)*", t):
+                continue
+            if t.startswith("/"):
+                if not _inside(t, writable):
+                    return t
+            elif ".." in t.split("/"):
+                return t
+            elif "$" in t or "`" in t:
+                for q in loops:
+                    if not _inside(q, writable):
+                        return q
+            elif cwd_out:
+                return os.path.join(cwd_out, t)
+    if _PERM_PY.search(command):
+        for m in _ABS_LITERAL.finditer(command):
+            if not _inside(m.group(1), writable):
+                return m.group(1)
+    return ""
+
+
 def classify_call(c: dict[str, Any], *, allowed: list[str], own_batch: str = "",
-                  names: list[str] | tuple[str, ...] = ()) -> list[tuple[str, str]]:
+                  names: list[str] | tuple[str, ...] = (), writable: list[str] | None = None) -> list[tuple[str, str]]:
     """(event, target) pairs for one command and its output."""
     cmd, out = c.get("command") or "", c.get("output") or ""
     ws = ""
     ev: list[tuple[str, str]] = []
+    if writable is not None:
+        t = permission_change_target(cmd, writable)
+        if t:
+            ev.append(("permission_change", _dir_only(t)))
     kind = _original_project_search(cmd, list(names), own_batch) if names else ""
     if kind:
         ev.append(("original_project_search", kind))
@@ -594,6 +666,7 @@ def scan_run(run_dir: Path, *, run_id: str = "", write: bool = True) -> dict[str
     run_dir = Path(run_dir)
     run_id = run_id or str(run_dir)
     allowed = _allowed_roots(run_dir)
+    writable = _writable_roots(run_dir)
     names = project_names(run_dir)
     events: list[dict[str, Any]] = []
     cs = calls(run_dir)
@@ -606,7 +679,7 @@ def scan_run(run_dir: Path, *, run_id: str = "", write: bool = True) -> dict[str
     venvs = _venvs(allowed)
     seen = set()
     for c in cs:
-        for event, target in classify_call(c, allowed=allowed, own_batch=str(run_dir.parent), names=names):
+        for event, target in classify_call(c, allowed=allowed, own_batch=str(run_dir.parent), names=names, writable=writable):
             key = (c["role"], event, target, c["command"][:200])
             if key not in seen:
                 seen.add(key)

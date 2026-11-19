@@ -31,6 +31,10 @@ from orchestra.sandbox.guard import assert_confined_launch, require_sandbox
 SUBMIT_MARKER = "COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"
 
 
+class WorkspaceAccessError(RuntimeError):
+    """The agent cannot use its own repository as its session requires: the run stops, nothing is diagnosed by an agent."""
+
+
 class ConfinedEnvironmentConfig(BaseModel):
     workspace: str
     role: str
@@ -54,11 +58,34 @@ class ConfinedEnvironment:
             env["PATH"] = f"{venv}/bin" + os.pathsep + env["PATH"]
         env["PYTEST_ADDOPTS"] = f"--rootdir={self.config.workspace} --confcutdir={self.config.workspace} -p no:cacheprovider"
         self.env = env
+        SB.grant(self.private)
+        self.preflight()
+
+    def preflight(self, *, writable: bool = True) -> None:
+        """Before the agent's first command (user decision 2026-11-19): the program itself confirms, through the
+        agent's own launcher, that the agent can read its repository (and write it, unless it is a read-only
+        session). If not, the run stops here with an error; an agent is never left to diagnose permissions."""
+        ws = self.config.workspace
+        SB.grant(ws)
+        probe = ".adamas_preflight"
+        cmd = "ls -A . >/dev/null || exit 11; " + (
+            f"echo ok > {probe} && cat {probe} >/dev/null && rm -f {probe} || exit 12" if writable
+            else f"if ( echo x > {probe} ) 2>/dev/null; then rm -f {probe}; exit 13; fi")
+        full = [*SB.launcher(self.policy_path), "/bin/bash", "-c", cmd]
+        assert_confined_launch(full, self.env, role=self.config.role)
+        try:
+            rc, out = _run(full, ws, self.env, 60)
+        except subprocess.TimeoutExpired:
+            rc, out = -1, "timed out"
+        if rc != 0:
+            what = {11: "cannot read", 12: "cannot write", 13: "can write (it must be read-only)"}.get(rc, f"check failed (exit {rc})")
+            raise WorkspaceAccessError(f"{self.config.role}: the agent {what} its repository {ws}: {out.strip()[-300:]}")
 
     def execute(self, action: dict, cwd: str = "", *, timeout: int | None = None) -> dict[str, Any]:
         command = action.get("command", "")
         full = [*SB.launcher(self.policy_path), "/bin/bash", "-c", command]
         assert_confined_launch(full, self.env, role=self.config.role)
+        SB.grant(self.config.workspace)          # files the driver wrote since (the memory file, a restored copy)
         t0 = time.time()
         try:
             rc, out = _run(full, cwd or self.config.workspace, self.env, timeout or self.config.timeout)

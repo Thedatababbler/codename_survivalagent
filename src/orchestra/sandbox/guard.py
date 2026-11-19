@@ -84,6 +84,8 @@ def assert_confined_launch(cmd: list[str], env: dict[str, str] | None, *, role: 
         raise SandboxRequiredError(f"{role}: policy leaves the network open")
     if not pol.get("restrict_fs", True) and not allow_open_fs:
         raise SandboxRequiredError(f"{role}: policy leaves the filesystem open (only sealed held-out scoring may)")
+    if pol.get("restrict_fs", True) and os.geteuid() == 0 and int((env or {}).get("ADAMAS_SANDBOX_UID") or 0) < 1000:
+        raise SandboxRequiredError(f"{role}: the command would run as root (no agent user in its launch environment)")
     pre = (env or {}).get("LD_PRELOAD", "")
     if str(SB.ensure_netguard()) not in pre.split(":"):
         raise SandboxRequiredError(f"{role}: LD_PRELOAD does not carry the network guard")

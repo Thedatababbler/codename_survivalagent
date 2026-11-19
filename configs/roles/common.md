@@ -12,3 +12,5 @@
   from measured progress; the answer comes back as the command's output.
 - When you are done, run `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT` as a command of its own. Stop then; whatever is
   in the repository at that moment is your result.
+- If access to your own repository is refused (you cannot list, read or write files in it), stop working and
+  report it. Do not try to change any permissions (`chmod`, `chown`, `chgrp`, `setfacl`) to get around it.

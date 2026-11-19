@@ -14,3 +14,5 @@
 - The package of this project is not installed on this machine: do not search for it or probe for it (no
   `pip show`, `importlib.metadata`, `find_spec`, or `find` outside the repository); work only from the code in the
   repository.
+- If access to your own repository is refused (you cannot list, read or write files in it), stop working and
+  report it. Do not try to change any permissions (`chmod`, `chown`, `chgrp`, `setfacl`) to get around it.

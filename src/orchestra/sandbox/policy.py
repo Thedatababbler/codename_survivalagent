@@ -421,6 +421,8 @@ def confine_command(command: list[str], *, cwd: str | Path, env: dict[str, str] 
     pol_path = write_policy(pol, private / "policy.json")
     env = launcher_env(private_env(private, base=base_env))
     env["ADAMAS_SANDBOXED"] = "1"
+    grant(private)
+    grant(cwd)
     full = [*launcher(pol_path), *command]
     from orchestra.sandbox.guard import assert_confined_launch
 
@@ -457,9 +459,62 @@ def launcher(policy_path: Path) -> list[str]:
     return [sys.executable, "-m", "orchestra.sandbox.exec", "--policy", str(policy_path), "--"]
 
 
+def agent_uid() -> int:
+    """The ordinary user every file-confined command runs as (user decision 2026-11-19). It owns nothing but the
+    directories ``grant`` hands it; it has no entry in /etc/passwd."""
+    uid = int((load_config().get("sandbox") or {}).get("agent_uid") or 0)
+    if uid < 1000:
+        raise SandboxRequiredError("configs/sandbox.yaml: sandbox.agent_uid must name an ordinary user (>= 1000); refusing to run")
+    return uid
+
+
+def _reach_roots() -> list[str]:
+    import tempfile
+
+    return [os.path.realpath(tempfile.gettempdir()), os.path.realpath(str(ROOT / "outputs"))]
+
+
+def grant(path: str | Path) -> None:
+    """Hand a directory the driver made for one confined run (a round's repository, a check's copy, a private tmp)
+    to the agent user: owner of the tree. A directory above it that the agent user cannot pass and that the driver
+    made itself (a 0700 temporary directory under the system tmp or under outputs/) gets the search bit for others;
+    any other impassable directory is an error -- permissions outside the driver's own directories are never
+    changed (CLAUDE.md, sandbox rule 7)."""
+    if not enforced() or os.geteuid() != 0:
+        return
+    uid = agent_uid()
+    top = Path(path)
+    if not top.is_dir() or top.is_symlink():
+        return
+    real = os.path.realpath(top)
+    roots = _reach_roots()
+    if not any(real.startswith(r + "/") for r in roots):
+        raise SandboxRequiredError(f"{real}: only a directory under the system tmp or outputs/ may be handed to the agent user")
+    for d, dirs, files in os.walk(real):
+        for n in [".", *dirs, *files]:
+            f = os.path.join(d, n) if n != "." else d
+            try:
+                if os.lstat(f).st_uid != uid:
+                    os.lchown(f, uid, uid)
+            except FileNotFoundError:
+                pass
+    anc = Path(real).parent
+    while str(anc) != "/":
+        st = anc.stat()
+        if not st.st_mode & 0o001:
+            mine = st.st_uid == 0 and any(str(anc).startswith(r + "/") for r in roots)
+            if not mine:
+                raise SandboxRequiredError(f"{anc}: the agent user cannot pass this directory and it is not the driver's "
+                                           "to change; stop and report (permissions outside the run are never modified)")
+            os.chmod(anc, st.st_mode | 0o001)
+        anc = anc.parent
+
+
 def launcher_env(env: dict[str, str]) -> dict[str, str]:
-    """The launcher imports orchestra.sandbox before it confines itself."""
+    """The launcher imports orchestra.sandbox before it confines itself; it is told which user to become."""
     out = dict(env)
+    if enforced():
+        out["ADAMAS_SANDBOX_UID"] = str(agent_uid())
     out["ADAMAS_SANDBOX_ORIG_PYTHONPATH"] = env.get("PYTHONPATH", "")
     out["PYTHONPATH"] = os.pathsep.join([str(ROOT / "src"), *[p for p in (env.get("PYTHONPATH") or "").split(os.pathsep) if p]])
     return out
@@ -542,6 +597,7 @@ def clean_private(private: Path) -> None:
 
 
 __all__ = [
+    "agent_uid", "grant",
     "CONFIG_PATH", "ENFORCED_ENV", "EXPLICIT_DENY", "SEALED_ARCHIVE_DIR", "SandboxRequiredError", "check_explicit_deny",
     "explicit_deny_paths", "TEST_UNCONFINED_ENV", "VENV_ENV", "agent_policy", "confine_command", "confine_scoring", "default_probes", "enforced", "ensure_netguard", "gate_policy",
     "git_dirs", "launcher", "launcher_env", "load_config", "net_ports", "private_env", "proxy_port", "scoring_policy",

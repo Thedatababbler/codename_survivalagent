@@ -201,6 +201,75 @@ def main() -> int:
         checks["A breach scan: every command of every session captured, no CRITICAL"] = (
             sb["critical"] == 0 and sb["commands"] >= 9)
 
+        # ------------------------------------------------------------------ the agent user (2026-11-19)
+        import stat as _stat
+        from adamas_unit.sandbox_env import WorkspaceAccessError
+        from orchestra.sandbox import policy as _SB
+        from survival.round import OwnedEnvironment
+        root_mode = _stat.S_IMODE(_os.stat("/root").st_mode)      # chmod to the mode it already has: a no-op if it worked
+        pu = Scripted([write("run.sh", "echo hi"),
+                       "chmod +x run.sh; echo own_rc=$?; test -x run.sh && echo own_x=yes; id -u",
+                       f"chmod {root_mode:o} /root; echo root_rc=$?",
+                       "python -c \"import os; os.chmod('/root/projects', 0o775)\"; echo py_rc=$?",
+                       write("toyq/__init__.py", ADD), "stage_done", "stage_done", "stage_done", "stage_done"])
+        ru = Round(task, base / "rounds" / "uid" / "toyq", cfg(), Models(agent=factory([pu])), skills, arm="pi0")
+        ru.run()
+        ou = "\n".join(observations(pu))
+        su = breach.scan_run(ru.run_dir, run_id="pc3-uid", write=False)
+        pc_events = [e for e in su["events"] if e["event"] == "permission_change"] if "events" in su else None
+        if pc_events is None:
+            cu = breach.calls(ru.run_dir)
+            wr = breach._writable_roots(ru.run_dir)
+            pc_events = [c for c in cu if breach.permission_change_target(c["command"], wr)]
+        checks["agent user: commands run as the ordinary user, not root"] = f"\n{_SB.agent_uid()}\n" in ou + "\n"
+        checks["agent user: chmod +x in its own repository succeeds and is not flagged"] = (
+            "own_rc=0" in ou and "own_x=yes" in ou and not any("run.sh" in str(e.get("command")) for e in pc_events))
+        checks["agent user: chmod /root fails (shell and Python) and /root is unchanged"] = (
+            "root_rc=1" in ou and "py_rc=1" in ou and _stat.S_IMODE(_os.stat("/root").st_mode) == root_mode)
+        checks["scanner: chmod on a path outside the repository is CRITICAL (the run is void)"] = (
+            len(pc_events) == 2 and su["critical"] >= 2 and su["void"])
+        wr0 = ["/x/run/ws", "/tmp/unit-a"]
+        pct = breach.permission_change_target
+        checks["scanner: permission_change cases (loop variable, cd outside, .., setfacl, Python; repository paths pass)"] = (
+            bool(pct("chmod 777 /root /root/projects /x/run/ws 2>&1; echo hi > a", wr0))
+            and bool(pct('for p in /x/run/ws /x/run; do chmod 777 "$p"; done', wr0))
+            and bool(pct("cd /x/run && chown root ws", wr0)) and bool(pct("chgrp staff ../other", wr0))
+            and bool(pct("setfacl -m u:1:rwx /etc", wr0))
+            and bool(pct("python - <<'EOF'\nimport os\nfor p in ['/x/run/ws', '/root']:\n os.chmod(p, 0o777)\nEOF", wr0))
+            and not pct("chmod +x run.sh scripts/a.sh; chmod -R u+rwX .; chmod 755 /x/run/ws/bin/tool", wr0)
+            and not pct("python -c \"import os; os.chmod('run.sh', 0o755)\"; ls /usr/bin", wr0)
+            and not pct('for f in scripts/*; do chmod +x "$f"; done', wr0))
+
+        # the start-up check: the program, not the agent, finds a repository the agent cannot use
+        pf = base / "rounds" / "preflight"
+        (pf / "ws").mkdir(parents=True)
+        from survival.agents import WriteToken as _WT
+        e_ok = OwnedEnvironment(token=_WT(), owner="x", workspace=str(pf / "ws"), role="executor", capture=str(pf / "c.jsonl"),
+                                venv=str(task.venv))
+        e_ro = OwnedEnvironment(token=_WT(), owner="x", read_only=True, workspace=str(pf / "ws"), role="review",
+                                capture=str(pf / "r.jsonl"), venv=str(task.venv))
+        refused = {}
+        for label, kw in (("unreadable", {"writable": True}), ("writable_for_reviewer", {"writable": False})):
+            env_x = e_ro if label == "unreadable" else e_ok
+            if label == "unreadable":                 # a policy without the repository: what forced-1 had
+                from dataclasses import replace as _rep
+                pol = env_x.policy
+                env_x.policy_path = _SB.write_policy(_rep(pol, read=[r for r in pol.read if r != str(pf / "ws")]),
+                                                     env_x.private / "policy_x.json")
+            try:
+                env_x.preflight(**kw)
+                refused[label] = False
+            except WorkspaceAccessError:
+                refused[label] = True
+        e_ok.close()
+        e_ro.close()
+        checks["start-up check: a repository the agent cannot read stops the run before any agent command"] = refused["unreadable"]
+        checks["start-up check: a reviewer whose repository is writable is refused"] = refused["writable_for_reviewer"]
+        from survival.round import role_text as _rt
+        from adamas_unit.sessions import role_prompt as _rp
+        checks["prompts: every agent is told to stop and report, and not to change permissions"] = all(
+            "Do not try to change any permissions" in t for t in (_rt("common"), _rp("importfix"), _rp("builder")))
+
         # ------------------------------------------------------------------ 3: call limits
         exl = Scripted(['subagent type=repair budget=0.05 task="a"', 'subagent type=repair budget=0.05 task="b"',
                         'subagent type=repair budget=0.05 task="c"', 'subagent type=review budget=0.05 task="d"',

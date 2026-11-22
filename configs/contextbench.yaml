@@ -1,0 +1,18 @@
+# ContextBench (docs/CONTEXTBENCH.md). Read-only checkout outside the project; never modified, never agent-readable.
+contextbench:
+  path: /root/reference/ContextBench
+  commit: fb533c18c78a82d3f1b2047a9c1700735cf829ae      # a run refuses to start on any other commit or a dirty tree
+  licence: Apache-2.0
+  budget_tokens: 32768            # user decision 2026-11-22: the paper's budget; usable = budget - reserve = 30720
+  reserve_tokens: 2048
+  prompt_tokens: 3000             # the feasibility gate's allowance for system prompt + instruction
+  sealed_dir: sealed/contextbench # instances and answers; mode 0700, ignored by git
+  # user decision 2026-11-22: seeds from 1000 up; the published seeds 42-49 (answers on GitHub / Hugging Face) are never used
+  min_seed: 1000
+  forbidden_seeds: [42, 43, 44, 45, 46, 47, 48, 49]
+  # only levels whose pressure is above 1 (the paper's names); sudoku tops out at t150 (8x)
+  levels:
+    kv_store: [R1000, R2000, R4000, R8000, R16000]
+    log_triage: [L1600, L3200, L6400, L12800]
+    needle_retention: [K4-C24, K8-C48, K8-C60, K4-C96, K2-C192, K2-C224]
+    sudoku_sketchpad: [t30, t60, t100, t150]

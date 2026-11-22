@@ -120,8 +120,15 @@ class ManagedAgent(DefaultAgent):
         self.no_submit = ""              # the executor has no submit command (it declares stages); the text it gets
         self.submit_hint = f"`echo {SUBMIT_MARKER}` as a command of its own"
         self.format_hints = 0
+        self.format_hint = ""            # what a reply without a tool call is told (empty: the submit-or-continue hint)
 
     # ------------------------------------------------------------------ what the subclasses change
+
+    def on_send(self, sent: list[dict]) -> None:
+        """Called with the message list of every model call, right before it is sent. Nothing here."""
+
+    def before_rewrite(self, why: str) -> None:
+        """Called before the message list is rewritten (a compaction, a roll-back). Nothing here."""
 
     def tokens_left(self) -> int:
         return self.ledger.quotas[self.quota_id].left()
@@ -182,6 +189,7 @@ class ManagedAgent(DefaultAgent):
                 raise _stop("TokensExhausted", "no tokens left for another call")
         self.n_calls += 1
         sent = list(self.messages)
+        self.on_send(sent)
         try:
             message = self.model.query(self.messages)
         except FormatError as e:
@@ -190,9 +198,9 @@ class ManagedAgent(DefaultAgent):
             self.window.calibrate(sent, p)
             self.format_hints += 1
             self.events.append({"event": "format_hint", "call": self.n_calls})
-            e.messages[0]["content"] = (str(e.messages[0].get("content") or "").rstrip()
-                                        + f"\n\nIf you want to submit, use the submit command ({self.submit_hint}); "
-                                          "if you want to continue, call a tool.")
+            e.messages[0]["content"] = (str(e.messages[0].get("content") or "").rstrip() + "\n\n" + (
+                self.format_hint or f"If you want to submit, use the submit command ({self.submit_hint}); "
+                                    "if you want to continue, call a tool."))
             raise
         p, c = usage_of(message)
         self.ledger.charge(p, c, quota_id=self.quota_id)
@@ -214,6 +222,7 @@ class ManagedAgent(DefaultAgent):
             if not self.window.over(self.messages):
                 return
         before = self.window.count(self.messages)
+        self.before_rewrite("rollback")
         dropped, after = self.window.roll_back(self.messages)
         self.window.pin_note(self.messages, self.window.rollback_text(len(dropped)))
         # a planner message fires once per crossing: undone with the turns, it would never come again
@@ -320,6 +329,7 @@ class ManagedAgent(DefaultAgent):
             text, p, c = self.summarizer(self.messages[2:cut])
             self.ledger.charge(p, c, quota_id=self.quota_id, what="compression")
             note = f"[Context compacted: summary of your earlier work in this session]\n{text}"
+        self.before_rewrite("compaction")
         self.messages = [*head, {"role": "user", "content": note}, *tail]
         self.window.reset_prefix(3)
         self.compactions += 1

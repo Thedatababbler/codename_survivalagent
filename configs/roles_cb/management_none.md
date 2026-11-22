@@ -1,0 +1,1 @@
+- When the conversation no longer fits the window, its oldest messages are dropped.

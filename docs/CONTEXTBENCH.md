@@ -188,3 +188,64 @@ ContextBench 用的 π_0 文档（如 `configs/cb_skills_pi0/`），不改 `memo
 每次运行的数字摘要：任务、档位、种子编号、得分及分项（`reward_lookup`、`reward_count` 等）、`terminated_by`、
 送达操作数 ÷ 总数、token 用量、压缩次数、回滚次数、峰值上下文、上下文占比随操作序号变化的轨迹、各触发条件触发的时刻。
 不含操作正文、智能体的回复、答案。
+
+## 6. 用户决定（2026-11-22）
+
+1. 窗口 32,768（可用 30,720），只用压力大于 1 的档位；数独最高档用 8 倍（t150）。在用的档位列在 `configs/contextbench.yaml`。
+2. 种子取 1000 以上，进化集与检验集不重叠；42–49 永不使用（代码拒绝）。
+3. 密封目录 `sealed/contextbench/`（0700，不进 git）。智能体不能读取、也不能运行 `/root/reference/ContextBench`；
+   智能体看不到当前实例的种子（任务说明、目录名、文件名、环境变量里都不出现；运行目录名是随机的）。
+4. 触发条件与超窗判定用未校准的 `o200k_base`（ContextBench 自己的计数函数）；记账与成本用服务端报告的 token 数。
+5. 结果只在三组之间比较，与论文数字不可比。
+6. `subagent-handoff` 冻结为"不交接"。π_0 的 90% 提醒照原定义。
+
+## 7. ContextBench 对使用文件系统的规定（核实结果）
+
+依据都在固定提交的检出目录里：
+
+| 任务 | 规定 | 依据 |
+|---|---|---|
+| `kv_store`、`log_triage` | **允许**把磁盘当草稿和存储（把一批内容写进文件，之后 `grep`）。但"找到"不算作答：答案必须打印成 ANSWER 块出现在上下文里。 | 任务说明原文（`tasks/<family>/scaffold.md`，"You MAY use the disk as scratch/storage, but FINDING a value … is NOT answering"）；可行性检查把"每批都写到磁盘、上下文里只留索引"当作理想策略（`feasibility.py`）；批次的起始标记本身写着 "offload this whole block this turn" |
+| `needle_retention` | 任务说明要求**不要写磁盘**，答案只从最终上下文读取。 | `scaffold.md`："There is no answer file; do not write to disk (disk is ignored by the grader)" |
+| `sudoku_sketchpad` | 任务说明要求**不要把棋盘写进文件**，评分只读上下文。 | `scaffold.md`："Grading reads your context window, not disk — do not write the board to a file" |
+
+- **没有任何强制手段。** 它自带的智能体（`harbor/agents/base.py`）给模型一个不受限的 `bash` 工具，磁盘状态在命令之间保留；
+  唯一被拿走的是操作流文件本身（读入后从容器里删除，智能体不能提前读）。后两个任务的"不要写磁盘"只是任务说明里的一句话，
+  评分器的做法是"磁盘上的东西不看"。
+- **操作只存在于对话里。** 要把一批内容存盘，智能体必须自己在命令里把它重新写一遍（论文各方法的说明都是用 heredoc 整批粘贴）。
+- **读回上下文的内容算数。** 评分器只看快照里的文字，不区分来源。实测（脚本模型）：`needle_retention` 里把关键行存盘、
+  最后一轮 `cat` 出来，得 1.0；只存盘不打印，只有最后几块的关键行，得 0.29。
+
+我们的实现与之一致：工作区在命令之间保留，智能体可以自由读写；任务说明用原文、不改；不加任何额外的禁止或检查；操作流不进工作区。
+
+## 8. 步骤 B 的实现（2026-11-22）
+
+| 文件 | 作用 |
+|---|---|
+| `configs/contextbench.yaml` | 检出位置、固定提交、预算、密封目录、种子与档位的限制 |
+| `src/survival/cb.py` | 唯一导入 `contextbench` 的地方：核对提交号与工作区干净、生成实例、送达对象、计数、快照、评分 |
+| `src/survival/cb_agent.py` | `StreamAgent`：v0.3 的 `ManagedAgent` 加上操作流、快照、三个组 |
+| `src/survival/cb_run.py` | 一次运行：沙盒环境、账本、规划者、评分、`result.json`、`digest.json` |
+| `configs/cb_skills_pi0/` | 这个设置的 π_0：75% 总结、90% 提醒一次、不交接；另外三个 skill 是仓库任务 π_0 的原样拷贝，永不触发 |
+| `configs/roles_cb/` | 系统提示词（结尾是 ContextBench 的标记说明原文）、总结用的提示词 |
+| `scripts/cb_run.py` | 运行入口（花额度） |
+| `scripts/positive_control_cb.py` | 正对照（不花额度），32 项 |
+
+`src/survival/agents.py` 只加了三个默认为空的钩子（发送前、改写前、无工具调用时的提示文字），仓库任务的行为不变，v0.3 正对照 64/64。
+
+与第 5 节设计相比，实现时定下的几点：
+
+- **每条回复只执行第一个工具调用**（与 ContextBench 自带智能体相同），保证一条回复最多推进一个操作。
+- **回滚不丢操作。** v0.3 的回滚会撤销最新的几条消息；已送达的操作不可能再送一次，所以回滚后把它放回上下文。
+  放回后仍超窗：有 skill 的组强制压缩，"无管理"组丢最早的消息；都不行才以 `budget_wall` 结束。
+- **"无管理"组**：没有规划者、没有 `compact` 命令、没有提醒；下一次请求放不下时，从最早的消息开始丢
+  （保留系统提示词和任务说明，工具结果不与它的调用分开）。
+- **记忆文件**：只有带 skill 的组有 `AGENT_MEMORY.md`，没有固定标题；智能体在上次压缩之后写过它，`compact` 就用它重建上下文，否则用总结。
+- **总结用的模型调用**看到任务说明和被替换的那段对话，提示词是通用的（`configs/roles_cb/summary.md`），不含任何任务策略。
+- **压缩次数的上限**设为 400（只是安全上限）。仓库任务的默认值 8 在这里一个高档位运行就会用完。
+- **非流结束的会话**记成 ContextBench 的结束原因：上下文无法挽回 → `budget_wall`；用量上限、步数上限、连续 10 次无工具调用 → `max_steps`。
+  v0.3 自己的退出状态另存在 `exit_status`。
+
+一个需要注意的现有行为：规划者的触发条件是"由假变真时触发一次"。π_0 在 75% 压缩时保留最近 6 轮；
+键值任务里 6 轮就是 6 批（约 29K），压缩之后上下文仍在 75% 以上，这条触发就不会再次触发，直到上下文超窗、回滚、强制压缩。
+脚本模型在 R1000 上的实测：2 次触发的压缩、2 次回滚、2 次提醒（都在 100% 处）。这是 v0.3 现有的规则，没有改。

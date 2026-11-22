@@ -51,3 +51,12 @@ started and no workspace code may be run in this project. Section format of rule
 - 运行：`scripts/v03_run_round.py`（一轮）、`scripts/v03_evolve.py`（进化）。都花额度，先报预计用量。
 - 上面的沙盒规定、密封规定、提交与推送先询问，对 v0.3 全部适用。回报时"沙盒越界警告"置顶。
 - 参考实现 `context-language-models` 是 CC BY-NC 4.0：只借鉴机制，不复制代码。
+
+## ContextBench 设置（2026-11-22 起）
+
+- 说明、来源、许可证、用户决定：`docs/CONTEXTBENCH.md`。代码仓库的多阶段实验暂停，代码保持不动。
+- ContextBench 在 `/root/reference/ContextBench`（Apache-2.0，固定提交见 `configs/contextbench.yaml`）：只读使用，不修改其中任何文件，不在里面留下任何文件（包括 `__pycache__`）；不重写它的生成器或评分器。
+- 实例与答案在 `sealed/contextbench/`（0700，不进 git）。智能体不得读到答案、检出目录、种子。种子取 1000 以上，42–49 永不使用；检验集在进化期间不运行、不读取。
+- 触发条件与超窗判定用未校准的 `o200k_base`；记账用服务端的 token 数。结果只在三组（π_0、无管理、进化后）之间比较，与论文数字不可比。
+- 正对照：改动这一设置的任何部分后先跑 `uv run python scripts/positive_control_cb.py`（不花额度）；改了 `src/survival/agents.py` 还要跑 v0.3 的正对照。
+- 运行：`scripts/cb_run.py`。花额度，先报预计用量。沙盒规定、提交与推送先询问，全部适用。

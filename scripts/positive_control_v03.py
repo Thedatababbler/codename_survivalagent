@@ -337,6 +337,20 @@ def main() -> int:
                                                               tests_delta=0, all_done=False))
         checks["10 pi_0: one reminder at 0.90 of the stage, framework compaction at 0.75 of the window, no suggestions"] = (
             fired == [[], [], [], [("token-reminder", "remind")], [("memory-compaction", "framework_compaction")], [], []])
+        # a trigger written `mode: while` fires before every call while its condition holds (user decision 2026-11-22)
+        mc = (PI0 / "memory-compaction" / "SKILL.md").read_text()
+        held = mc.replace("    action: framework_compaction\n", "    action: framework_compaction\n    mode: while\n")
+        plw = Planner(type(skills)({**skills.skills, "memory-compaction": parse_skill(held)}), ledp)
+        firedw = [[a.action for a in plw.tick(build_state(ledp, context_share=c, idle_steps=0, missing_delta=0, tests_delta=0,
+                                                           all_done=False)) if a.skill == "memory-compaction"] for c in (0.7, 0.76, 0.8, 0.3, 0.9)]
+        bad_mode = False
+        try:
+            parse_skill(mc.replace("    action: framework_compaction\n", "    action: framework_compaction\n    mode: sometimes\n"))
+        except SkillError:
+            bad_mode = True
+        checks["10 triggers: `once` fires on the crossing (pi_0, unchanged), `while` before every call above the line; other modes refused"] = (
+            held != mc and firedw == [[], ["framework_compaction"], ["framework_compaction"], [], ["framework_compaction"]]
+            and skills["memory-compaction"].triggers[0].mode == "once" and bad_mode)
         checks["10 pi_0: a top-up is approved up to the mechanical cap, never beyond (the later stage keeps its floor)"] = (
             got == ledp.events[-1]["cap"] and ledp.left() - (ledp.stage().allocation - ledp.stage().used) >= ledp.floor())
         judged = (PI0 / "budget-approval" / "SKILL.md").read_text().replace("mode: approve_within_cap", "mode: judge")

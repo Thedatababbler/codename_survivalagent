@@ -21,6 +21,7 @@ What differs from the repository executor, and why:
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -81,6 +82,71 @@ class StreamMemory(MEM.MemoryTracker):
         return [] if self.fresh else ["the memory file was not updated since the last compaction"]
 
 
+class DiskWatch:
+    """Whether task content was written to disk (the compliance figure of a run; user decision 2026-11-22).
+
+    needle_retention and sudoku_sketchpad tell the agent not to write to disk; kv_store and log_triage allow it.
+    The figure is recorded for every run all the same. After each command the files that changed in the working
+    directory and in the session's private directory are read; a file holds task content when it has a line of a
+    delivered operation (or of the instruction's starting board), one of the operations' ``#xxxxxxxx`` tags, or a
+    run of board tuples. The memory file is counted separately from other files."""
+
+    TAG = re.compile(r"#[0-9a-f]{8}\b")
+    TUPLES = re.compile(r"(?:\(\d+,\d+,[^)\s]\)\s*){8,}")
+    MAX_BYTES = 16_000_000
+
+    def __init__(self, roots: list[Path], memory: Path, skip: set[str] | None = None):
+        self.roots, self.memory, self.skip = [Path(r) for r in roots], Path(memory), skip or set()
+        self.lines: set[str] = set()
+        self.tags: set[str] = set()
+        self.sig: dict[str, tuple[int, int]] = {}
+        self.memory_file = self.other_files = False
+        self.first_call: int | None = None
+        self.checks = self.hits = 0
+
+    def add(self, text: str) -> None:
+        for ln in text.splitlines():
+            s = ln.strip()
+            if len(s) >= 16:
+                self.lines.add(s)
+        self.tags.update(self.TAG.findall(text))
+
+    def _has_content(self, text: str) -> bool:
+        if self.tags.intersection(self.TAG.findall(text)) or self.TUPLES.search(text):
+            return True
+        return any(ln.strip() in self.lines for ln in text.splitlines())
+
+    def check(self, call: int) -> None:
+        self.checks += 1
+        for root in self.roots:
+            for p in root.rglob("*"):
+                try:
+                    if p.is_symlink() or not p.is_file() or p.name in self.skip:
+                        continue
+                    st = p.stat()
+                    sig = (st.st_mtime_ns, st.st_size)
+                    if self.sig.get(str(p)) == sig:
+                        continue
+                    self.sig[str(p)] = sig
+                    if st.st_size > self.MAX_BYTES:
+                        continue
+                    if not self._has_content(p.read_text(encoding="utf-8", errors="replace")):
+                        continue
+                except OSError:
+                    continue
+                self.hits += 1
+                if p == self.memory:
+                    self.memory_file = True
+                else:
+                    self.other_files = True
+                if self.first_call is None:
+                    self.first_call = call
+
+    def record(self) -> dict[str, Any]:
+        return {"task_content_on_disk": self.memory_file or self.other_files, "in_memory_file": self.memory_file,
+                "in_other_files": self.other_files, "first_call": self.first_call}
+
+
 class StreamEnvironmentMixin:
     """Records the last command and its exit code; a submit marker is an ordinary command here (the stream decides
     whether the run may end)."""
@@ -112,6 +178,8 @@ class StreamAgent(ManagedAgent):
         self.trace: list[dict[str, Any]] = []
         self.format_hint = CB.texts()["no_tool_call"]
         self._started = False
+        self.disk = DiskWatch([self.ws, Path(getattr(env, "private", self.ws))], MEM.memory_path(self.ws), skip={"policy.json"})
+        self.cached_tokens = 0
 
     # ------------------------------------------------------------------ state, readout, budget
 
@@ -161,7 +229,10 @@ class StreamAgent(ManagedAgent):
             if first is None:
                 raise _stop("StreamEnded", "the stream is empty")
             self._deliver([first])
-        return super().query()
+        message = super().query()
+        usage = ((message.get("extra") or {}).get("response") or {}).get("usage") or {}
+        self.cached_tokens += int((usage.get("prompt_tokens_details") or {}).get("cached_tokens") or 0)
+        return message
 
     def before_call(self) -> None:
         if self.planner is None:
@@ -262,6 +333,7 @@ class StreamAgent(ManagedAgent):
 
     def _deliver(self, texts: list[str]) -> None:
         for t in texts:
+            self.disk.add(t)
             self.add_messages({"role": "user", "content": t, "extra": {STREAM: True}})
 
     def execute_actions(self, message: dict) -> list[dict]:
@@ -275,6 +347,7 @@ class StreamAgent(ManagedAgent):
         added = super().execute_actions(message)
         if self.env.last is not None:
             cmd, code = self.env.last
+            self.disk.check(self.n_calls)               # before the next operation is known: what this command wrote
             self._deliver(self.source.pending(cmd, code, turn=self.n_calls))
         if self.source.done:
             raise _stop("StreamEnded", f"the stream ended ({self.source.terminated_by})")
@@ -282,4 +355,4 @@ class StreamAgent(ManagedAgent):
 
     def record(self) -> dict[str, Any]:
         return {**super().record(), "truncations": self.truncations, "dropped_by_truncation": self.dropped_by_truncation,
-                "snapshots": self.snap_step, "trace": self.trace}
+                "snapshots": self.snap_step, "trace": self.trace, "disk": self.disk.record(), "cached_tokens": self.cached_tokens}

@@ -64,7 +64,8 @@ framework replaces the older turns by a summary; request_compaction -> the execu
 file and compact; force_compaction -> the program compacts now (from the memory file when it is fresh and
 use_memory is true, else a summary); suggest_handoff / suggest_review / suggest_repair -> the executor is advised
 to call that sub-agent, with a quota of the given share of what the stage has left. A trigger fires when its
-condition turns true and is armed again when it turns false. completion-check is different: it is asked each time
+condition turns true and is armed again when it turns false (mode: once, the default), or before every call for as
+long as its condition holds (mode: while). completion-check is different: it is asked each time
 the executor declares a stage done (declaring the last stage submits the repository), and its triggers whose condition holds are gone
 through in order: one that is satisfied passes on to the next, the first that is not holds the declaration (accept,
 or the end of the list, accepts). accept -> the declaration goes on; prompt_continue -> the
@@ -76,7 +77,7 @@ requirement is dropped after max_refusals refusals. budget-approval has no trigg
 approve_within_cap grants what is asked up to max_grant_share of the mechanical cap; mode judge lets a planner
 model decide from the skill's text.
 
-A SKILL document has a YAML header (name, description, triggers: [{{when, action}}], params) and a body with exactly
+A SKILL document has a YAML header (name, description, triggers: [{{when, action, mode (optional: once | while)}}], params) and a body with exactly
 these four sections: {", ".join("## " + s for s in SECTIONS)}.
 "What to do" and "Checking it worked" are sent to the executor when a trigger of the skill fires; "Reading the
 readout" is in the executor's instructions from the start; "Mechanism" is for the planner model.

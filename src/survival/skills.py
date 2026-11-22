@@ -1,7 +1,9 @@
 """Planner skills: the documents that drive the planner, and what evolves (refactor §4).
 
 A skill is ``memory/planner/skills/<name>/SKILL.md``: a YAML header the program executes (``triggers``: a condition
-over the planner state and the action it fires; ``params``) and a body of four sections that is injected, part by
+over the planner state, the action it fires and, optionally, ``mode``: ``once`` -- the default: the trigger fires
+when its condition turns true and is armed again when it turns false -- or ``while``: it fires before every call
+for as long as the condition holds (user decision 2026-11-22); ``params``) and a body of four sections that is injected, part by
 part, into prompts:
 
 - ``## Mechanism``            -> the planner model's judgment calls (with the rest of the body);
@@ -87,6 +89,10 @@ class Trigger:
     when: str
     action: str
     tree: ast.Expression = field(compare=False, repr=False)
+    mode: str = "once"               # "once": on the crossing; "while": before every call while the condition holds
+
+
+TRIGGER_MODES = ("once", "while")
 
 
 @dataclass(frozen=True)
@@ -247,15 +253,19 @@ def parse_skill(text: str, *, name: str | None = None, forbidden: set[str] | Non
     schema = SCHEMA[nm]
     triggers = []
     for t in head.get("triggers") or []:
-        if not isinstance(t, dict) or set(t) - {"when", "action"} or "when" not in t or "action" not in t:
-            problems.append(f"trigger {t!r}: needs exactly 'when' and 'action'")
+        if not isinstance(t, dict) or set(t) - {"when", "action", "mode"} or "when" not in t or "action" not in t:
+            problems.append(f"trigger {t!r}: needs 'when' and 'action' (and may have 'mode')")
+            continue
+        mode = t.get("mode", "once")
+        if mode not in TRIGGER_MODES:
+            problems.append(f"trigger mode {mode!r} is not one of {', '.join(TRIGGER_MODES)}")
             continue
         if t["action"] not in schema["actions"]:
             problems.append(f"action {t['action']!r} is not an action of {nm} ({', '.join(schema['actions']) or 'none'})")
         tree, bad = parse_condition(t["when"])
         problems += bad
         if tree is not None:
-            triggers.append(Trigger(when=str(t["when"]), action=str(t["action"]), tree=tree))
+            triggers.append(Trigger(when=str(t["when"]), action=str(t["action"]), tree=tree, mode=str(mode)))
     params = head.get("params") or {}
     if not isinstance(params, dict):
         problems.append("params is not a mapping")

@@ -1,16 +1,17 @@
 ---
 name: memory-compaction
-description: Baseline. The framework summarises the older conversation when the context is three quarters full.
+description: Baseline. The framework summarises the older conversation whenever the context is three quarters full.
 triggers:
   - when: "context >= 0.75"
     action: framework_compaction
+    mode: while
 params:
   keep_recent_turns: 6
   use_memory: false
 ---
 ## Mechanism
-The executor's context has a fixed window and the input it is given is larger than the window. When the context
-reaches the trigger, the framework replaces the older turns with a summary written by a separate model call and
+The executor's context has a fixed window and the input it is given is larger than the window. Before every call for as long as the
+context is at or above the trigger, the framework replaces the older turns with a summary written by a separate model call and
 keeps the most recent turns as they are. Each compaction takes one from the run's compaction pool; the summary
 call's tokens are charged to the run. The memory file is not required first.
 

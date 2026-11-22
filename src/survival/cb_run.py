@@ -38,6 +38,7 @@ ROOT = Path(__file__).resolve().parents[2]
 ROLES = ROOT / "configs" / "roles_cb"
 OUT = ROOT / "outputs" / "cb"
 CONTEXT_SKILLS = ("memory-compaction", "token-reminder", "subagent-handoff")
+DISK_FORBIDDEN = ("needle_retention", "sudoku_sketchpad")   # their instructions say: do not write to disk
 
 # how a session that the stream did not end is recorded in ContextBench's terms
 ENDINGS = {"ContextExhausted": "budget_wall", "RollbackLimit": "budget_wall", "RoundBudgetExhausted": "max_steps",
@@ -98,7 +99,7 @@ def digest(result: dict[str, Any]) -> dict[str, Any]:
             "reward": r["reward"], "rewards": keep_rewards, "graded_from": r["graded_from"],
             "terminated_by": r["terminated_by"], "exit_status": r["exit_status"],
             "ops_delivered": r["ops_delivered"], "ops_total": r["ops_total"],
-            "tokens": r["tokens"], "counts": r["counts"], "context": r["context"],
+            "tokens": r["tokens"], "counts": r["counts"], "context": r["context"], "compliance": r["compliance"],
             "planner_fired": [{"skill": f["skill"], "action": f["action"], "context": f["state"]["context"], "tick": f["tick"]}
                               for f in r["planner_fired"]],
             "events": [{k: e[k] for k in ("event", "call", "ops", "why", "from_memory", "dropped") if k in e} for e in r["events"]],
@@ -147,6 +148,7 @@ def run(family: str, level: str, seed: int, *, arm: str, round_id: str, cfg: Run
                         system_template="{{system_text}}", instance_template="{{task}}", context_window=CB.usable(),
                         max_rollbacks=cfg.max_rollbacks, rollback_limit=cfg.rollback_limit, keep_recent=cfg.keep_recent,
                         max_steps=max_steps, max_output_chars=cfg.max_output_chars)
+    agent.disk.add(instruction[instruction.find("<<<SKETCHPAD BEGIN>>>", instruction.find("STARTING")):] if family == "sudoku_sketchpad" else "")
     out: dict[str, Any] = {}
     crashed = ""
     try:
@@ -177,7 +179,9 @@ def run(family: str, level: str, seed: int, *, arm: str, round_id: str, cfg: Run
               "ops_delivered": source.n_delivered, "ops_total": source.n_total,
               "tokens": {"prompt": led["used"], "completion": sum(e["completion_tokens"] for e in charges),
                          "summary_prompt": sum(e["prompt_tokens"] for e in charges if e["what"] == "compression"),
-                         "cap": cfg.tokens},
+                         "cached": rec["cached_tokens"], "cap": cfg.tokens},
+              "compliance": {**rec["disk"], "disk_forbidden_by_task": family in DISK_FORBIDDEN,
+                             "violation": family in DISK_FORBIDDEN and rec["disk"]["task_content_on_disk"]},
               "counts": {"calls": rec["calls"], "steps": rec["steps"], "free_turns": rec["free_turns"],
                          "format_hints": rec["format_hints"], "compactions": rec["compactions"],
                          "compactions_from_memory": sum(1 for e in rec["events"] if e.get("event") == "compaction" and e.get("from_memory")),

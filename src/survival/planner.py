@@ -2,7 +2,7 @@
 
 ``state`` builds what the planner sees (§4.1: ratios, counts and flags, nothing of the task). ``tick`` evaluates
 every skill's triggers on it before each executor call; a trigger fires when its condition turns true and is armed
-again when it turns false. Requests that need a judgment (how much of a top-up, how large a quota) are one model
+again when it turns false (mode ``once``), or before every call while its condition holds (mode ``while``). Requests that need a judgment (how much of a top-up, how large a quota) are one model
 call with the skill's body, the state and the cap as input, cut to the cap; the planner's own tokens are booked on
 the management side account, never on the round's budget (§4.4).
 """
@@ -95,10 +95,10 @@ class Planner:
                 was = self._armed.get(key, False)
                 self._armed[key] = on
                 repeat = bool(skill.params.get("repeat")) and on and self.ticks - self._last_repeat.get(key, -10**9) >= 5
-                if on and (not was or repeat):
+                if on and (not was or repeat or t.mode == "while"):
                     self._last_repeat[key] = self.ticks
                     out.append(Action(skill=name, action=t.action, text=self.message(name, t.action, state)))
-                    self.fired.append({"tick": self.ticks, "skill": name, "action": t.action, "when": t.when,
+                    self.fired.append({"tick": self.ticks, "skill": name, "action": t.action, "when": t.when, "mode": t.mode,
                                        "state": {k: state[k] for k in ("stage_tokens", "round_tokens", "context")},
                                        "stage": self.ledger.current})
         return out

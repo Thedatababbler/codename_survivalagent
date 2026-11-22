@@ -25,12 +25,13 @@ from orchestra.sandbox import breach  # noqa: E402
 from orchestra.sandbox.guard import require_sandbox  # noqa: E402
 from survival import cb as CB  # noqa: E402
 from survival import cb_run as RUN  # noqa: E402
+from survival import cb_select as SEL  # noqa: E402
 from survival.cb_agent import STREAM, StreamEnvironmentMixin  # noqa: E402
 from survival.agents import WriteToken  # noqa: E402
 from survival.ledger import Limits, RoundLedger  # noqa: E402
 from survival.planner import Planner, build_state  # noqa: E402
 from survival.round import OwnedEnvironment  # noqa: E402
-from survival.skills import load_skillset  # noqa: E402
+from survival.skills import SkillError, load_skillset, parse_skill  # noqa: E402
 
 SEED = 999001
 READY = "echo READY_FOR_NEXT_OP"
@@ -100,14 +101,14 @@ def main() -> int:
     skills = load_skillset(PI0)
     fake_summary = lambda msgs: ("SUMMARY-OF-EARLIER-TURNS", 1234, 56)  # noqa: E731
 
-    def go(family, level, policy, *, arm="none", seed=SEED, served=1.0, tokens=30_000_000, **cfg):
+    def go(family, level, policy, *, arm="none", seed=SEED, served=1.0, tokens=30_000_000, complete=None, **cfg):
         made: list[Scripted] = []
 
         def model():
             made.append(Scripted(policy, served))
             return made[-1]
         r = RUN.run(family, level, seed, arm=arm, round_id="pc", cfg=RUN.RunConfig(tokens=tokens, **cfg), agent_model=model,
-                    complete=fake_summary, skills=None if arm == "none" else skills, skills_id="" if arm == "none" else "cb_pi0",
+                    complete=complete or fake_summary, skills=None if arm == "none" else skills, skills_id="" if arm == "none" else "cb_pi0",
                     out_root=out_root)
         return r, made[0], out_root / "pc" / r["run"]
 
@@ -243,22 +244,48 @@ def main() -> int:
         pl = Planner(skills, led)
         st = lambda c: build_state(led, context_share=c, idle_steps=0, missing_delta=0, tests_delta=0, all_done=False)  # noqa: E731
         f = [[(a.skill, a.action) for a in pl.tick(st(c))] for c in (0.74, 0.76, 0.80, 0.50, 0.91, 0.95, 0.50, 0.90)]
-        checks["pi_0 triggers: nothing below 75%, a summary at 75%, one reminder at 90% (once per crossing)"] = f == [
-            [], [("memory-compaction", "framework_compaction")], [], [],
-            [("token-reminder", "remind"), ("memory-compaction", "framework_compaction")], [], [],
-            [("token-reminder", "remind"), ("memory-compaction", "framework_compaction")]]
+        C = ("memory-compaction", "framework_compaction")
+        checks["pi_0 triggers: nothing below 75%; a summary before every call at or above 75%; one reminder per crossing of 90%"] = f == [
+            [], [C], [C], [], [("token-reminder", "remind"), C], [C], [], [("token-reminder", "remind"), C]]
+        doc = (PI0 / "memory-compaction" / "SKILL.md").read_text()
+        once = parse_skill(doc.replace("    mode: while\n", ""), name="memory-compaction")
+        bad = 0
+        try:
+            parse_skill(doc.replace("mode: while", "mode: always"), name="memory-compaction")
+        except SkillError:
+            bad = 1
+        checks["a trigger is written `once` (default) or `while`; anything else is refused"] = (
+            skills["memory-compaction"].triggers[0].mode == "while" and once.triggers[0].mode == "once"
+            and skills["token-reminder"].triggers[0].mode == "once" and bad == 1)
 
         r9, m9, rd9 = go("kv_store", "R1000", kv_right, arm="pi0")
         s9 = snapshots(rd9)
         comp = [e for e in r9["events"] if e["event"] == "compaction"]
         fired9 = [x for x in r9["planner_fired"] if x["action"] == "framework_compaction"]
-        checks["pi_0 run: the framework summarises when the context reaches 75%"] = (
-            bool(fired9) and all(0.75 <= x["state"]["context"] for x in fired9) and len(comp) >= len(fired9) > 0
+        checks["pi_0 run: the framework summarises when the context is at or above 75%"] = (
+            bool(fired9) and all(0.75 <= x["state"]["context"] and x["mode"] == "while" for x in fired9) and len(comp) >= 2
             and "SUMMARY-OF-EARLIER-TURNS" in all_text(s9) and r9["tokens"]["summary_prompt"] == 1234 * r9["counts"]["compactions"]
             and r9["counts"]["truncations"] == 0)
         checks["pi_0 run: a `turn` snapshot before every compaction and roll-back; answers given before a compaction still count"] = (
             len([s for s in s9 if s["kind"] == "turn"]) == r9["counts"]["compactions"] + r9["counts"]["rollbacks"] and r9["reward"] == 1.0)
         notes["pi0 scripted kv R1000"] = {k: r9["counts"][k] for k in ("compactions", "rollbacks", "reminders", "calls")}
+
+        # a summary that leaves the context above the line: the next call compacts again (mode `while`)
+        big = "zebra orbit meadow cobalt\n" * 4200
+        calls_s: list[int] = []
+
+        def fat_then_thin(msgs):
+            calls_s.append(1)
+            return (big if len(calls_s) == 1 else "SHORT-SUMMARY", 1000, 10)
+
+        r9b, m9b, rd9b = go("log_triage", "L1600", lambda ms, n: READY, arm="pi0", complete=fat_then_thin)
+        c9b = [e for e in r9b["events"] if e["event"] == "compaction"]
+        tr = {t["call"]: t["context"] / CB.usable() for t in r9b["trace"]}
+        notes["while-mode: first two compactions at calls"] = [e["call"] for e in c9b[:2]]
+        notes["while-mode: context sent after the first, after the second"] = [round(tr[c9b[0]["call"] + 1], 3), round(tr[c9b[1]["call"] + 1], 3)]
+        checks["pi_0 run: a compaction that leaves the context above 75% is followed by another before the next call"] = (
+            len(c9b) >= 2 and c9b[1]["call"] - c9b[0]["call"] == 1 and all(e["why"] == "framework_compaction" for e in c9b[:2])
+            and tr[c9b[0]["call"] + 1] >= 0.75 and tr[c9b[1]["call"] + 1] < 0.75 and r9b["counts"]["rollbacks"] == 0)
 
         base = CB.count([{"role": "system", "content": RUN.system_text("pi0", skills)}, {"role": "user", "content": kv.instruction()}])
 
@@ -313,6 +340,33 @@ def main() -> int:
         r16, _, _ = go("needle_retention", "K4-C24", lambda ms, n: needle_disk(ms, n).replace("cat kept.txt\n", ""))
         checks["needle: lines printed into the final context count (1.0); lines left on disk do not"] = r15["reward"] == 1.0 and r16["reward"] < 0.5
         notes["needle scripted"] = {"drop_oldest": r14["reward"], "disk_then_print": r15["reward"], "disk_only": r16["reward"]}
+
+        # ---------------------------------------------------------------- compliance: task content on disk
+        def needle_memory(messages, n):
+            lines = [x for x in last_op(messages).splitlines() if re.match(r"^\[n\d+i\d+#", x)]
+            return "cat >> AGENT_MEMORY.md <<'EOF'\n" + "\n".join(lines) + "\nEOF\n" + READY
+
+        r17, _, _ = go("needle_retention", "K4-C24", needle_memory, arm="pi0")
+        board = " ".join(f"(1,{c},.)" for c in range(1, 17))
+        r18, _, _ = go("sudoku_sketchpad", "t30", lambda ms, n: (f"echo '{board}' > board.txt; {READY}" if n == 0 else READY))
+        r19, _, _ = go("sudoku_sketchpad", "t30", lambda ms, n: f"echo note {n} > notes.txt; {READY}")
+        comp_of = lambda x: x["compliance"]  # noqa: E731
+        checks["compliance is recorded: task content in a file or in the memory file, and whether the task forbids it"] = (
+            comp_of(r14) == {"task_content_on_disk": False, "in_memory_file": False, "in_other_files": False, "first_call": None,
+                             "disk_forbidden_by_task": True, "violation": False}
+            and comp_of(r15)["violation"] and comp_of(r15)["in_other_files"] and not comp_of(r15)["in_memory_file"] and comp_of(r15)["first_call"] == 1
+            and comp_of(r17)["violation"] and comp_of(r17)["in_memory_file"] and not comp_of(r17)["in_other_files"]
+            and comp_of(r18)["violation"] and not comp_of(r19)["violation"] and not comp_of(r19)["task_content_on_disk"]
+            and comp_of(r3)["task_content_on_disk"] and comp_of(r3)["in_memory_file"] and not comp_of(r3)["violation"]
+            and not comp_of(r3)["disk_forbidden_by_task"] and not comp_of(r)["task_content_on_disk"])
+        checks["selection: more violations than pi_0 on the two disk-forbidding tasks discards a combination; kv/log do not count"] = (
+            SEL.violation_rate([r14, r19]) == 0.0 and SEL.violation_rate([r14, r15]) == 0.5 and SEL.violation_rate([r3, r4]) is None
+            and SEL.discarded_for_compliance([r14, r15], [r14, r19]) and not SEL.discarded_for_compliance([r14, r19], [r14, r19])
+            and not SEL.discarded_for_compliance([r14, r15], [r15, r14]) and not SEL.discarded_for_compliance([r3, r4], [r14])
+            and SEL.discarded_for_compliance([r15, r3], [r14]))
+        rules = SEL.evolver_rules()
+        checks["the evolver's rules say a skill must not tell the executor to break its task instructions"] = (
+            "must not tell the executor to do what its task instructions forbid" in rules and "discarded" in rules)
 
         # ---------------------------------------------------------------- the agent cannot reach the answers, the checkout or the seed
         ws = out_root / "probe" / "ws"

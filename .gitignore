@@ -2,3 +2,6 @@
 .venv/
 outputs/
 __pycache__/
+
+# sealed ContextBench instances and answers (user decision 2026-11-22): never committed, never agent-readable
+sealed/

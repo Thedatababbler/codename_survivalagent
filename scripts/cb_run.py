@@ -55,7 +55,8 @@ def main() -> int:
         if a.batch_tokens and used >= a.batch_tokens:
             stop = f"batch cap reached ({used} of {a.batch_tokens})"
             break
-        r = RUN.run(fam, lv, seed, arm=a.arm, round_id=a.round, cfg=RUN.RunConfig(tokens=a.tokens, seconds=a.seconds),
+        cap = min(a.tokens, a.batch_tokens - used) if a.batch_tokens else a.tokens    # a run never takes the batch past its cap
+        r = RUN.run(fam, lv, seed, arm=a.arm, round_id=a.round, cfg=RUN.RunConfig(tokens=cap, seconds=a.seconds),
                     agent_model=agent_model, complete=complete, skills=skills, skills_id="" if a.arm == "none" else a.skills_id,
                     rep=rep)
         run_dir = RUN.OUT / a.round / r["run"]
@@ -65,6 +66,8 @@ def main() -> int:
         line = {"run": r["run"], "family": fam, "level": lv, "seed": seed, "arm": a.arm, "rep": rep, "reward": r["reward"],
                 "terminated_by": r["terminated_by"], "exit_status": r["exit_status"], "ops": f"{r['ops_delivered']}/{r['ops_total']}",
                 "prompt_tokens": r["tokens"]["prompt"], "completion_tokens": r["tokens"]["completion"],
+                "cached_tokens": r["tokens"]["cached"], "summary_prompt_tokens": r["tokens"]["summary_prompt"],
+                "compliance": r["compliance"],
                 **{k: r["counts"][k] for k in ("calls", "compactions", "rollbacks", "truncations", "reminders", "format_hints")},
                 "peak_o200k": r["context"]["peak_o200k"], "served_per_o200k": r["context"]["served_per_o200k"],
                 "graded_from": r["graded_from"], "void": s["void"], "warning": s["warning"], "critical": s["critical"],
@@ -78,7 +81,7 @@ def main() -> int:
         if r["graded_from"] != "snapshots" or r["grader_valid"] != 1.0:
             stop = f"run {r['run']}: the grader did not grade from snapshots"
             break
-        if r["tokens"]["prompt"] >= a.tokens:
+        if r["exit_status"] in ("TokensExhausted", "RoundBudgetExhausted"):
             stop = f"run {r['run']} used its whole cap"
             break
     print(breach.report_section(scans))

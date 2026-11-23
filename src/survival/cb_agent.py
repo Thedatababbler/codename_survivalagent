@@ -15,6 +15,11 @@ What differs from the repository executor, and why:
   (arm ``none``);
 - snapshots for the graders, written by ContextBench's ``record_snapshot``: the context of every model call right
   before it is sent (``sent``), the context before every rewrite (``turn``), and the last context (``final``);
+- a compaction keeps the newest turns that together take at most ``keep_recent_share`` of the window (the skill's
+  parameter; counted in tokens, cut at a turn's start, never less than the newest turn) when the skill gives that
+  parameter, else ``keep_recent_turns`` turns;
+- tasks that forbid the disk (``memory_file=False``; user decision 2026-11-23): no memory file exists, a compaction
+  is always a summary, and a file of that name written by the agent is an ordinary file for the compliance figure;
 - arms: ``pi0`` / ``evolved`` run the planner's triggers before every call; ``none`` has no planner, no ``compact``
   and no reminder: when the next request would not fit, the oldest messages are dropped.
 """
@@ -78,7 +83,11 @@ class StreamMemory(MEM.MemoryTracker):
 
     _fresh_before = False
 
+    enabled = True
+
     def handoff_problems(self) -> list[str]:
+        if not self.enabled:
+            return ["this run has no memory file"]
         return [] if self.fresh else ["the memory file was not updated since the last compaction"]
 
 
@@ -95,8 +104,8 @@ class DiskWatch:
     TUPLES = re.compile(r"(?:\(\d+,\d+,[^)\s]\)\s*){8,}")
     MAX_BYTES = 16_000_000
 
-    def __init__(self, roots: list[Path], memory: Path, skip: set[str] | None = None):
-        self.roots, self.memory, self.skip = [Path(r) for r in roots], Path(memory), skip or set()
+    def __init__(self, roots: list[Path], memory: Path | None, skip: set[str] | None = None):
+        self.roots, self.memory, self.skip = [Path(r) for r in roots], (Path(memory) if memory else None), skip or set()
         self.lines: set[str] = set()
         self.tags: set[str] = set()
         self.sig: dict[str, tuple[int, int]] = {}
@@ -135,7 +144,7 @@ class DiskWatch:
                 except OSError:
                     continue
                 self.hits += 1
-                if p == self.memory:
+                if self.memory is not None and p == self.memory:
                     self.memory_file = True
                 else:
                     self.other_files = True
@@ -163,7 +172,8 @@ class StreamEnvironmentMixin:
 
 
 class StreamAgent(ManagedAgent):
-    def __init__(self, model, env, *, source, logs_dir: Path, arm: str, planner: Planner | None, **kwargs):
+    def __init__(self, model, env, *, source, logs_dir: Path, arm: str, planner: Planner | None,
+                 memory_file: bool = True, **kwargs):
         if arm not in ARMS:
             raise ValueError(arm)
         super().__init__(model, env, **kwargs)
@@ -172,13 +182,15 @@ class StreamAgent(ManagedAgent):
             raise ValueError("the arm `none` has no planner; every other arm has one")
         self.window = StreamWindow(self.config.context_window, max_retries=self.config.max_rollbacks)
         self.tracker = StreamMemory(self.ws)
+        self.memory_file = bool(memory_file) and arm != "none"
+        self.tracker.enabled = self.memory_file
         self.snap_step = 0
         self.truncations = 0
         self.dropped_by_truncation = 0
         self.trace: list[dict[str, Any]] = []
         self.format_hint = CB.texts()["no_tool_call"]
         self._started = False
-        self.disk = DiskWatch([self.ws, Path(getattr(env, "private", self.ws))], MEM.memory_path(self.ws), skip={"policy.json"})
+        self.disk = DiskWatch([self.ws, Path(getattr(env, "private", self.ws))], MEM.memory_path(self.ws) if self.memory_file else None, skip={"policy.json"})
         self.cached_tokens = 0
 
     # ------------------------------------------------------------------ state, readout, budget
@@ -197,9 +209,21 @@ class StreamAgent(ManagedAgent):
         return readout(self.state(), self.ledger.current, self.ledger.n_stages)
 
     def compact_keep(self) -> int:
+        """How many of the newest turns a compaction keeps. With ``keep_recent_share`` (user decision 2026-11-23):
+        the newest turns whose messages together count at most that share of the window, at least the newest one
+        (it carries the operation the agent has not answered yet); else ``keep_recent_turns``."""
         if self.planner is None:
             return self.config.keep_recent
-        return int(self.planner.skills.param("memory-compaction", "keep_recent_turns", self.config.keep_recent))
+        share = self.planner.skills.param("memory-compaction", "keep_recent_share", None)
+        if share is None:
+            return int(self.planner.skills.param("memory-compaction", "keep_recent_turns", self.config.keep_recent))
+        starts = [i for i, m in enumerate(self.messages) if m.get("role") == "assistant" and i >= self.window.protect]
+        limit, keep = float(share) * self.window.window, 0
+        for k in range(1, len(starts) + 1):
+            if self.window.count(self.messages[starts[-k]:]) > limit:
+                break
+            keep = k
+        return max(keep, 1)
 
     # ------------------------------------------------------------------ snapshots
 
@@ -316,10 +340,12 @@ class StreamAgent(ManagedAgent):
 
     def compact(self, *, use_memory: bool, why: str, keep_recent: int | None = None) -> bool:
         n = len(self.events)
-        done = super().compact(use_memory=use_memory, why=why, keep_recent=keep_recent)
+        done = super().compact(use_memory=use_memory and self.memory_file, why=why, keep_recent=keep_recent)
         if done:
             ev = self.events[n]
             ev["ops"] = self.source.n_delivered
+            ev["kept_turns"] = sum(1 for m in self.messages[3:] if m.get("role") == "assistant")
+            ev["kept_tokens"] = self.window.count(self.messages[3:])
             if ev.get("from_memory"):
                 self.tracker.fresh = self.tracker._fresh_before = False
         return done

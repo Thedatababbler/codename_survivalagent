@@ -6,13 +6,13 @@ triggers:
     action: framework_compaction
     mode: while
 params:
-  keep_recent_turns: 6
+  keep_recent_share: 0.25
   use_memory: false
 ---
 ## Mechanism
 The executor's context has a fixed window and the input it is given is larger than the window. Before every call for as long as the
 context is at or above the trigger, the framework replaces the older turns with a summary written by a separate model call and
-keeps the most recent turns as they are. Each compaction takes one from the run's compaction pool; the summary
+keeps as they are the most recent turns that together take at most `keep_recent_share` of the window (at least the newest one). Each compaction takes one from the run's compaction pool; the summary
 call's tokens are charged to the run. The memory file is not required first.
 
 ## What to do

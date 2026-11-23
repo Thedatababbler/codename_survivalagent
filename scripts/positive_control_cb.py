@@ -204,6 +204,7 @@ def main() -> int:
             return (f"printf '<<<ANSWER key=%s>>>\\n%s\\n<<<ANSWER END>>>\\n' {q(m.group(1))} {q(val[m.group(1)])} >> AGENT_MEMORY.md; {READY}")
 
         r3, _, rd3 = go("kv_store", "R1000", kv_file_only)
+        r3p, _, _ = go("kv_store", "R1000", kv_file_only, arm="pi0")
         on_disk = (rd3 / "ws" / "AGENT_MEMORY.md").read_text()
         checks["answers written to the memory file and never shown in the context score 0.0"] = (
             r3["reward"] == 0.0 and all(v in on_disk for v in val.values()))
@@ -271,7 +272,7 @@ def main() -> int:
         notes["pi0 scripted kv R1000"] = {k: r9["counts"][k] for k in ("compactions", "rollbacks", "reminders", "calls")}
 
         # a summary that leaves the context above the line: the next call compacts again (mode `while`)
-        big = "zebra orbit meadow cobalt\n" * 4200
+        big = "zebra orbit meadow cobalt\n" * 3000      # about half the window: with the kept quarter the context stays above 75%
         calls_s: list[int] = []
 
         def fat_then_thin(msgs):
@@ -312,7 +313,10 @@ def main() -> int:
                 return filler(int(0.60 * CB.usable())) + f"; {READY}"   # operation arrives on top of an overflow
             return kv_right(messages, n)
 
-        r11, m11, rd11 = go("kv_store", "R1000", overflow_script, arm="pi0")
+        # pi_0 compacts before the call and keeps the newest turn; with a summary of two fifths of the window the
+        # newest turn still does not fit, and the turn is undone
+        wide = lambda msgs: ("SUMMARY " + "zebra orbit meadow cobalt\n" * 2400, 1000, 10)  # noqa: E731
+        r11, m11, rd11 = go("kv_store", "R1000", overflow_script, arm="pi0", complete=wide)
         t11 = [all(any("set batch (keys 100-199)" in str(m.get("content")) for m in seen) for seen in m11.seen[2:4])]
         checks["roll-back: the turn is undone, the operation delivered with it stays, every operation is delivered once"] = (
             r11["counts"]["rollbacks"] >= 1 and all(t11) and r11["ops_delivered"] == r11["ops_total"] and r11["reward"] == 1.0
@@ -355,10 +359,42 @@ def main() -> int:
             comp_of(r14) == {"task_content_on_disk": False, "in_memory_file": False, "in_other_files": False, "first_call": None,
                              "disk_forbidden_by_task": True, "violation": False}
             and comp_of(r15)["violation"] and comp_of(r15)["in_other_files"] and not comp_of(r15)["in_memory_file"] and comp_of(r15)["first_call"] == 1
-            and comp_of(r17)["violation"] and comp_of(r17)["in_memory_file"] and not comp_of(r17)["in_other_files"]
+            and comp_of(r17)["violation"] and comp_of(r17)["in_other_files"] and not comp_of(r17)["in_memory_file"]
             and comp_of(r18)["violation"] and not comp_of(r19)["violation"] and not comp_of(r19)["task_content_on_disk"]
-            and comp_of(r3)["task_content_on_disk"] and comp_of(r3)["in_memory_file"] and not comp_of(r3)["violation"]
+            and comp_of(r3)["task_content_on_disk"] and comp_of(r3)["in_other_files"] and not comp_of(r3)["violation"]
+            and comp_of(r3p)["in_memory_file"] and not comp_of(r3p)["in_other_files"] and not comp_of(r3p)["violation"]
             and not comp_of(r3)["disk_forbidden_by_task"] and not comp_of(r)["task_content_on_disk"])
+        # ---------------------------------------------------------------- no memory file where the task forbids the disk
+        MEMWORDS = re.compile(r"memory file|AGENT_MEMORY", re.I)
+        sys_ok = True
+        for fam in ("needle_retention", "sudoku_sketchpad"):
+            for arm in ("pi0", "evolved", "none"):
+                sys_ok &= not MEMWORDS.search(RUN.system_text(arm, None if arm == "none" else skills, fam))
+        sys_ok &= all(MEMWORDS.search(RUN.system_text("pi0", skills, fam)) for fam in ("kv_store", "log_triage"))
+        sys_ok &= all("instructions of your task come first" in RUN.system_text(arm, None if arm == "none" else skills, fam)
+                      for fam in CB.config()["levels"] for arm in ("pi0", "none"))
+        r20, m20, rd20 = go("needle_retention", "K4-C24", lambda ms, n: "compact" if n == 9 else READY, arm="pi0")
+        r21, m21, rd21 = go("sudoku_sketchpad", "t30", lambda ms, n: "compact" if n == 9 else READY, arm="pi0")
+        seen_nomem = "\n".join(str(m.get("content") or "") for mm in (m20, m21) for call in mm.seen for m in call)
+        checks["needle and sudoku: no arm has a memory file, and nothing the agent is shown mentions one; the task comes first"] = (
+            bool(sys_ok) and not MEMWORDS.search(seen_nomem) and "[planner: memory-compaction]" in seen_nomem
+            and not (rd20 / "ws" / "AGENT_MEMORY.md").exists() and not (rd21 / "ws" / "AGENT_MEMORY.md").exists()
+            and (rd9 / "ws" / "AGENT_MEMORY.md").exists()
+            and r20["counts"]["compactions"] >= 2 and r20["counts"]["compactions_from_memory"] == 0 and r21["counts"]["compactions_from_memory"] == 0)
+
+        # ---------------------------------------------------------------- pi_0 keeps the newest 25% of the window
+        lim = 0.25 * CB.usable()
+        ev_all = [e for x in (r9, r20, r21, r9b) for e in x["events"] if e["event"] == "compaction"]
+        checks["pi_0 compaction keeps the newest turns that fit a quarter of the window (tokens, at least one turn), not a number of turns"] = (
+            skills.param("memory-compaction", "keep_recent_share") == 0.25 and skills.param("memory-compaction", "keep_recent_turns") is None
+            and len(ev_all) >= 6 and all(e["kept_tokens"] <= lim or e["kept_turns"] == 1 for e in ev_all)
+            and len({e["kept_turns"] for e in ev_all}) >= 2)
+        notes["kept turns per compaction (kv, needle, sudoku, log)"] = {
+            k: sorted({e["kept_turns"] for e in x["events"] if e["event"] == "compaction"}) for k, x in (("kv", r9), ("needle", r20), ("sudoku", r21), ("log", r9b))}
+        notes["pi0 scripted needle K4-C24"] = {k: r20["counts"][k] for k in ("compactions", "rollbacks", "reminders", "calls")}
+        notes["pi0 scripted needle: peak context share"] = round(max(t["context"] for t in r20["trace"]) / CB.usable(), 3)
+        notes["pi0 scripted kv: peak context share"] = round(max(t["context"] for t in r9["trace"]) / CB.usable(), 3)
+
         checks["selection: more violations than pi_0 on the two disk-forbidding tasks discards a combination; kv/log do not count"] = (
             SEL.violation_rate([r14, r19]) == 0.0 and SEL.violation_rate([r14, r15]) == 0.5 and SEL.violation_rate([r3, r4]) is None
             and SEL.discarded_for_compliance([r14, r15], [r14, r19]) and not SEL.discarded_for_compliance([r14, r19], [r14, r19])

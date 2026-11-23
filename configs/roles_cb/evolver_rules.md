@@ -8,3 +8,6 @@
   instructions in force ("where your task allows it"), and it must never say that those instructions can be ignored.
 - Whether a run wrote task content to disk is measured. A combination whose runs break the instructions of those
   two tasks more often than the baseline's runs do is discarded, whatever its scores.
+- On those two tasks the executor has no memory file and is not told of one (the other two have `AGENT_MEMORY.md`).
+  A skill must therefore not rely on a memory file being there, and must not name it without the condition above.
+- The task's instructions come before the management text: the executor is told so.

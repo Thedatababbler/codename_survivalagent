@@ -3,7 +3,7 @@
 Layout (``outputs/cb/<round>/<run id>/``; the run id is random: neither the directory nor anything in the working
 directory names the task's seed, level or instance):
 
-    ws/                           the agent's working directory (empty at the start; the memory file for arms with skills)
+    ws/                           the agent's working directory (empty at the start; the memory file for arms with skills, kv/log only)
     executor/                     commands.jsonl, trajectory.json (breach scanner input)
     agent/context_snapshots/      turn-NNNN.json, written by ContextBench's record_snapshot (the graders' input)
     agent/interactive_stream.json written by ContextBench's TurnSource
@@ -66,12 +66,19 @@ def role(name: str) -> str:
     return (ROLES / f"{name}.md").read_text(encoding="utf-8").strip()
 
 
-def system_text(arm: str, skills: SkillSet | None) -> str:
+def has_memory_file(family: str, arm: str) -> bool:
+    """User decision 2026-11-23: on the tasks whose instructions forbid the disk no arm has a memory file, and the
+    management text does not mention one."""
+    return arm != "none" and family not in DISK_FORBIDDEN
+
+
+def system_text(arm: str, skills: SkillSet | None, family: str = "") -> str:
     guide = ""
     if skills is not None:
         guide = "\n## Reading the resource figures\n\n" + "\n\n".join(
             f"### {n}\n{skills[n].section('Reading the readout')}" for n in CONTEXT_SKILLS[:2]) + "\n"
-    return (role("system").replace("{{management_text}}", role("management_none" if arm == "none" else "management_skills"))
+    return (role("system").replace("{{management_text}}", role("management_none" if arm == "none" else
+                                                               "management_skills" if has_memory_file(family, arm) else "management_skills_nomem"))
             .replace("{{readout_guidance}}", guide).replace("{{marker_paragraph}}", "\n" + CB.marker_paragraph()))
 
 
@@ -123,7 +130,7 @@ def run(family: str, level: str, seed: int, *, arm: str, round_id: str, cfg: Run
                              "skills": skills_id, "rep": rep}) + "\n")
     ws, sdir, logs = run_dir / "ws", run_dir / "executor", run_dir / "agent"
     ws.mkdir()
-    if arm != "none":
+    if has_memory_file(family, arm):
         (ws / MEM.MEMORY_FILE).write_text(MEMORY_TEMPLATE, encoding="utf-8")
     t0 = time.time()
     records = inst.records()
@@ -143,6 +150,7 @@ def run(family: str, level: str, seed: int, *, arm: str, round_id: str, cfg: Run
     instruction = inst.instruction()
     max_steps = cfg.steps_per_op * len(records) + 60
     agent = StreamAgent(agent_model(), env, source=source, logs_dir=logs, arm=arm, planner=planner, ledger=ledger,
+                        memory_file=has_memory_file(family, arm),
                         name="executor", ws=ws, token=token,
                         summarizer=make_summarizer(complete, instruction) if (complete and arm != "none") else None,
                         system_template="{{system_text}}", instance_template="{{task}}", context_window=CB.usable(),
@@ -152,7 +160,7 @@ def run(family: str, level: str, seed: int, *, arm: str, round_id: str, cfg: Run
     out: dict[str, Any] = {}
     crashed = ""
     try:
-        out = agent.run(instruction, system_text=system_text(arm, skills))
+        out = agent.run(instruction, system_text=system_text(arm, skills, family))
     except BaseException as e:  # noqa: BLE001 - recorded, then raised again
         crashed = f"{type(e).__name__}: {e}"[:500]
         raise

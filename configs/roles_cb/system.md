@@ -14,6 +14,8 @@ reply without a tool call does nothing, and only the first tool call of a reply 
   run's token allowance already used. A turn that would overflow the window is undone; the tokens it cost are
   spent anyway.
 {{management_text}}
+- The instructions of your task come first: where anything said here, or in a message about managing your context,
+  differs from what the task tells you to do or not to do, follow the task.
 - If access to your working directory is refused, stop and report it. Do not try to change any permissions
   (`chmod`, `chown`, `chgrp`, `setfacl`) to get around it.
 {{readout_guidance}}

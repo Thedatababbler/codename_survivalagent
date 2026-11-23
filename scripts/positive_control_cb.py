@@ -288,6 +288,13 @@ def main() -> int:
             len(c9b) >= 2 and c9b[1]["call"] - c9b[0]["call"] == 1 and all(e["why"] == "framework_compaction" for e in c9b[:2])
             and tr[c9b[0]["call"] + 1] >= 0.75 and tr[c9b[1]["call"] + 1] < 0.75 and r9b["counts"]["rollbacks"] == 0)
 
+        # a summary that fills the window by itself: the session ends with its own reason
+        r9c, _, _ = go("log_triage", "L1600", lambda ms, n: READY, arm="pi0", complete=lambda msgs: ("zebra orbit meadow cobalt\n" * 4200, 1000, 10))
+        so = [e for e in r9c["events"] if e["event"] == "summary_overflow"]
+        checks["a summary too large for the window ends the session as SummaryOverflow, apart from ContextExhausted"] = (
+            r9c["exit_status"] == "SummaryOverflow" and r9c["terminated_by"] == "budget_wall" and len(so) == 1 and so[0]["summary_share"] > 0.5
+            and r9b["exit_status"] == "StreamEnded")
+
         base = CB.count([{"role": "system", "content": RUN.system_text("pi0", skills)}, {"role": "user", "content": kv.instruction()}])
 
         def remind_script(messages, n):

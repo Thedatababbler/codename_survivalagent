@@ -318,6 +318,14 @@ class StreamAgent(ManagedAgent):
             else:
                 self._force_compaction("forced: over the window after the roll-back")
         if self.window.over(self.messages):
+            # user decision 2026-11-23: its own ending when a summary is what fills the window (counted apart)
+            notes = [m for m in self.messages[2:] if str(m.get("content") or "").startswith("[Context compacted")]
+            if notes:
+                share = round(self.window.count(notes) / self.window.window, 3)
+                self.events.append({"event": "summary_overflow", "call": self.n_calls, "summary_share": share,
+                                    "ops": self.source.n_delivered})
+                raise _stop("SummaryOverflow", f"the context is over the window, nothing is left to undo or compact, "
+                                               f"and the summary takes {share:.0%} of the window")
             raise _stop("ContextExhausted", "the context is over the window with nothing left to undo or compact")
 
     def _force_compaction(self, why: str) -> None:

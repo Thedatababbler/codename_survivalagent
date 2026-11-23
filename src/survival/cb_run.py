@@ -41,7 +41,7 @@ CONTEXT_SKILLS = ("memory-compaction", "token-reminder", "subagent-handoff")
 DISK_FORBIDDEN = ("needle_retention", "sudoku_sketchpad")   # their instructions say: do not write to disk
 
 # how a session that the stream did not end is recorded in ContextBench's terms
-ENDINGS = {"ContextExhausted": "budget_wall", "RollbackLimit": "budget_wall", "RoundBudgetExhausted": "max_steps",
+ENDINGS = {"ContextExhausted": "budget_wall", "SummaryOverflow": "budget_wall", "RollbackLimit": "budget_wall", "RoundBudgetExhausted": "max_steps",
            "TokensExhausted": "max_steps", "StepLimit": "max_steps", "CallCap": "max_steps", "RepeatedFormatError": "max_steps"}
 
 
@@ -109,7 +109,7 @@ def digest(result: dict[str, Any]) -> dict[str, Any]:
             "tokens": r["tokens"], "counts": r["counts"], "context": r["context"], "compliance": r["compliance"],
             "planner_fired": [{"skill": f["skill"], "action": f["action"], "context": f["state"]["context"], "tick": f["tick"]}
                               for f in r["planner_fired"]],
-            "events": [{k: e[k] for k in ("event", "call", "ops", "why", "from_memory", "dropped") if k in e} for e in r["events"]],
+            "events": [{k: e[k] for k in ("event", "call", "ops", "why", "from_memory", "dropped", "kept_turns", "kept_tokens", "summary_share") if k in e} for e in r["events"]],
             "trace": [[t["call"], t["ops"], round(t["context"] / r["context"]["window"], 3)] for t in r["trace"]]}
 
 

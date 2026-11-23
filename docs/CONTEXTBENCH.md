@@ -278,7 +278,9 @@ ContextBench 用的 π_0 文档（如 `configs/cb_skills_pi0/`），不改 `memo
 2. **π_0 压缩按 token 保留。** `memory-compaction` 新参数 `keep_recent_share`（π_0 取 0.25）：压缩时保留最近的、
    合计不超过窗口 25% 的若干轮（按未校准 `o200k_base` 计，在轮的起点处切开，工具结果不与调用分开），其余总结；仍是 `mode: while`。
    边界：最新一轮单独就超过 25% 时仍保留这一轮（里面有智能体尚未回应的操作）。`keep_recent_turns` 仍可用（没有 `keep_recent_share` 时生效）。
-   已知边界：总结本身过大（约占窗口三分之二以上）且回滚后没有可压缩的轮时，会话以 `ContextExhausted` 结束（记为 `budget_wall`）。
+   已知边界：总结本身过大（约占窗口三分之二以上）且回滚后没有可压缩的轮时，会话结束。用户决定（2026-11-23）：不额外处理，
+   但作为单独的结束原因 `SummaryOverflow` 记录（`exit_status`；事件 `summary_overflow` 带总结占窗比例），与 `ContextExhausted` 分开统计；
+   两者在 ContextBench 的口径里都是 `budget_wall`。
 3. **额度读数**由用户在每批运行前后手动读取后告知，记录在回报里；代理的管理接口不开启。
 4. **并行。** `scripts/cb_run.py --parallel N`：每次运行一个进程；整批上限严格成立（新运行只拿尚未被占用的额度，
    不足 `--min-cap` 就等待），触发停止条件后不再启动新运行，已在跑的跑完。

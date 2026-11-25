@@ -56,11 +56,10 @@ def main() -> int:
     require_sandbox("ContextBench run")
     CB.ensure()
     skills = None if a.arm == "none" else load_skillset(a.skills)
-    jobs = []
     for spec in a.run:
         fam, lv, seed = spec.split(":")
         CB.instance(fam, lv, int(seed))                 # generated (and its seed and level checked) before anything is spent
-        jobs += [(fam, lv, int(seed), a.rep_offset + rep) for rep in range(a.reps)]
+    jobs = build_jobs(a.run, a.reps, a.rep_offset)
     if a.parallel > 1:
         return parallel(a, jobs)
     used, scans, stop = 0, [], ""
@@ -102,6 +101,20 @@ def main() -> int:
     if stop:
         print("STOPPED: " + stop)
     return 1 if stop else 0
+
+
+def build_jobs(specs: list[str], reps: int = 1, offset: int = 0) -> list[tuple[str, str, int, int]]:
+    """(family, level, seed, rep) per run. Every repeat of an instance has a rep number of its own, whether it comes
+    from ``--reps`` or from the same ``--run`` given more than once (2026-11-25: before, the latter were all rep 0)."""
+    n: dict[tuple[str, str, int], int] = {}
+    jobs = []
+    for spec in specs:
+        fam, lv, seed = spec.split(":")
+        key = (fam, lv, int(seed))
+        for _ in range(reps):
+            jobs.append((*key, offset + n.get(key, 0)))
+            n[key] = n.get(key, 0) + 1
+    return jobs
 
 
 def parallel(a, jobs) -> int:

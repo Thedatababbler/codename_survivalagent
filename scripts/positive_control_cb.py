@@ -446,21 +446,26 @@ def main() -> int:
             x["context"]["peak_o200k"] = int(peak * x["context"]["window"])
             x["compliance"].update(violation=viol, task_content_on_disk=viol, disk_forbidden_by_task=fam == "needle_retention")
             return x
-        #        kv   needle tokens comp rb peak violation-on-needle
+        #        kv   needle (per instance) tokens comp rb peak violation-on-needle
         plan = {"pi0": (0.50, 0.20, 1000, 10, 0, 0.70, False), "g02": (0.70, 0.40, 1000, 10, 0, 0.70, False),
-                "g03": (0.90, 0.90, 900, 9, 0, 0.60, True), "g04": (0.70, 0.39, 800, 8, 0, 0.65, False),
-                "g05": (0.71, 0.40, 700, 12, 0, 0.65, False), "g06": (0.30, 0.30, 100, 1, 0, 0.30, False)}
-        batches: list[tuple[str, int]] = []
+                "g03": (0.90, 0.90, 900, 9, 0, 0.60, True), "g04": (0.90, 0.25, 500, 5, 0, 0.50, False),
+                "g05": (0.30, 0.40, 800, 8, 0, 0.65, False), "g06": (0.70, 0.39, 800, 8, 0, 0.65, False),
+                "g07": (0.71, 0.40, 700, 12, 0, 0.65, False), "g08": (0.90, (0.20, 0.60), 100, 1, 0, 0.30, False)}
+        default = (0.90, 0.36, 100, 1, 0, 0.30, False)
+        gate = {"select": {"family": "needle_retention", "pi0": 0.20, "margin": 0.05, "none": 0.30, "eps": 0.02},
+                "check": {"family": "kv_store", "floor": 0.45}}
+        batches: list[tuple[str, str, int]] = []
 
         def run_batch(cid, sdir, todo):
-            batches.append((cid, len(todo)))
-            kvq, ndq, tok, comp, rb, peak, viol = plan.get(cid, plan["g06"])
+            batches.append((cid, todo[0][0], len(todo)))
+            kvq, ndq, tok, comp, rb, peak, viol = plan.get(cid, default)
             load_skillset(sdir)                         # the combination's directory holds six valid documents
-            return [fake(f, lv, sd, kvq if f == "kv_store" else ndq, tok, comp, rb, peak, viol and f == "needle_retention",
-                         arm="pi0" if cid == "pi0" else "evolved") for f, lv, sd in todo]
+            nd = lambda sd: ndq[sd - 999001] if isinstance(ndq, tuple) else ndq  # noqa: E731
+            return [fake(f, lv, sd, kvq if f == "kv_store" else nd(sd), tok, comp, rb, peak, viol and f == "needle_retention",
+                         arm="pi0" if cid == "pi0" else "evolved") for f, lv, sd in todo], ""
         answers = [answer_of(to_file), answer_of(to_file),                      # g1: returned once, then dropped
                    answer_of(block("subagent-handoff", doc_h)), answer_of(share(0.4)),   # g2: a frozen skill, then a valid rewrite
-                   answer_of(share(0.5)), answer_of(share(0.3), cond), answer_of(share(0.35))] + [answer_of(share(0.2))] * 8
+                   answer_of(share(0.5)), answer_of(share(0.45)), answer_of(share(0.3), cond), answer_of(share(0.35))] + [answer_of(share(0.2))] * 12
         asked: list[list[dict]] = []
 
         def evolver(msgs):
@@ -468,41 +473,101 @@ def main() -> int:
             return answers[len(asked) - 1], 100, 10
         base_runs = [fake(f, lv, sd, plan["pi0"][0] if f == "kv_store" else plan["pi0"][1], *plan["pi0"][2:6], arm="pi0") for f, lv, sd in insts[:3]]
         lines: list[str] = []
-        evo = EVO.CBEvolution(out_root / "evo", instances=insts, run_batch=run_batch, complete=evolver, eps={"kv_store": 0.04, "needle_retention": 0.02},
+        evo = EVO.CBEvolution(out_root / "evo", instances=insts, run_batch=run_batch, complete=evolver, gate=gate,
                               base_skills=PI0, baseline_runs=base_runs, log=lines.append)
         res = evo.run(30)
         H = {h["generation"]: h for h in evo.state["history"]}
-        checks["evolution: pi_0's calibration runs are taken over and only the missing instance is run"] = batches[0] == ("pi0", 1) and all(n == 4 for _, n in batches[1:])
+        of = lambda cid: [b[1:] for b in batches if b[0] == cid]  # noqa: E731
+        notes["evolution outcomes"] = {g: h["outcome"][:90] for g, h in H.items()}
+        checks["evolution: pi_0's calibration runs are taken over and only the missing instance is run"] = batches[0] == ("pi0", "needle_retention", 1) and len(of("pi0")) == 1
         checks["evolution: a rewrite that tells the executor to write to a file is returned once, then dropped, and nothing is run for it"] = (
             H[1]["outcome"].startswith("dropped") and len(H[1]["tries"]) == 2 and "g01" not in evo.state["combos"]
             and "without the condition" in asked[1][-1]["content"])
-        checks["evolution: a rewrite of a frozen skill is returned; the corrected one runs and replaces pi_0 on quality"] = (
+        checks["evolution: a rewrite of a frozen skill is returned; the corrected one runs the selection task, is better than pi_0, then runs the check task and replaces pi_0"] = (
             len(H[2]["tries"]) == 2 and H[2]["changed"] == ["memory-compaction"] and H[2]["frontier_after"] == ["g02"]
-            and "below the best" in H[2]["eliminated"]["pi0"]
+            and of("g02") == [("needle_retention", 2), ("kv_store", 2)] and H[2]["select_scores"] == [0.4, 0.4] and H[2]["check_scores"] == [0.7, 0.7]
+            and "better in quality" in H[2]["eliminated"]["pi0"]
             and (evo.skills_dir("g02") / "subagent-handoff" / "SKILL.md").read_text() == doc_h
             and "keep_recent_share: 0.4" in (evo.skills_dir("g02") / "memory-compaction" / "SKILL.md").read_text())
-        checks["evolution: the best-scoring combination is discarded when it breaks the task instructions more often than pi_0"] = (
-            H[3]["outcome"].startswith("eliminated: compliance") and H[3]["frontier_after"] == ["g02"] and H[3]["score"]["quality"] > 0.85)
-        checks["evolution: two tiers -- within the noise the dominated one goes, a trade-off stays; outside the noise the worse one goes"] = (
-            H[4]["frontier_after"] == ["g04"] and "dominated" in H[4]["eliminated"]["g02"] and H[4]["changed"] == ["memory-compaction", "token-reminder"]
-            and H[5]["frontier_after"] == ["g04", "g05"] and H[6]["outcome"].startswith("eliminated: quality"))
-        checks["evolution: stops after 5 proposals in a row that leave the frontier unchanged; the pick is the frontier's highest quality"] = (
-            res["generations"] == 10 and res["no_change"] == 5 and res["stopped"] is None and res["frontier"] == ["g04", "g05"]
-            and res["final_pick"] == "g05" and len(lines) == 10 and res["evolver_tokens"]["prompt"] == 100 * len(asked))
+        checks["evolution: the best-scoring combination is discarded when it breaks the task instructions more often than pi_0, before the check task is run"] = (
+            "compliance" in H[3]["outcome"] and H[3]["frontier_after"] == ["g02"] and of("g03") == [("needle_retention", 2)])
+        checks["evolution: not better than pi_0 (mean not above the arm without management; one run not above pi_0) -> out, the check task is not run"] = (
+            "not above the mean without management" in H[4]["outcome"] and of("g04") == [("needle_retention", 2)]
+            and "not every run above" in H[8]["outcome"] and H[8]["select_scores"] == [0.2, 0.6] and of("g08") == [("needle_retention", 2)]
+            and SEL.better_than_baseline([0.21, 0.21, 0.30], base=0.20, margin=0.05, none=None)[1].startswith("mean")
+            and SEL.better_than_baseline([0.21, 0.3, 0.4], base=0.20, margin=0.05, none=0.3)[0])
+        checks["evolution: a combination that regresses on the check task is out"] = (
+            "regressed on T1" in H[5]["outcome"] and H[5]["check_scores"] == [0.3, 0.3] and H[5]["frontier_after"] == ["g02"]
+            and H[5]["changed"] == ["memory-compaction", "token-reminder"])
+        checks["evolution: two tiers -- within the noise the dominated one goes, a trade-off stays; outside the noise the worse one goes without running the check task"] = (
+            H[6]["frontier_after"] == ["g06"] and "dominated" in H[6]["eliminated"]["g02"]
+            and H[7]["frontier_after"] == ["g06", "g07"] and "below the best" in H[9]["outcome"] and of("g09") == [("needle_retention", 2)])
+        checks["evolution: stops after 5 proposals in a row that leave the frontier unchanged; the pick is the frontier's highest quality on the selection task"] = (
+            res["generations"] == 12 and res["no_change"] == 5 and res["stopped"] is None and res["frontier"] == ["g06", "g07"]
+            and res["final_pick"] == "g07" and len(lines) == 12 and res["evolver_tokens"]["prompt"] == 100 * len(asked)
+            and all(k in json.loads(lines[1]) for k in ("changed", "why", "select_scores", "check_scores", "outcome", "frontier")))
         seen_by_evolver = "\n".join(str(m["content"]) for msgs in asked for m in msgs)
         checks["evolution: the evolver is shown figures and labels only -- no task name, level, seed, run id, operation text or answer"] = (
             "T1-I1" in seen_by_evolver and "T2-I2" in seen_by_evolver and "must not tell the executor to do what its task instructions forbid" in seen_by_evolver
+            and "First it runs only the instances of task\nT2" in seen_by_evolver and "regressed on T1" in seen_by_evolver
             and not re.search(r"kv_store|needle|sudoku|log_triage|R1000|K4-C24|99900\d|seed", seen_by_evolver, re.I)
             and not re.search(r"SUMMARY-OF|<<<ANSWER|READY_FOR", seen_by_evolver)
             and not any(v in seen_by_evolver for v in val.values()) and not any(x["run"] in seen_by_evolver for x in (r9, r20)))
-        cap_scores = {f"c{i}": {"quality": 0.5, "per_task": {}, "results": [], "violation_rate": None,
+        cap_scores = {f"c{i}": {"quality": 0.5, "per_task": {"t": 0.5}, "results": [], "violation_rate": None,
                                 "resources": {"tokens": 100 + i, "compactions": 100 - i, "rollbacks": 0, "peak_context": 0.5}} for i in range(11)}
-        checks["selection: the frontier holds at most 8"] = len(SEL.select(cap_scores, eps={}, baseline="c0", cap=8)["frontier"]) == 8
-        evo2 = EVO.CBEvolution(out_root / "evo2", instances=insts, complete=lambda m: (answer_of(share(0.4)), 1, 1), eps={}, base_skills=PI0,
-                               run_batch=lambda cid, sdir, todo: [fake(f, lv, sd, 0.5, 10, 1, 0, 0.5, void=(cid != "pi0" and i == 1), arm="x")
-                                                                  for i, (f, lv, sd) in enumerate(todo)], log=lambda x: None)
-        res2 = evo2.run(30)
+        checks["selection: the frontier holds at most 8"] = (len(SEL.select(cap_scores, eps={}, baseline="c0", cap=8)["frontier"]) == 8
+                                                             and len(SEL.select_staged(cap_scores, task="t", eps=0.01, baseline="c0", cap=8)["frontier"]) == 8)
+
+        def stops(name, batch, **kw):
+            e = EVO.CBEvolution(out_root / name, instances=insts, complete=lambda m: (answer_of(share(0.4)), 1, 1), gate=gate, base_skills=PI0,
+                                run_batch=batch, log=lambda x: None, **kw)
+            r = e.run(30, **({"should_stop": lambda: "cap" if e.used_tokens() > 4500 else ""} if name == "evo5" else {}))
+            return r, e
+        res2, _ = stops("evo2", lambda cid, sdir, todo: ([fake(f, lv, sd, 0.5, 10, 1, 0, 0.5, void=(cid != "pi0" and i == 1), arm="x")
+                                                          for i, (f, lv, sd) in enumerate(todo)], ""))
         checks["evolution: a void run stops it at once"] = (res2["stopped"] or {}).get("why") == "void run" and res2["generations"] == 1
+        res3, _ = stops("evo3", lambda cid, sdir, todo: ([fake(f, lv, sd, 0.5, 1000 if cid == "pi0" else 2500, 1, 0, 0.5, arm="x") for f, lv, sd in todo], ""))
+        res4, _ = stops("evo4", lambda cid, sdir, todo: ([fake(f, lv, sd, 0.5, 1000, 1, 0, 0.5, arm="x") for f, lv, sd in todo],
+                                                         "" if cid == "pi0" else "run rX used its whole cap"))
+        res5, e5 = stops("evo5", lambda cid, sdir, todo: ([fake(f, lv, sd, 0.5, 1000, 1, 0, 0.5, arm="x") for f, lv, sd in todo], ""))
+        checks["evolution: stops on a run that used over twice pi_0's tokens, on a batch that stopped, and before a batch once the token cap is reached"] = (
+            "used more than 2 times" in (res3["stopped"] or {}).get("why", "") and res3["generations"] == 1
+            and "used its whole cap" in (res4["stopped"] or {}).get("why", "") and res4["generations"] == 1
+            and (res5["stopped"] or {}).get("why") == "cap" and e5.state["run_tokens"] <= 6000)
+
+        # ---------------------------------------------------------------- repeats, and the scanner's rule on searches for the task's input
+        import importlib.util as ilu
+        spec = ilu.spec_from_file_location("cb_run_script", ROOT / "scripts" / "cb_run.py")
+        script = ilu.module_from_spec(spec)
+        spec.loader.exec_module(script)
+        jobs = script.build_jobs(["kv_store:R1000:1001", "needle_retention:K4-C24:1001", "kv_store:R1000:1001", "kv_store:R1000:1002", "kv_store:R1000:1001"])
+        checks["every repeat of an instance has a rep number of its own (the same --run given three times, and --reps)"] = (
+            [j[3] for j in jobs] == [0, 0, 1, 0, 2] and len(set(jobs)) == 5
+            and [j[3] for j in script.build_jobs(["kv_store:R1000:1001", "kv_store:R1000:1001"], reps=2, offset=3)] == [3, 4, 5, 6])
+        sd_ = out_root / "searches"
+        (sd_ / "agent" / "context_snapshots").mkdir(parents=True)
+        (sd_ / "ws").mkdir()
+        allowed_here = [str(sd_ / "ws"), "/usr"]
+        (sd_ / "sandbox_manifest.json").write_text(json.dumps({"entries": [{"kind": "other", "capture": str(sd_ / "executor" / "commands.jsonl"),
+                                                                            "policy": {"read": allowed_here, "write": [str(sd_ / "ws")]}}]}))
+
+        def scan(cmds):
+            (sd_ / "executor").mkdir(exist_ok=True)
+            (sd_ / "executor" / "commands.jsonl").write_text("".join(json.dumps({"role": "executor", "command": c, "output": o, "exit_code": x}) + "\n" for c, o, x in cmds))
+            return breach.scan_run(sd_, run_id="pc-cb-search", write=False)
+        s1 = scan([("find /tmp /root -maxdepth 2 -type f 2>/dev/null | head -30; env | sort | head; echo READY", f"HOME=/tmp/x\nPWD={sd_}/ws\nREADY\n", 0),
+                   ("find / -name '*prompt*' 2>/dev/null | head; ls -la /tmp", "ls: cannot open directory '/tmp': Permission denied\n", 2)])
+        s2 = scan([("find / -name '*.json' 2>/dev/null | head", "/root/projects/x/gold.json\n", 0)])
+        s3 = scan([("find . -name '*.txt'; grep -rn K01 .; ls -la /tmp; cat notes.txt", "./notes.txt\n", 0)])
+        s4 = scan([("grep -rl K0 ..", "../index.jsonl\n", 0)])
+        s5 = breach.scan_run(sd_, run_id="pc-cb-search", write=False, input_search=False)
+        checks["scanner: a search for the task's input outside the workspace (find /, /root, /tmp) is CRITICAL; refused with nothing obtained -> flagged and kept; anything obtained -> void"] = (
+            s1["critical"] == 3 and s1["flagged"] and not s1["void"] and all(e["event"] == "task_input_search" and e["obtained"] is False for e in s1["critical_events"])
+            and "保留并标记" in breach.report_section([s1])
+            and s2["critical"] == 1 and s2["void"] and not s2["flagged"] and "作废" in breach.report_section([s2])
+            and s4["critical"] == 1 and s4["void"])
+        checks["scanner: searching the workspace itself or listing /tmp is not that event; outside ContextBench runs the rule is off"] = (
+            s3["critical"] == 0 and not s3["void"] and s5["critical"] == 0)
 
         # ---------------------------------------------------------------- the agent cannot reach the answers, the checkout or the seed
         ws = out_root / "probe" / "ws"

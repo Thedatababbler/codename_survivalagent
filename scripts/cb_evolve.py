@@ -3,13 +3,15 @@
 
     set -a; . ./.env; set +a
     uv run python scripts/cb_evolve.py --out outputs/cb_evo/e1 --instance kv_store:R4000:1001 [--instance ...] \
-        --eps eps.json --baseline-round calib-1 --tokens 5000000 --max-tokens 120000000 --parallel 4
+        --gate configs/cb_evolution_e1.json --baseline-round calib-1 --tokens 5000000 --max-tokens 40000000 --parallel 4
 
-``--eps``: {family: eps} from the calibration. ``--baseline-round``: a round under outputs/cb whose pi_0 runs on the
-evolution instances are taken as the baseline's (missing ones are run). Each combination's runs are one
-``scripts/cb_run.py --parallel`` batch (round ``<out name>-<combination>``). Stops on a void run, on a run not graded
-from snapshots, after 5 proposals in a row that leave the frontier unchanged, or when the runs of this evolution
-used more than ``--max-tokens``. One line per generation. Rerun the same command to resume.
+``--gate``: the calibration's figures for the two-step evaluation (see ``CBEvolution``). ``--baseline-round``: a
+round under outputs/cb whose pi_0 runs on the evolution instances are taken as the baseline's (missing ones are
+run). A combination's runs are ``scripts/cb_run.py --parallel`` batches (round ``<out name>-<combination>``): first
+the selection task, then -- only if it entered the frontier there -- the check task. Stops on a void run, on a run
+not graded from snapshots, on a run that used clearly more than pi_0's, after 5 proposals in a row that leave the
+frontier unchanged, or when runs and evolver together would pass ``--max-tokens`` (prompt + completion; no batch
+starts with less than ``--min-cap`` left). One line per generation. Rerun the same command to resume.
 """
 
 from __future__ import annotations
@@ -41,6 +43,7 @@ def round_results(round_id: str, since: int = 0) -> list[dict]:
         x = json.loads(line)
         r = json.loads((RUN.OUT / round_id / x["run"] / "result.json").read_text())
         r["void"] = bool(x.get("void"))
+        r["flagged"] = bool(x.get("critical")) and not r["void"]
         out.append(r)
     return out
 
@@ -49,7 +52,8 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
     ap.add_argument("--instance", action="append", required=True, help="family:level:seed (repeatable): the evolution set")
-    ap.add_argument("--eps", required=True)
+    ap.add_argument("--gate", required=True)
+    ap.add_argument("--min-cap", type=int, default=2_500_000)
     ap.add_argument("--baseline-round", action="append", default=[])
     ap.add_argument("--tokens", type=int, required=True, help="cap of one run")
     ap.add_argument("--max-tokens", type=int, required=True, help="stop when the runs of this evolution used more")
@@ -63,29 +67,34 @@ def main() -> int:
     instances = [(f, lv, int(s)) for f, lv, s in (x.split(":") for x in a.instance)]
     for f, lv, s in instances:
         CB.instance(f, lv, s)
-    eps = json.loads(Path(a.eps).read_text())
+    gate = json.loads(Path(a.gate).read_text())
     scans: list[str] = []
 
-    def run_batch(cid: str, sdir: Path, todo: list[tuple[str, str, int]]) -> list[dict]:
+    def run_batch(cid: str, sdir: Path, todo: list[tuple[str, str, int]]) -> tuple[list[dict], str]:
         rid = f"{out.name}-{cid}"
         f = RUN.OUT / rid / "runs.jsonl"
         since = len(f.read_text().splitlines()) if f.is_file() else 0
-        left = max(a.tokens, a.max_tokens - evo.state["run_tokens"])
+        left = a.max_tokens - evo.used_tokens()
         cmd = [sys.executable, str(ROOT / "scripts" / "cb_run.py"), "--round", rid, "--arm", "pi0" if cid == "pi0" else "evolved",
                "--skills", str(sdir), "--skills-id", cid, "--tokens", str(a.tokens), "--batch-tokens", str(left),
-               "--parallel", str(max(2, a.parallel)), "--min-cap", str(a.tokens)]
+               "--parallel", str(max(2, a.parallel)), "--min-cap", str(a.min_cap)]
         for fam, lv, s in todo:
             cmd += ["--run", f"{fam}:{lv}:{s}"]
         p = subprocess.run(cmd, cwd=str(ROOT), capture_output=True, text=True)
         (out / "batches").mkdir(parents=True, exist_ok=True)
         (out / "batches" / f"{rid}.log").write_text(p.stdout + "\n" + p.stderr, encoding="utf-8")
-        scans.append(rid)
-        return round_results(rid, since)
+        if rid not in scans:
+            scans.append(rid)
+        stopped = [ln for ln in p.stdout.splitlines() if ln.startswith("STOPPED: ")]
+        why = stopped[-1][9:] if stopped else ("" if p.returncode == 0 else f"cb_run.py exit code {p.returncode}")
+        return round_results(rid, since), why
 
     baseline = [r for rid in a.baseline_round for r in round_results(rid)]
-    evo = CBEvolution(out, instances=instances, run_batch=run_batch, complete=complete, eps=eps, base_skills=PI0,
+    evo = CBEvolution(out, instances=instances, run_batch=run_batch, complete=complete, gate=gate, base_skills=PI0,
                       baseline_runs=baseline)
-    res = evo.run(a.max_generations, should_stop=lambda: "token cap of this evolution reached" if evo.state["run_tokens"] > a.max_tokens else "")
+    res = evo.run(a.max_generations, should_stop=lambda: (
+        f"token cap of this evolution: {evo.used_tokens()} of {a.max_tokens} used, less than one run's reserve left"
+        if a.max_tokens - evo.used_tokens() < a.min_cap else ""))
     print(json.dumps(res, indent=1))
     dirs = [d for rid in scans for d in sorted((RUN.OUT / rid).glob("r*")) if (d / "result.json").is_file()]
     print(breach.report_section([breach.scan_run(d, run_id=f"cb-{d.parent.name}-{d.name}", write=False) for d in dirs]))

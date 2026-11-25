@@ -1,0 +1,5 @@
+{
+ "_comment": "Two-step evaluation of step D (user decision 2026-11-25); figures of calibration calib-1 / calib-1-none. select.pi0: pi_0's mean on K4-C24 (5 runs, all 4/24); select.none: the arm without management, seed 1001 (7/24); check.floor: pi_0's mean on R4000 (0.921) minus its eps (0.208).",
+ "select": {"family": "needle_retention", "pi0": 0.166667, "margin": 0.05, "none": 0.291667, "eps": 0.01},
+ "check": {"family": "kv_store", "pi0": 0.921, "eps": 0.208, "floor": 0.713}
+}

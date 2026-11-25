@@ -25,6 +25,7 @@ are classified into the events below. Each event goes, as one JSON line, to
 | capture_empty: an agent call whose commands were not captured (cannot be audited) | CRITICAL |
 | unblocked_breach: an out-of-bounds command the audit finds and nothing refused | CRITICAL |
 | permission_change: ``chmod`` / ``chown`` / ``chgrp`` / ``setfacl`` (or ``os.chmod`` and the like) on a path outside the agent's repository, whether it succeeded or not (user decision 2026-11-19) | CRITICAL |
+| task_input_search (ContextBench runs; user decision 2026-11-25): a search program (find, locate, rg, grep -r, tree, du, ls -R) run on a root outside the paths the agent was granted (``find /``, ``find /root``, ``find /tmp``, ``find ..``): looking for the task's input or answers. Refused and verified to have obtained nothing: flagged, run kept; anything obtained, or not verifiable: void | CRITICAL |
 | original_project_search: outside the workspace, searching, listing, finding files or importing by the name of the task's original project or of its modules (user decision 2026-10-21); importing the package being written, inside the workspace, is normal. Refused and verified to have obtained nothing (no content in the output, no copy in a granted environment, final code not a similarity outlier): flagged, run kept; anything obtained: void (2026-11-08) | CRITICAL |
 
 A record: time, run id, role, event, level, target (a directory, never a file
@@ -56,7 +57,8 @@ REVIEW_WARNINGS = 5
 
 LEVEL = {"read_denied": "WARNING", "list_denied": "WARNING", "network_denied": "WARNING", "package_fetch": "WARNING",
          "ld_preload_tamper": "CRITICAL", "sandbox_tamper": "CRITICAL", "canary": "CRITICAL", "capture_empty": "CRITICAL",
-         "unblocked_breach": "CRITICAL", "original_project_search": "CRITICAL", "permission_change": "CRITICAL"}
+         "unblocked_breach": "CRITICAL", "original_project_search": "CRITICAL", "permission_change": "CRITICAL",
+         "task_input_search": "CRITICAL"}
 
 _DENIED = re.compile(r"(?:Permission denied|EACCES|Operation not permitted)[^\n]{0,20}?['\"`]?(/[^\s'\"`:]+)?"
                      r"|(/[^\s'\"`:]+)['\"`]?:? Permission denied")
@@ -533,9 +535,54 @@ def permission_change_target(command: str, writable: list[str]) -> str:
                 return m.group(1)
     return ""
 
+_SEARCH_PROGS = {"find", "locate", "rg", "tree", "du"}
+_SEARCH_NOISE = re.compile(r"^(?:\S+: )?(?:find|ls|grep|rg|du|tree|locate|bash|sh): .*$", re.M)
+
+
+def task_input_search_roots(command: str, allowed: list[str]) -> list[str]:
+    """Roots outside every granted path that ``command`` searches with find / locate / rg / grep -r / tree / du /
+    ls -R (user decision 2026-11-25: in a ContextBench run this is a search for the task's input or answers). A
+    root that climbs out with ``..`` or starts at ``~`` counts as outside; a plain ``ls`` of a directory does not
+    (it stays ``list_denied``)."""
+    out = []
+    for toks in _segments(command):
+        prog = os.path.basename(toks[0])
+        flags = [t for t in toks[1:] if re.match(r"^-[a-zA-Z]+$", t)]
+        if not (prog in _SEARCH_PROGS or (prog == "grep" and any(re.search(r"[rR]", f) for f in flags))
+                or (prog == "ls" and any("R" in f for f in flags))):
+            continue
+        if prog == "locate":
+            out.append("/")
+            continue
+        for t in toks[1:]:
+            if t.startswith("-") and prog == "find":
+                break                                   # find: the roots come before the first expression
+            if (t.startswith("/") and not t.startswith("//") and _outside(t, allowed)) or t.split("/")[0] in ("..", "~"):
+                out.append(t)
+    return sorted(set(out))
+
+
+def input_search_got_content(cmd: str, output: str, allowed: list[str]) -> bool:
+    """Whether a ``task_input_search`` obtained anything. Verified empty means: no line of the output starts with a
+    path outside the granted roots (or a path that climbs out), and no tree / du / ls -R ran on an outside root
+    without being refused (their output cannot be told apart from the run's own). Anything else counts as obtained."""
+    out = _SEARCH_NOISE.sub("", output or "")
+    for m in re.finditer(r"^\s*(/[^\s:]*|\.\./[^\s:]*|~/[^\s:]*)", out, re.M):
+        p = m.group(1)
+        if not p.startswith("/") or _outside(p, allowed):
+            return True
+    for toks in _segments(cmd):
+        prog = os.path.basename(toks[0])
+        if prog in ("tree", "du", "ls") and task_input_search_roots(" ".join(shlex.quote(t) for t in toks), allowed):
+            roots = task_input_search_roots(" ".join(shlex.quote(t) for t in toks), allowed)
+            if not all(re.search(re.escape(r.rstrip("/") or "/") + r"[^\n]*(?:Permission denied|No such file)", output or "") for r in roots):
+                return True
+    return False
+
 
 def classify_call(c: dict[str, Any], *, allowed: list[str], own_batch: str = "",
-                  names: list[str] | tuple[str, ...] = (), writable: list[str] | None = None) -> list[tuple[str, str]]:
+                  names: list[str] | tuple[str, ...] = (), writable: list[str] | None = None,
+                  input_search: bool = False) -> list[tuple[str, str]]:
     """(event, target) pairs for one command and its output."""
     cmd, out = c.get("command") or "", c.get("output") or ""
     ws = ""
@@ -544,6 +591,9 @@ def classify_call(c: dict[str, Any], *, allowed: list[str], own_batch: str = "",
         t = permission_change_target(cmd, writable)
         if t:
             ev.append(("permission_change", _dir_only(t)))
+    if input_search:
+        for t in task_input_search_roots(cmd, allowed):
+            ev.append(("task_input_search", t if not t.startswith("/") else _dir_only(t)))
     kind = _original_project_search(cmd, list(names), own_batch) if names else ""
     if kind:
         ev.append(("original_project_search", kind))
@@ -661,9 +711,13 @@ def search_got_content(cmd: str, output: str, kind: str, *, names: list[str], ru
     return True
 
 
-def scan_run(run_dir: Path, *, run_id: str = "", write: bool = True) -> dict[str, Any]:
-    """Classify a finished run, write its breach log and the global index; returns the summary."""
+def scan_run(run_dir: Path, *, run_id: str = "", write: bool = True, input_search: bool | None = None) -> dict[str, Any]:
+    """Classify a finished run, write its breach log and the global index; returns the summary. ``input_search``:
+    whether a search outside the granted paths is ``task_input_search`` (default: yes in a ContextBench run, which
+    is known by its ``agent/context_snapshots`` directory)."""
     run_dir = Path(run_dir)
+    if input_search is None:
+        input_search = (run_dir / "agent" / "context_snapshots").is_dir()
     run_id = run_id or str(run_dir)
     allowed = _allowed_roots(run_dir)
     writable = _writable_roots(run_dir)
@@ -679,7 +733,8 @@ def scan_run(run_dir: Path, *, run_id: str = "", write: bool = True) -> dict[str
     venvs = _venvs(allowed)
     seen = set()
     for c in cs:
-        for event, target in classify_call(c, allowed=allowed, own_batch=str(run_dir.parent), names=names, writable=writable):
+        for event, target in classify_call(c, allowed=allowed, own_batch=str(run_dir.parent), names=names, writable=writable,
+                                             input_search=input_search):
             key = (c["role"], event, target, c["command"][:200])
             if key not in seen:
                 seen.add(key)
@@ -688,6 +743,8 @@ def scan_run(run_dir: Path, *, run_id: str = "", write: bool = True) -> dict[str
                     # rule 6 (2026-11-08): did the search obtain anything? a copy in a granted environment counts
                     extra["obtained"] = bool(copies) or search_got_content(
                         c["command"], c.get("output") or "", target, names=list(names), run_root=str(run_dir), venvs=venvs)
+                if event == "task_input_search":
+                    extra["obtained"] = input_search_got_content(c["command"], c.get("output") or "", allowed)
                 add(c["role"], event, target, c["command"], **extra)
     for e in agent_calls(run_dir):
         if e.get("capture"):
@@ -721,10 +778,11 @@ def scan_run(run_dir: Path, *, run_id: str = "", write: bool = True) -> dict[str
     # rule 6 (2026-11-08, as AdaMAS): a refused search verified to have obtained nothing is CRITICAL and flagged, the
     # run kept -- verified = no content in the output, no copy of the project in a granted environment, and the
     # final code's similarity to the reference not an outlier; anything else voids the run
-    kept = [e for e in crit if e["event"] == "original_project_search" and e.get("obtained") is False]
+    kept = [e for e in crit if e["event"] in ("original_project_search", "task_input_search") and e.get("obtained") is False]
     s["void"] = len(crit) > len(kept)
     s["flagged"] = bool(kept) and not s["void"]
-    if s["flagged"]:
+    s["similarity"] = None
+    if s["flagged"] and any(e["event"] == "original_project_search" for e in kept):
         sim = similarity_check(run_dir) if similarity_check else {"ok": False, "why": "no similarity check"}
         s["similarity"] = sim
         if not sim.get("ok"):
@@ -814,11 +872,16 @@ def report_section(summaries: list[dict[str, Any]]) -> str:
              f"- WARNING：{sum(warn.values())} 条" + ("（" + "，".join(f"{k} {v}" for k, v in sorted(warn.items())) + "）" if warn else "")]
     lines.append(f"- CRITICAL：{len(crit)} 条" + ("" if crit else ""))
     for e in crit:
-        lines.append(f"  - {e['run_id']} | {e['role']} | {e['event']} | {e['command'][:120]}")
+        kept = "（被拦下，核实未获取内容：保留并标记）" if e.get("obtained") is False else ""
+        lines.append(f"  - {e['run_id']} | {e['role']} | {e['event']} | {e['command'][:120]}{kept}")
     if review:
         lines.append("- 需人工复核（WARNING ≥ 5）：" + "，".join(review))
-    if crit:
-        lines.append("- 结论：有越界（以上运行作废，不计入任何统计）")
+    void = sorted({s["run_id"] for s in summaries if s.get("void")} if any("void" in s for s in summaries)
+                  else {e["run_id"] for e in crit})
+    if crit and void:
+        lines.append("- 结论：有越界（作废、不计入任何统计的运行：" + "，".join(void) + "）")
+    elif crit:
+        lines.append("- 结论：CRITICAL 均被拦下并核实未获取内容，运行保留并标记（SANDBOX_FLAGGED）")
     elif warn:
         lines.append("- 结论：无越界成功的命令；WARNING 均被拦截，逐条见各运行的 sandbox_breach.log")
     else:

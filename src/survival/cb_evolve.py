@@ -6,9 +6,13 @@ the frontier (the one used least often); the evolver reads the parent's two docu
 (figures only: no operation text, no reply, no answer, no task name, no level, no seed) and rewrites one or both;
 the rewrites are validated (``skills.parse_skill``, the rule that a skill must not tell the executor to break its
 task instructions, no sealed tag; one return to the evolver with the problems, then dropped); the new combination
-runs on every evolution instance; the frontier is recomputed (``cb_select.select``: compliance, then two tiers).
-Evolution stops after ``patience`` proposals in a row that leave the frontier as it was, on a void run, on a run the
-grader could not grade from snapshots, or when the caller says so (usage).
+is evaluated in two steps (user decision 2026-11-25): it first runs only the instances of the selection task; if it
+is better than pi_0 there (``cb_select.better_than_baseline``) and enters the frontier on those runs, it also runs
+the instances of the check task, where its mean must not be below the floor (pi_0's mean minus that task's eps);
+then the frontier is recomputed (``cb_select.select_staged``: compliance, quality on the selection task, the four
+resources). Evolution stops after ``patience`` proposals in a row that leave the frontier as it was, on a void run,
+on a run the grader could not grade from snapshots, on a run that used clearly more than pi_0's runs of its task,
+when a batch of runs stopped, or when the caller says so (usage).
 
 Running the instances is the caller's (``run_batch``), so the positive control drives the loop without quota. The
 proposal format and its parser are those of the repository setting (``survival.evolve``).
@@ -28,9 +32,9 @@ from survival.evolve import parse_proposal
 from survival.skills import SCHEMA, SECTIONS, SKILL_NAMES, SkillError, load_skillset, parse_skill
 
 Complete = Callable[[list[dict]], tuple[str, int, int]]
-# run_batch(combination id, skills dir, [(family, level, seed), ...]) -> one result.json dict per run, each with
-# "void" (the breach scanner's verdict) added
-RunBatch = Callable[[str, Path, list[tuple[str, str, int]]], list[dict[str, Any]]]
+# run_batch(combination id, skills dir, [(family, level, seed), ...]) -> (one result.json dict per run, each with
+# "void" and "flagged" (the breach scanner's verdicts) added; why the batch stopped early, '' when it did not)
+RunBatch = Callable[[str, Path, list[tuple[str, str, int]]], tuple[list[dict[str, Any]], str]]
 
 EVOLVED = ("memory-compaction", "token-reminder")
 STATE_HERE = {"context": "ratio: the executor's context / its window", "round_tokens": "ratio: the run's tokens used / its allowance",
@@ -48,7 +52,10 @@ def _schema_text() -> str:
     return "\n".join(lines)
 
 
-def system_prompt() -> str:
+def system_prompt(select_label: str = "T2", check_label: str = "T1", gate: dict[str, Any] | None = None) -> str:
+    g = gate or {}
+    ref = (f" (baseline mean {g['pi0']:.3f}; mean without any context management {g['none']:.3f}; margin {g['margin']:.2f})"
+           if g.get("none") is not None and "pi0" in g else "")
     return f"""You are the evolver of a context manager. An agent (the executor) works through a long stream of
 operations that arrive one at a time; the stream is several times larger than the executor's context window, and at
 the end the executor is graded on what its task asked it to keep or to answer. A turn that would overflow the
@@ -89,10 +96,13 @@ Rules that are checked mechanically (a document that breaks one is returned to y
   anywhere outside its context must carry the condition that its task allows it; no sentence may say that the
   task's instructions can be set aside.
 
-You see figures only. Combinations are compared first by quality (the mean score over the tasks; a difference
-must exceed the noise between repeated runs) and, at equal quality, by four resources: tokens, compactions,
-roll-backs, peak context. A combination whose runs break their task's instructions more often than the baseline's
-is discarded whatever it scores.
+You see figures only. A new combination is judged in two steps. First it runs only the instances of task
+{select_label}. It counts as better than the baseline only if every one of those runs scores above the baseline's
+mean, its own mean is higher by a fixed margin, and its mean is above that of a run without any context
+management{ref}. Only then it runs task {check_label}, where its mean must not fall below the baseline's by more
+than the noise between repeated runs. Combinations that pass are compared by their quality on {select_label} and,
+at equal quality, by four resources: tokens, compactions, roll-backs, peak context. A combination whose runs
+break their task's instructions more often than the baseline's is discarded whatever it scores.
 
 Rewrite one or both documents (each as a whole). Every reason must point at figures in the note (a run label such
 as T1-I2 and what it shows). Answer with exactly these blocks and nothing else:
@@ -183,9 +193,9 @@ def user_message(texts: dict[str, str], note: str, history: list[dict[str, Any]]
     return "\n".join(parts)
 
 
-def propose(complete: Complete, texts: dict[str, str], note: str, history: list[dict[str, Any]]) -> dict[str, Any]:
+def propose(complete: Complete, texts: dict[str, str], note: str, history: list[dict[str, Any]], system: str = "") -> dict[str, Any]:
     """One proposal: at most two tries (the second with the first's problems). ``rewrites`` is empty when dropped."""
-    msgs = [{"role": "system", "content": system_prompt()}, {"role": "user", "content": user_message(texts, note, history)}]
+    msgs = [{"role": "system", "content": system or system_prompt()}, {"role": "user", "content": user_message(texts, note, history)}]
     tokens, tries = {"prompt": 0, "completion": 0}, []
     prop: dict[str, Any] = {"analysis": "", "prediction": {}}
     for attempt in (1, 2):
@@ -218,7 +228,7 @@ def run_figures(r: dict[str, Any]) -> dict[str, Any]:
     window = r["context"]["window"]
     return {"run": r["run"], "family": r["family"], "level": r["level"], "seed": r["seed"], "reward": float(r["reward"]),
             "usable": not r.get("void") and r.get("graded_from") == "snapshots" and r.get("grader_valid") == 1.0,
-            "void": bool(r.get("void")), "graded_from": r.get("graded_from"), "exit_status": r["exit_status"],
+            "void": bool(r.get("void")), "flagged": bool(r.get("flagged")), "graded_from": r.get("graded_from"), "exit_status": r["exit_status"],
             "terminated_by": r["terminated_by"], "compliance": r["compliance"],
             "resources": {"tokens": t["prompt"] + t["completion"], "compactions": c["compactions"], "rollbacks": c["rollbacks"],
                           "peak_context": round(r["context"]["peak_o200k"] / window, 4)},
@@ -261,19 +271,28 @@ def build_note(runs: dict[str, list[dict[str, Any]]], labels: dict[str, str]) ->
 
 class CBEvolution:
     def __init__(self, out: Path, *, instances: list[tuple[str, str, int]], run_batch: RunBatch, complete: Complete,
-                 eps: dict[str, float], base_skills: Path, baseline_runs: list[dict[str, Any]] | None = None,
-                 patience: int = 5, cap: int = 8, log: Callable[[str], None] = print):
-        """``instances``: the evolution set [(family, level, seed)]. ``eps``: {family: eps} from the calibration.
-        ``baseline_runs``: result.json dicts of pi_0 runs already made on these instances (the calibration's)."""
+                 gate: dict[str, Any], base_skills: Path, baseline_runs: list[dict[str, Any]] | None = None,
+                 patience: int = 5, cap: int = 8, usage_factor: float = 2.0, log: Callable[[str], None] = print):
+        """``instances``: the evolution set [(family, level, seed)] -- those of the selection task and those of the
+        check task. ``gate`` (figures of the calibration): {"select": {"family", "pi0": pi_0's mean, "margin",
+        "none": the mean without management, "eps"}, "check": {"family", "floor": pi_0's mean minus eps}}.
+        ``baseline_runs``: result.json dicts of pi_0 runs already made on these instances (the calibration's).
+        ``usage_factor``: a run that used more than this many times the mean of pi_0's runs of its task stops the
+        evolution."""
         self.out, self.instances, self.run_batch, self.complete = Path(out), [(f, lv, int(s)) for f, lv, s in instances], run_batch, complete
-        self.eps, self.patience, self.cap, self.log = dict(eps), patience, cap, log
+        self.gate, self.patience, self.cap, self.usage_factor, self.log = gate, patience, cap, usage_factor, log
+        self.select_family, self.check_family = gate["select"]["family"], gate["check"]["family"]
+        self.should_stop: Callable[[], str] = lambda: ""
         self.out.mkdir(parents=True, exist_ok=True)
         fams = sorted({f for f, _, _ in self.instances})
+        if sorted({self.select_family, self.check_family}) != fams:
+            raise ValueError("the evolution set must hold instances of the selection task and of the check task, and no other")
         per: dict[str, int] = {}
         self.labels: dict[str, str] = {}
         for f, lv, s in self.instances:                  # the evolver never sees a task's name, level or seed
             per[f] = per.get(f, 0) + 1
             self.labels[self.key(f, lv, s)] = f"T{fams.index(f) + 1}-I{per[f]}"
+        self.task_label = {f: f"T{fams.index(f) + 1}" for f in fams}
         sf = self.out / "state.json"
         if sf.is_file():
             self.state = json.loads(sf.read_text())
@@ -282,9 +301,9 @@ class CBEvolution:
         for n, t in texts.items():
             (self.skills_dir("pi0") / n).mkdir(parents=True, exist_ok=True)
             (self.skills_dir("pi0") / n / "SKILL.md").write_text(t, encoding="utf-8")
-        self.state = {"combos": {"pi0": {"parent": None, "generation": 0, "runs": {}, "changed": []}}, "frontier": ["pi0"],
-                      "generation": 0, "no_change": 0, "history": [], "evolver_tokens": {"prompt": 0, "completion": 0},
-                      "run_tokens": 0, "stopped": None}
+        self.state = {"combos": {"pi0": {"parent": None, "generation": 0, "runs": {}, "changed": [], "status": "baseline"}},
+                      "frontier": ["pi0"], "generation": 0, "no_change": 0, "history": [],
+                      "evolver_tokens": {"prompt": 0, "completion": 0}, "run_tokens": 0, "stopped": None}
         keys = set(self.labels)
         for r in baseline_runs or []:
             k = self.key(r["family"], r["level"], r["seed"])
@@ -304,41 +323,67 @@ class CBEvolution:
     def skills_dir(self, cid: str) -> Path:
         return self.out / "combos" / cid
 
+    def of(self, family: str) -> list[tuple[str, str, int]]:
+        return [i for i in self.instances if i[0] == family]
+
+    def used_tokens(self) -> int:
+        return self.state["run_tokens"] + sum(self.state["evolver_tokens"].values())
+
     # ------------------------------------------------------------------ running
 
-    def ensure_runs(self, cid: str) -> bool:
-        """One usable run on every evolution instance; False when a run was void or could not be graded from
-        snapshots (the caller stops)."""
+    def _stop(self, **why: Any) -> bool:
+        if not self.state["stopped"]:
+            self.state["stopped"] = why
+        self._save()
+        return False
+
+    def ensure_runs(self, cid: str, family: str) -> bool:
+        """One usable run on every evolution instance of ``family``; False when the evolution has to stop (a void
+        run, a run not graded from snapshots, a batch that stopped, usage clearly above pi_0's, the caller's cap)."""
         c = self.state["combos"][cid]
-        todo = [(f, lv, s) for f, lv, s in self.instances if not any(r["usable"] for r in c["runs"].get(self.key(f, lv, s), []))]
+        insts = self.of(family)
+        todo = [(f, lv, s) for f, lv, s in insts if not any(r["usable"] for r in c["runs"].get(self.key(f, lv, s), []))]
         if not todo:
             return True
-        for r in self.run_batch(cid, self.skills_dir(cid), todo):
+        why = self.should_stop()
+        if why:
+            return self._stop(why=why, combination=cid)
+        results, batch_stop = self.run_batch(cid, self.skills_dir(cid), todo)
+        ref = [r["resources"]["tokens"] for k, rs in self.state["combos"]["pi0"]["runs"].items() if k.startswith(family + ":") for r in rs if r["usable"]]
+        for r in results:
             fig = run_figures(r)
             c["runs"].setdefault(self.key(fig["family"], fig["level"], fig["seed"]), []).append(fig)
             self.state["run_tokens"] += fig["resources"]["tokens"]
-            if not fig["usable"] and not self.state["stopped"]:
-                self.state["stopped"] = {"why": "void run" if fig["void"] else "a run was not graded from snapshots",
-                                         "combination": cid, "run": fig["run"]}
+            if not fig["usable"]:
+                self._stop(why="void run" if fig["void"] else "a run was not graded from snapshots", combination=cid, run=fig["run"])
+            elif cid != "pi0" and ref and fig["resources"]["tokens"] > self.usage_factor * (sum(ref) / len(ref)):
+                self._stop(why=f"a run used more than {self.usage_factor:g} times the mean of the baseline's runs of its task "
+                               f"({fig['resources']['tokens']} against {sum(ref) / len(ref):.0f})", combination=cid, run=fig["run"])
         self._save()
+        if batch_stop:
+            self._stop(why="the batch of runs stopped: " + batch_stop, combination=cid)
         if self.state["stopped"]:
             return False
-        missing = [k for k in self.labels if not any(r["usable"] for r in c["runs"].get(k, []))]
+        missing = [k for k in (self.key(*i) for i in insts) if not any(r["usable"] for r in c["runs"].get(k, []))]
         if missing:
-            self.state["stopped"] = {"why": "runs missing after the batch", "combination": cid, "instances": len(missing)}
-            self._save()
-            return False
+            return self._stop(why="runs missing after the batch", combination=cid, instances=len(missing))
         return True
 
-    def usable(self, cid: str) -> dict[str, list[dict[str, Any]]]:
-        return {k: [r for r in rs if r["usable"]] for k, rs in self.state["combos"][cid]["runs"].items()}
+    def usable(self, cid: str, family: str = "") -> dict[str, list[dict[str, Any]]]:
+        return {k: [r for r in rs if r["usable"]] for k, rs in self.state["combos"][cid]["runs"].items()
+                if not family or k.startswith(family + ":")}
 
-    def complete_combos(self) -> list[str]:
-        return [cid for cid, c in self.state["combos"].items()
-                if c.get("status") != "dropped" and all(self.usable(cid).get(k) for k in self.labels)]
+    def rewards(self, cid: str, family: str) -> list[float]:
+        """The mean score of each instance of ``family`` (in the order of the evolution set)."""
+        u = self.usable(cid, family)
+        return [sum(r["reward"] for r in u[k]) / len(u[k]) for k in (self.key(*i) for i in self.of(family)) if u.get(k)]
 
-    def scores(self) -> dict[str, dict[str, Any]]:
-        return {cid: SEL.score(self.usable(cid)) for cid in self.complete_combos()}
+    def pool(self) -> list[str]:
+        """pi_0 and every combination that passed both steps (frontier members and those selected out later)."""
+        return [cid for cid, c in self.state["combos"].items() if c.get("status") in ("baseline", "qualified")]
+
+    def scores(self, family: str = "", also: tuple[str, ...] = ()) -> dict[str, dict[str, Any]]:
+        return {cid: SEL.score(self.usable(cid, family)) for cid in [*self.pool(), *also]}
 
     # ------------------------------------------------------------------ one generation
 
@@ -348,18 +393,60 @@ class CBEvolution:
             used[h["parent"]] = used.get(h["parent"], 0) + 1
         return min(self.state["frontier"], key=lambda k: (used.get(k, 0), k))
 
+    def evaluate(self, cid: str, rec: dict[str, Any]) -> bool:
+        """The two steps for one new combination; fills ``rec``; False when the evolution has to stop."""
+        c = self.state["combos"][cid]
+        sel, chk = self.gate["select"], self.gate["check"]
+        ts, tc = self.task_label[self.select_family], self.task_label[self.check_family]
+        if not self.ensure_runs(cid, self.select_family):
+            return False
+        rs = self.rewards(cid, self.select_family)
+        rec["select_scores"] = [round(x, 4) for x in rs]
+        better, why = SEL.better_than_baseline(rs, base=sel["pi0"], margin=sel["margin"], none=sel.get("none"))
+        if not better:
+            c["status"] = "eliminated"
+            rec["outcome"] = f"eliminated: not better than the baseline on {ts}: {why}"
+            return True
+        first = SEL.select_staged(self.scores(self.select_family, also=(cid,)), task=self.select_family, eps=sel["eps"],
+                                  baseline="pi0", cap=self.cap)
+        if cid not in first["frontier"]:
+            c["status"] = "eliminated"
+            rec["outcome"] = f"eliminated on {ts}: " + first["eliminated"].get(cid, "")
+            return True
+        if not self.ensure_runs(cid, self.check_family):
+            return False
+        rc = self.rewards(cid, self.check_family)
+        rec["check_scores"] = [round(x, 4) for x in rc]
+        mean_c = sum(rc) / len(rc)
+        if mean_c < chk["floor"] - 1e-9:
+            c["status"] = "eliminated"
+            rec["outcome"] = f"eliminated: regressed on {tc}: mean {mean_c:.3f} below the floor {chk['floor']:.3f}"
+            return True
+        c["status"] = "qualified"
+        sc = self.scores()
+        res = SEL.select_staged(sc, task=self.select_family, eps=sel["eps"], baseline="pi0", cap=self.cap)
+        self.state["frontier"] = res["frontier"]
+        rec.update(outcome="on the frontier" if cid in res["frontier"] else "eliminated: " + res["eliminated"].get(cid, ""),
+                   score={k: sc[cid][k] for k in ("quality", "per_task", "violation_rate", "resources")},
+                   baseline={k: sc["pi0"][k] for k in ("quality", "per_task", "violation_rate", "resources")},
+                   eliminated=res["eliminated"], noise=res["noise"])
+        return True
+
     def generation(self) -> dict[str, Any]:
         g = self.state["generation"] + 1
-        if not self.ensure_runs("pi0"):
-            return {"generation": g, "stopped": self.state["stopped"]}
+        for fam in (self.select_family, self.check_family):
+            if not self.ensure_runs("pi0", fam):
+                return {"generation": g, "stopped": self.state["stopped"]}
         parent = self.pick_parent()
         gdir = self.out / "generations" / f"g{g:02d}"
         gdir.mkdir(parents=True, exist_ok=True)
         texts = load_skillset(self.skills_dir(parent), forbidden=FORBIDDEN).texts()
         note = build_note(self.usable(parent), self.labels)
         (gdir / "note.md").write_text(note, encoding="utf-8")
-        hist = [{k: h.get(k) for k in ("generation", "parent", "changed", "prediction", "outcome")} for h in self.state["history"]]
-        prop = propose(self.complete, texts, note, hist)
+        hist = [{k: h.get(k) for k in ("generation", "parent", "changed", "prediction", "select_scores", "check_scores", "outcome")}
+                for h in self.state["history"]]
+        system = system_prompt(self.task_label[self.select_family], self.task_label[self.check_family], self.gate["select"])
+        prop = propose(self.complete, texts, note, hist, system)
         for k in ("prompt", "completion"):
             self.state["evolver_tokens"][k] += prop["tokens"][k]
         (gdir / "evolver_request.md").write_text(prop["request"], encoding="utf-8")
@@ -375,46 +462,36 @@ class CBEvolution:
             for n, t in {**texts, **prop["rewrites"]}.items():
                 (self.skills_dir(cid) / n).mkdir(parents=True, exist_ok=True)
                 (self.skills_dir(cid) / n / "SKILL.md").write_text(t, encoding="utf-8")
-            self.state["combos"][cid] = {"parent": parent, "generation": g, "runs": {}, "changed": sorted(prop["rewrites"])}
+            self.state["combos"][cid] = {"parent": parent, "generation": g, "runs": {}, "changed": sorted(prop["rewrites"]), "status": "new"}
             rec["combination"] = cid
             self._save()
-            if not self.ensure_runs(cid):
+            if not self.evaluate(cid, rec):
                 rec.update(outcome="stopped: " + self.state["stopped"]["why"], stopped=self.state["stopped"])
-                self.state["history"].append(rec)
-                self.state["generation"] = g
-                self._save()
-                (gdir / "generation.json").write_text(json.dumps(rec, indent=1, default=str), encoding="utf-8")
-                self.log(json.dumps({"generation": g, "parent": parent, "changed": rec["changed"], "outcome": rec["outcome"]}))
-                return rec
-            sc = self.scores()
-            sel = SEL.select(sc, eps=self.eps, baseline="pi0", cap=self.cap)
-            self.state["frontier"] = sel["frontier"]
-            rec.update(outcome="on the frontier" if cid in sel["frontier"] else "eliminated: " + sel["eliminated"].get(cid, ""),
-                       score={k: sc[cid][k] for k in ("quality", "per_task", "violation_rate", "resources")},
-                       baseline={k: sc["pi0"][k] for k in ("quality", "per_task", "violation_rate", "resources")},
-                       eliminated=sel["eliminated"], noise=sel["noise"])
+            rec["flagged_runs"] = [r["run"] for rs in self.state["combos"][cid]["runs"].values() for r in rs if r.get("flagged")]
         rec["frontier_after"] = list(self.state["frontier"])
         changed = sorted(before) != sorted(self.state["frontier"])
-        self.state["no_change"] = 0 if changed else self.state["no_change"] + 1
+        if not self.state["stopped"]:
+            self.state["no_change"] = 0 if changed else self.state["no_change"] + 1
         self.state["history"].append(rec)
         self.state["generation"] = g
         self._save()
         (gdir / "generation.json").write_text(json.dumps(rec, indent=1, default=str), encoding="utf-8")
-        self.log(json.dumps({"generation": g, "parent": parent, "changed": rec["changed"], "outcome": rec["outcome"],
-                             "score": rec.get("score"), "frontier": rec["frontier_after"], "no_change": self.state["no_change"],
-                             "run_tokens": self.state["run_tokens"], "evolver_tokens": self.state["evolver_tokens"]}))
+        self.log(json.dumps({"generation": g, "parent": parent, "changed": rec["changed"], "why": " ".join(rec["analysis"].split())[:700],
+                             "select_scores": rec.get("select_scores"), "check_scores": rec.get("check_scores"),
+                             "outcome": rec["outcome"], "frontier": rec["frontier_after"], "flagged_runs": rec.get("flagged_runs"),
+                             "no_change": self.state["no_change"], "tokens_used": self.used_tokens()}, ensure_ascii=False))
         return rec
 
     def run(self, max_generations: int, should_stop: Callable[[], str] = lambda: "") -> dict[str, Any]:
+        self.should_stop = should_stop
         while self.state["generation"] < max_generations and self.state["no_change"] < self.patience and not self.state["stopped"]:
             why = should_stop()
             if why:
-                self.state["stopped"] = {"why": why}
-                self._save()
+                self._stop(why=why)
                 break
             self.generation()
         sc = self.scores()
-        best = SEL.final_pick(sc, self.state["frontier"], "pi0") if sc and all(k in sc for k in self.state["frontier"]) else None
+        best = SEL.final_pick(sc, self.state["frontier"], "pi0", self.select_family) if all(k in sc for k in self.state["frontier"]) else None
         self.state["final_pick"] = best
         self._save()
         return {"frontier": self.state["frontier"], "final_pick": best, "generations": self.state["generation"],

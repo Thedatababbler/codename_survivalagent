@@ -100,7 +100,8 @@ def main() -> int:
     checks: dict[str, bool] = {}
     notes: dict[str, object] = {}
     skills = load_skillset(PI0)
-    fake_summary = lambda msgs: ("SUMMARY-OF-EARLIER-TURNS", 1234, 56)  # noqa: E731
+    FAKE = "SUMMARY-OF-EARLIER-TURNS: the agent stored what it was given and answered what it was asked; nothing else is left to do."
+    fake_summary = lambda msgs: (FAKE, 1234, 56)  # noqa: E731
 
     def go(family, level, policy, *, arm="none", seed=SEED, served=1.0, tokens=30_000_000, complete=None, **cfg):
         made: list[Scripted] = []
@@ -278,7 +279,7 @@ def main() -> int:
 
         def fat_then_thin(msgs):
             calls_s.append(1)
-            return (big if len(calls_s) == 1 else "SHORT-SUMMARY", 1000, 10)
+            return (big if len(calls_s) == 1 else "SHORT-SUMMARY: the agent took in the operations so far and has kept what it was told to keep.", 1000, 10)
 
         r9b, m9b, rd9b = go("log_triage", "L1600", lambda ms, n: READY, arm="pi0", complete=fat_then_thin)
         c9b = [e for e in r9b["events"] if e["event"] == "compaction"]
@@ -452,23 +453,55 @@ def main() -> int:
         sent_old, sent_new = [], []
         turns = [{"role": "user", "content": "op 1\n[x] line"}, {"role": "assistant", "content": "", "tool_calls": [{"function": {"arguments": '{"command":"echo a"}'}}]},
                  {"role": "tool", "content": "a"}, {"role": "user", "content": "op 2"}]
-        old_summarizer(lambda m: (sent_old.append(m), ("s", 1, 1))[1], "THE TASK")(turns)
-        RUN.make_summarizer(lambda m: (sent_new.append(m), ("s", 1, 1))[1], "THE TASK", RUN.summary_instruction(skills))(turns)
+        old_summarizer(lambda m: (sent_old.append(m), (FAKE, 1, 1))[1], "THE TASK")(turns)
+        RUN.make_summarizer(lambda m: (sent_new.append(m), (FAKE, 1, 1))[1], "THE TASK", RUN.summary_instruction(skills))(turns)
         r9s, _, rd9s = go("kv_store", "R1000", kv_right, arm="pi0")
         logged = [json.loads(ln) for ln in (rd9s / "summaries.jsonl").read_text().splitlines()]
-        checks["delivery: pi_0's summary call is word for word what it was before the instruction moved into the skill (system and user message)"] = (
+        old_user, new_user = sent_old[0][1]["content"], sent_new[0][1]["content"]
+        checks["delivery: pi_0's summary instruction (the system message) is word for word what it was before it moved into the skill"] = (
             hashlib.sha256(old_prompt.encode()).hexdigest() == "c99daf18482a5da911968867f19fafe913a79b55327a80a4ff96a8604b4e557a"
-            and sent_old == sent_new and len(sent_new) == 1 and sent_new[0][0]["content"] == old_prompt
+            and len(sent_new) == 1 and sent_new[0][0] == sent_old[0][0] and sent_new[0][0]["content"] == old_prompt
             and skills["memory-compaction"].section(RUN.KEEP_SECTION) == old_prompt)
+        checks["summary call: the task and the turns are sent as a marked record (not to be carried out or answered); the record's content is unchanged; no tools, none named"] = (
+            new_user.startswith(RUN.RECORD_HEAD + "\n\n===== RECORD BEGIN =====\n\n") and new_user.endswith("\n\n===== RECORD END =====\n\n" + RUN.RECORD_TAIL)
+            and old_user in new_user and "do not carry them out and do not reply to them" in RUN.RECORD_HEAD
+            and [m["role"] for m in sent_new[0]] == ["system", "user"] and all(set(m) == {"role", "content"} for m in sent_new[0])
+            and "tool" not in (RUN.RECORD_HEAD + RUN.RECORD_TAIL + old_prompt).lower())
+        good = "The agent stored the first two groups of values in a file in its working directory and has the third still to do."
+        checks["summary check: too short, a command, a refusal are not summaries; a factual summary is"] = (
+            RUN.summary_problem("echo READY_FOR_NEXT_OP") == "too short" and RUN.summary_problem("") == "too short"
+            and RUN.summary_problem("echo READY_FOR_NEXT_OP" * 5) == "reads as a command"
+            and RUN.summary_problem('{"command": "echo READY_FOR_NEXT_OP && cat notes.txt | head -50 && echo done with everything"}') == "reads as a command"
+            and RUN.summary_problem("I'm unable to run the required shell command because no bash tool is available in this session.") == "reads as a refusal"
+            and RUN.summary_problem(good) == "" and RUN.summary_problem(FAKE) == "")
+
+        def replies(*texts):
+            it, calls = iter(texts), []
+            return (lambda m: (calls.append(m), (next(it), 100, 10))[1]), calls
+        st1, st2, st3 = {}, {}, {}
+        c1, k1 = replies(good)
+        c2, k2 = replies("echo READY_FOR_NEXT_OP", good)
+        c3, k3 = replies("echo READY_FOR_NEXT_OP", "I'm unable to run the bash tool in this session.")
+        o1 = RUN.make_summarizer(c1, "THE TASK", old_prompt, stats=st1)(turns)
+        o2 = RUN.make_summarizer(c2, "THE TASK", old_prompt, stats=st2)(turns)
+        o3 = RUN.make_summarizer(c3, "THE TASK", old_prompt, out_root / "s3.jsonl", st3)(turns)
+        l3 = json.loads((out_root / "s3.jsonl").read_text())
+        checks["summary check: an unfit reply is asked for once more (both calls charged); a second unfit one is used as it is and recorded as a diagnostic"] = (
+            o1 == (good, 100, 10) and len(k1) == 1 and st1 == {"calls": 1, "retries": 0, "unfit": 0}
+            and o2 == (good, 200, 20) and len(k2) == 2 and st2 == {"calls": 1, "retries": 1, "unfit": 0}
+            and k2[1][:2] == k2[0] and k2[1][2] == {"role": "assistant", "content": "echo READY_FOR_NEXT_OP"} and "not a summary (too short)" in k2[1][3]["content"]
+            and o3[0].startswith("I'm unable") and o3[1:] == (200, 20) and len(k3) == 2 and st3 == {"calls": 1, "retries": 1, "unfit": 1}
+            and l3["unfit"] is True and [t["problem"] for t in l3["tries"]] == ["too short", "too short"])
         checks["delivery: every summary call of a run is logged outside the working directory with the instruction as sent"] = (
-            len(logged) == r9s["counts"]["compactions"] >= 2 and all(x["system"] == old_prompt and x["reply"] == "SUMMARY-OF-EARLIER-TURNS" for x in logged)
+            len(logged) == r9s["counts"]["compactions"] >= 2 and all(x["system"] == old_prompt and x["tries"][0]["reply"] == FAKE and not x["unfit"] for x in logged)
+            and r9s["counts"]["summary_calls"] == len(logged) and r9s["counts"]["summary_retries"] == 0 and r9s["counts"]["summary_unfit"] == 0
             and not (rd9s / "ws" / "summaries.jsonl").exists())
         keep = lambda text: block("memory-compaction", doc_c.replace(old_prompt, text))  # noqa: E731
         general = ("Write a summary for the agent. Copy word for word everything the task instructions require the agent to still hold in "
                    "its context; state what was done and what is left. Do not carry out the task and do not reply with a command.")
         sent_ev = []
         ev_set = EVO.validate(EVO.parse_proposal(answer_of(keep(general))))
-        RUN.make_summarizer(lambda m: (sent_ev.append(m), ("s", 1, 1))[1], "THE TASK",
+        RUN.make_summarizer(lambda m: (sent_ev.append(m), (FAKE, 1, 1))[1], "THE TASK",
                             RUN.summary_instruction(type(skills)({**skills.skills, "memory-compaction": parse_skill(ev_set[0]["memory-compaction"], name="memory-compaction")})))(turns)
         nprob = lambda b: len(EVO.validate(EVO.parse_proposal(answer_of(b)))[1])  # noqa: E731
         checks["delivery: a rewritten summary section is the summary call's instruction, whole and alone"] = (

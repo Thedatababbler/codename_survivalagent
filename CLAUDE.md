@@ -60,5 +60,6 @@ started and no workspace code may be run in this project. Section format of rule
 - 保留关键行、编辑数独棋盘两个任务禁止写盘：三组都没有记忆文件，提示里不提它；任务说明优先于管理说明（2026-11-23）。额度百分点由用户手动读数，不开代理管理接口。
 - 触发条件与超窗判定用未校准的 `o200k_base`；记账用服务端的 token 数。结果只在三组（π_0、无管理、进化后）之间比较，与论文数字不可比。
 - 进化（2026-11-25）：两步评估——候选先只跑保留关键行，被判为比 π_0 更好并进入前沿的才加跑存取键值作不退步检查（参数 `configs/cb_evolution_e1.json`，说明 `docs/CONTEXTBENCH.md` §12）。智能体在工作区以外搜索任务输入或答案（`find /`、`find /root`、`find /tmp` 等）定为 CRITICAL（事件 `task_input_search`）：被拦下且核实未获取内容则保留并标记，获取到任何内容则作废。
+- 总结指示（2026-11-26）：`memory-compaction` 的 `## What to keep when compacting` 一节是总结调用的系统消息（π_0 该节 = 原 `configs/roles_cb/summary.md` 原文，该文件只作对照基准）。这一节只能用通用表述，不得出现标记格式、任务名、任务术语。skill 各部分送达何处见 `docs/CONTEXTBENCH.md` §13。
 - 正对照：改动这一设置的任何部分后先跑 `uv run python scripts/positive_control_cb.py`（不花额度）；改了 `src/survival/agents.py` 还要跑 v0.3 的正对照。
 - 运行：`scripts/cb_run.py`。花额度，先报预计用量。沙盒规定、提交与推送先询问，全部适用。

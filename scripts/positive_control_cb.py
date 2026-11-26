@@ -435,6 +435,61 @@ def main() -> int:
             and len(EVO.validate(EVO.parse_proposal(answer_of(block("subagent-handoff", doc_h))))[1]) == 1
             and len(EVO.validate(EVO.parse_proposal(answer_of(share(0.3).replace("context >= 0.75", "context >= 0.75 and stage_colour > 1"))))[1]) >= 1)
 
+        # ---------------------------------------------------------------- delivery: the summary call's instruction is a skill section
+        old_prompt = (RUN.ROLES / "summary.md").read_text(encoding="utf-8").strip()     # the instruction before 2026-11-26
+
+        def old_summarizer(complete, instruction):                                      # make_summarizer as of aac5788
+            def summarize(messages):
+                parts = []
+                for m in CB.wire(messages):
+                    text = str(m.get("content") or "")
+                    for tc in m.get("tool_calls") or []:
+                        text += f"\n[command] {(tc.get('function') or {}).get('arguments', '')}"
+                    parts.append(f"## {m.get('role')}\n{text}")
+                return complete([{"role": "system", "content": old_prompt},
+                                 {"role": "user", "content": f"# The agent's task\n\n{instruction}\n\n# The conversation to replace\n\n" + "\n\n".join(parts)}])
+            return summarize
+        sent_old, sent_new = [], []
+        turns = [{"role": "user", "content": "op 1\n[x] line"}, {"role": "assistant", "content": "", "tool_calls": [{"function": {"arguments": '{"command":"echo a"}'}}]},
+                 {"role": "tool", "content": "a"}, {"role": "user", "content": "op 2"}]
+        old_summarizer(lambda m: (sent_old.append(m), ("s", 1, 1))[1], "THE TASK")(turns)
+        RUN.make_summarizer(lambda m: (sent_new.append(m), ("s", 1, 1))[1], "THE TASK", RUN.summary_instruction(skills))(turns)
+        r9s, _, rd9s = go("kv_store", "R1000", kv_right, arm="pi0")
+        logged = [json.loads(ln) for ln in (rd9s / "summaries.jsonl").read_text().splitlines()]
+        checks["delivery: pi_0's summary call is word for word what it was before the instruction moved into the skill (system and user message)"] = (
+            hashlib.sha256(old_prompt.encode()).hexdigest() == "c99daf18482a5da911968867f19fafe913a79b55327a80a4ff96a8604b4e557a"
+            and sent_old == sent_new and len(sent_new) == 1 and sent_new[0][0]["content"] == old_prompt
+            and skills["memory-compaction"].section(RUN.KEEP_SECTION) == old_prompt)
+        checks["delivery: every summary call of a run is logged outside the working directory with the instruction as sent"] = (
+            len(logged) == r9s["counts"]["compactions"] >= 2 and all(x["system"] == old_prompt and x["reply"] == "SUMMARY-OF-EARLIER-TURNS" for x in logged)
+            and not (rd9s / "ws" / "summaries.jsonl").exists())
+        keep = lambda text: block("memory-compaction", doc_c.replace(old_prompt, text))  # noqa: E731
+        general = ("Write a summary for the agent. Copy word for word everything the task instructions require the agent to still hold in "
+                   "its context; state what was done and what is left. Do not carry out the task and do not reply with a command.")
+        sent_ev = []
+        ev_set = EVO.validate(EVO.parse_proposal(answer_of(keep(general))))
+        RUN.make_summarizer(lambda m: (sent_ev.append(m), ("s", 1, 1))[1], "THE TASK",
+                            RUN.summary_instruction(type(skills)({**skills.skills, "memory-compaction": parse_skill(ev_set[0]["memory-compaction"], name="memory-compaction")})))(turns)
+        nprob = lambda b: len(EVO.validate(EVO.parse_proposal(answer_of(b)))[1])  # noqa: E731
+        checks["delivery: a rewritten summary section is the summary call's instruction, whole and alone"] = (
+            ev_set[1] == [] and sent_ev[0][0]["content"] == general and sent_ev[0][1] == sent_new[0][1])
+        checks["the summary section must be general: a marker format, a task name or a task term is refused; pi_0's and a general one pass"] = (
+            EVO.summary_section_problems(old_prompt) == [] and EVO.summary_section_problems(general) == []
+            and nprob(keep(general + " Keep every line that starts with [n00001i02#0a1b2c3d].")) >= 1
+            and nprob(keep(general + " Keep the lines between <<<BLOCK START>>> and its end.")) >= 1
+            and nprob(keep(general + " Keep every needle.")) >= 1 and nprob(keep(general + " Keep the whole board.")) >= 1
+            and nprob(keep(general + " Keep all keys and their values.")) >= 1 and nprob(keep(general + " End with `echo READY_FOR_NEXT_OP`.")) >= 1
+            and nprob(keep(general + " This is the needle_retention task.")) >= 1)
+        cut = doc_c[:doc_c.index("## " + RUN.KEEP_SECTION)]
+        checks["every section has a reader: memory-compaction without the summary section, a section of another name, and the summary section in token-reminder are refused"] = (
+            nprob(block("memory-compaction", cut)) == 1 and nprob(block("memory-compaction", doc_c + "\n## Notes for the summary\nKeep things.\n")) == 1
+            and nprob(block("token-reminder", doc_r + f"\n## {RUN.KEEP_SECTION}\nKeep things.\n")) == 1)
+        sp = EVO.system_prompt("T2", "T1", {"pi0": 0.167, "none": 0.292, "margin": 0.05})
+        checks["the evolver is told where each part of a document goes, and that the summary section alone instructs the summary call"] = (
+            "Where each part goes at run time" in sp and f'"## {RUN.KEEP_SECTION}"' in sp and "instruction (system message)" in sp
+            and "reaches no model" in sp and "AFTER the compaction is done" in sp and "advise" not in sp
+            and "four sections" not in sp and not any(t in sp.lower() for t in ("needle", "sudoku", "filler", "kv_store")))
+
         insts = [("kv_store", "R1000", 999001), ("kv_store", "R1000", 999002), ("needle_retention", "K4-C24", 999001), ("needle_retention", "K4-C24", 999002)]
 
         def fake(fam, lv, seed, reward, tokens, comp, rb, peak, viol=False, void=False, arm="evolved"):

@@ -4,7 +4,8 @@ A *combination* is the six skill documents of the setting; only ``memory-compact
 ever rewritten (``subagent-handoff`` and the other three stay as in pi_0). Each generation: a parent is taken from
 the frontier (the one used least often); the evolver reads the parent's two documents and a note on its runs
 (figures only: no operation text, no reply, no answer, no task name, no level, no seed) and rewrites one or both;
-the rewrites are validated (``skills.parse_skill``, the rule that a skill must not tell the executor to break its
+the rewrites are validated (``skills.parse_skill``, every section has a reader and the summary section is worded
+generally (``section_problems``), the rule that a skill must not tell the executor to break its
 task instructions, no sealed tag; one return to the evolver with the problems, then dropped); the new combination
 is evaluated in two steps (user decision 2026-11-25): it first runs only the instances of the selection task; if it
 is better than pi_0 there (``cb_select.better_than_baseline``) and enters the frontier on those runs, it also runs
@@ -28,6 +29,7 @@ from pathlib import Path
 from typing import Any
 
 from survival import cb_select as SEL
+from survival.cb_run import KEEP_SECTION
 from survival.evolve import parse_proposal
 from survival.skills import SCHEMA, SECTIONS, SKILL_NAMES, SkillError, load_skillset, parse_skill
 
@@ -41,13 +43,18 @@ STATE_HERE = {"context": "ratio: the executor's context / its window", "round_to
               "compressions": "count: compactions done so far in the run"}
 FORBIDDEN = {"kv_store", "log_triage", "needle_retention", "sudoku_sketchpad", "sudoku", "needle", "contextbench"}
 SENT_SECTIONS = ("What to do", "Reading the readout", "Checking it worked")     # what the executor is shown
+# Where each part of a document goes at run time (the delivery audit of 2026-11-26, docs/CONTEXTBENCH.md §12).
+# Sections a document may carry: the four of every skill, and KEEP_SECTION in memory-compaction only (required).
+ALLOWED_SECTIONS = {"memory-compaction": (*SECTIONS, KEEP_SECTION), "token-reminder": SECTIONS}
+NO_EFFECT_PARAMS = {"token-reminder": ("advise",)}      # accepted by the schema, read by no code of this setting
 
 
 def _schema_text() -> str:
     lines = []
     for n in EVOLVED:
         s = SCHEMA[n]
-        ps = ", ".join(f"{k}: {'|'.join(v) if isinstance(v, tuple) else v}" for k, v in s["params"].items())
+        ps = ", ".join(f"{k}: {'|'.join(v) if isinstance(v, tuple) else v}" for k, v in s["params"].items()
+                       if k not in NO_EFFECT_PARAMS.get(n, ()))
         lines.append(f"- {n}: actions [{', '.join(s['actions'])}]; params {{{ps}}}")
     return "\n".join(lines)
 
@@ -70,20 +77,38 @@ The planner state a condition may use:
 The two skills, the actions their triggers may fire, and their parameters:
 {_schema_text()}
 
-What the actions do: remind -> the skill's "What to do" text is sent to the executor; framework_compaction -> the
+What the actions do: remind -> the skill's text for the executor is sent to it; framework_compaction -> the
 framework replaces the older turns by a summary written by a separate model call (its tokens are charged to the
-run); request_compaction -> the skill's text is sent to the executor (it can run the command `compact` itself);
-force_compaction -> the program compacts now (from the executor's memory file when the run has one, it was updated
-since the last compaction and use_memory is true; else a summary). A compaction keeps the newest turns as they
+run), then sends the executor the skill's text; request_compaction -> the skill's text is sent to the executor (it
+can run the command `compact` itself, which also compacts by a summary); force_compaction -> the program compacts
+now (from the executor's memory file when the run has one, it was updated since the last compaction and use_memory
+is true; else a summary), then sends the executor the skill's text. A compaction keeps the newest turns as they
 are: those that together take at most keep_recent_share of the window (at least the newest one) when that
 parameter is given, else keep_recent_turns turns. A trigger fires when its condition turns true and is armed again
 when it turns false (mode: once, the default), or before every model call for as long as its condition holds
 (mode: while).
 
 A SKILL document has a YAML header (name, description, triggers: [{{when, action, mode (optional: once | while)}}],
-params) and a body with exactly these four sections: {", ".join("## " + s for s in SECTIONS)}.
-"What to do" and "Checking it worked" are sent to the executor when a trigger of the skill fires; "Reading the
-readout" is in the executor's instructions from the start; "Mechanism" is for you and the planner.
+params) and a body of sections: {", ".join("## " + s for s in SECTIONS)}; {EVOLVED[0]} has
+one more, "## {KEEP_SECTION}". No other section is accepted.
+
+Where each part goes at run time -- a part reaches only the reader named here, and nothing else of the document
+reaches any model:
+- header `triggers` and `params`: read by the program only (when it acts, how much it keeps). Never shown to a model.
+- header `name`: the executor sees it as a label of the skill's texts. `description`: reaches no model.
+- "## Mechanism": reaches no model at run time. It is your own note.
+- "## Reading the readout": part of the executor's instructions from the first call on (both documents).
+- "## What to do" and "## Checking it worked": sent to the executor as one message each time a trigger of that
+  document fires. With framework_compaction and force_compaction that is AFTER the compaction is done: the
+  executor reads it when the older turns are already replaced, so it cannot change what the summary holds. It is
+  not sent when the program compacts without a trigger (after an undone turn) or when the executor runs `compact`.
+- "## {KEEP_SECTION}" ({EVOLVED[0]} only): this text, whole and alone, is the instruction (system message) of
+  the separate model call that writes the summary, at every compaction by summary (trigger, forced, or `compact`).
+  That call is then given the executor's task instructions and the turns to be replaced, and its reply replaces
+  those turns. The executor never sees this section; the summary writer sees nothing else of the document. Changing
+  this section changes directly what a summary holds and so what is left in the executor's context afterwards.
+  It must be worded generally: no concrete marker or line format, no task name, no word that belongs to one
+  particular task; refer to "what the task instructions require to be kept" and the like.
 
 {SEL.evolver_rules()}
 
@@ -91,7 +116,9 @@ Rules that are checked mechanically (a document that breaks one is returned to y
 - conditions use only the state names above, with ratios (0..1) and counts (at most 100);
 - no absolute token amount anywhere; no name of a task, file, module or function: the documents must hold for
   tasks you have never seen;
-- parameters and actions only from the lists above;
+- parameters and actions only from the lists above; sections only those named above;
+- "## {KEEP_SECTION}" holds no marker or line format (no angle-bracket or square-bracket tokens, no `#` tags,
+  nothing in backticks, no words in capitals taken from a task), and no task name or task-specific term;
 - a sentence that tells the executor to write, save or store something in a file, on disk, in the memory file or
   anywhere outside its context must carry the condition that its task allows it; no sentence may say that the
   task's instructions can be set aside.
@@ -150,6 +177,46 @@ def instruction_problems(text: str) -> list[str]:
 
 _TAG = re.compile(r"#[0-9a-f]{8}\b")
 
+# "## What to keep when compacting" must be worded generally (user decision 2026-11-26): no concrete marker format,
+# no task name, no term of one task. Mechanical and therefore a heuristic on wording.
+_FORMATS = [(re.compile(r"<<<|>>>|<[^<>\n]{1,40}>"), "an angle-bracket token"), (re.compile(r"\[[^\]\n]{0,60}\]"), "a square-bracket token"),
+            (re.compile(r"#\w"), "a `#` tag"), (re.compile(r"`"), "a literal in backticks"),
+            (re.compile(r"\(\s*\w+\s*,\s*\w+\s*,"), "a tuple format"), (re.compile(r"\b\w+=\S"), "a `name=value` format"),
+            (re.compile(r"\b[A-Z][A-Z0-9]*(?:[_-][A-Z0-9]+)+\b"), "a marker word in capitals"),
+            (re.compile(r"\b(?:NEEDLES?|FILLER|SET|GET|QUERY|ANSWER|VERSION|SKETCHPAD|BEGIN|END|START|LEVEL|BLOCK|BATCH)\b"), "a marker word in capitals")]
+_TASK_TERMS = ("needle", "filler", "haystack", "sudoku", "sketchpad", "board", "grid", "cell", "tuple", "puzzle", "digit",
+               "kv", "key-value", "key/value", "key value", "keys", "batch", "chunk", "triage", "incident", "query",
+               "queries", "timestamp", "sentinel", "log line", "log entry", "log record", "logs", "service log")
+
+
+def summary_section_problems(text: str) -> list[str]:
+    out = []
+    for rx, what in _FORMATS:
+        m = rx.search(text)
+        if m:
+            out.append(f"'## {KEEP_SECTION}' holds {what} ({m.group(0)[:30]!r}): word it generally, without any concrete format")
+    low = text.lower()
+    for t in _TASK_TERMS:
+        m = re.search(rf"(?<![\w]){re.escape(t)}(?:s|es)?(?![\w])", low)
+        if m:
+            out.append(f"'## {KEEP_SECTION}' uses the task-specific term {m.group(0)!r}: refer to what the task instructions require instead")
+    return out
+
+
+def section_problems(sk: Any) -> list[str]:
+    """Every part of a document must have a reader: no section other than the allowed ones; the summary call's
+    instruction present in memory-compaction and worded generally."""
+    out = [f"section '## {t}' is not one of this document's sections and would reach nobody" for t in sk.sections
+           if t not in ALLOWED_SECTIONS[sk.name]]
+    if KEEP_SECTION in ALLOWED_SECTIONS[sk.name]:
+        if not sk.section(KEEP_SECTION):
+            out.append(f"section '## {KEEP_SECTION}' is missing or empty: the summary call would have no instruction")
+        else:
+            out += summary_section_problems(sk.section(KEEP_SECTION))
+            if re.search(_OVERRIDE, sk.section(KEEP_SECTION), re.I):
+                out.append(f"'## {KEEP_SECTION}' says the task's instructions can be set aside")
+    return out
+
 
 def validate(prop: dict[str, Any]) -> tuple[dict[str, str], list[str]]:
     problems: list[str] = []
@@ -172,7 +239,7 @@ def validate(prop: dict[str, Any]) -> tuple[dict[str, str], list[str]]:
         except SkillError as e:
             problems += [f"{name}: {x}" for x in e.problems]
             continue
-        bad = instruction_problems("\n".join(sk.section(s) for s in SENT_SECTIONS))
+        bad = instruction_problems("\n".join(sk.section(s) for s in SENT_SECTIONS)) + section_problems(sk)
         if _TAG.search(text):
             bad.append("holds a tag of the kind the operations carry")
         if bad:

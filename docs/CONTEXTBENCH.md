@@ -241,7 +241,7 @@ ContextBench 用的 π_0 文档（如 `configs/cb_skills_pi0/`），不改 `memo
 - **"无管理"组**：没有规划者、没有 `compact` 命令、没有提醒；下一次请求放不下时，从最早的消息开始丢
   （保留系统提示词和任务说明，工具结果不与它的调用分开）。
 - **记忆文件**：只有带 skill 的组有 `AGENT_MEMORY.md`，没有固定标题；智能体在上次压缩之后写过它，`compact` 就用它重建上下文，否则用总结。
-- **总结用的模型调用**看到任务说明和被替换的那段对话，提示词是通用的（`configs/roles_cb/summary.md`），不含任何任务策略。
+- **总结用的模型调用**看到任务说明和被替换的那段对话，提示词是通用的，不含任何任务策略（2026-11-26 起取自 `memory-compaction` 的 `## What to keep when compacting` 一节，π_0 该节即原 `configs/roles_cb/summary.md` 原文，见 §13）。
 - **压缩次数的上限**设为 400（只是安全上限）。仓库任务的默认值 8 在这里一个高档位运行就会用完。
 - **非流结束的会话**记成 ContextBench 的结束原因：上下文无法挽回 → `budget_wall`；用量上限、步数上限、连续 10 次无工具调用 → `max_steps`。
   v0.3 自己的退出状态另存在 `exit_status`。
@@ -338,3 +338,80 @@ ContextBench 用的 π_0 文档（如 `configs/cb_skills_pi0/`），不改 `memo
    tree / du / ls -R 搜索（如 `find /`、`find /root`、`find /tmp`、`find ..`）。被拦下且核实未获取内容（输出里没有授权路径以外的路径）
    → 保留并标记（`SANDBOX_FLAGGED`）；获取到任何内容或无法核实 → 作废。按新规则回扫，`calib-1` 的 r8232fbc229d3、r7ff92980552b
    属于"保留并标记"。
+
+## 13. 进化 e1 的结果、送达核查、总结指示并入 skill（2026-11-26）
+
+### 13.1 e1 的结果（如实记录：可进化范围不含总结指示时，未能胜过 π_0）
+
+进化 `e1`（2026-11-25，`outputs/cb_evo/e1`）按 §12 的两步评估运行，连续 5 个提议不改变前沿后正常停止。前沿 = [π_0]，
+没有候选被判为"更好"，存取键值一次也没有加跑。用量：运行 845 万 token（15 次保留关键行运行），进化者 6.1 万 / 1.1 万。
+沙盒：0 CRITICAL，0 WARNING；无违规。五个提议的父代都是 π_0，都只改了 `memory-compaction`。
+
+| 代 | 改动 | 保留关键行三次得分 | 结论 |
+|---|---|---|---|
+| g1 | 触发 0.78，改为请执行者自己压缩（request_compaction，once），保留份额加大 | 0.083 / 0.125 / 0.125 | 淘汰 |
+| g2 | 触发 0.82，保留份额 0.50 | 0.125 / 0.125 / 0.125 | 淘汰 |
+| g3 | 触发 0.70，force_compaction，保留份额 0.40 | 0.125 / 0.167 / 0.125 | 淘汰 |
+| g4 | 触发 0.70，force_compaction，保留份额 0.50 | 0.125 / 0.208 / 0.167 | 淘汰 |
+| g5 | 触发 0.65，保留份额 0.50 | 0.167 / 0.167 / 0.167 | 淘汰 |
+
+对照：π_0 0.167（5 次全同），无管理 0.292。候选每次运行用 51–75 万 token，π_0 约 43 万。
+这一结果只说明：在只能改触发条件、保留份额和发给执行者的文字时，进化没有胜过 π_0。当时总结调用的指示
+（`configs/roles_cb/summary.md`）不在可进化的两份 skill 之内。
+
+### 13.2 送达核查（不花额度；依据代码与 `calib-1`、`e1` 已有运行的快照）
+
+| 部分 | 运行时出现在哪里 | 依据 |
+|---|---|---|
+| 头部 `name` | 执行者：只作为标签（系统提示里的 `### memory-compaction` 小标题、触发消息的 `[planner: memory-compaction]` 前缀） | `cb_run.system_text`、`planner.message` |
+| 头部 `description` | 哪里都不出现（只有进化者读到） | 全仓库无读取 |
+| 头部 `triggers`、`params` | 只由程序读取，不进任何提示 | `planner.tick`、`cb_agent.compact_keep` |
+| `token-reminder` 的参数 `advise` | **哪里都不出现，也不起任何作用**（格式允许、无代码读取） | 全仓库无读取 |
+| `## Mechanism`（两份） | 哪里都不出现。它原本给规划者的"判断调用"用，本设置没有这种调用 | `planner._judge` 只用于配额与追加预算 |
+| `## Reading the readout`（两份） | 执行者的系统提示，从第一次调用起 | 快照 `calib-1/r14a43c71c455` turn-0000 第 0 条消息 |
+| `## What to do` + `## Checking it worked` | 执行者：该 skill 的触发条件触发时，作为一条用户消息。`framework_compaction` / `force_compaction` 是在**压缩完成之后**才发；程序在回滚后强制压缩、执行者自己运行 `compact` 时不发 | 同一运行 turn-0006 第 6 条消息，紧跟在第 2 条的总结之后 |
+| 总结调用的提示 | 改动前：`configs/roles_cb/summary.md`，**两份 skill 的任何内容都到不了总结调用** | `cb_run.make_summarizer` |
+
+实际发出的片段（`calib-1/r14a43c71c455`，π_0，保留关键行）：
+
+```
+（系统提示末尾）
+## Reading the resource figures
+### memory-compaction
+`context` is the share of the window in use. `compressions` counts the compactions used out of the pool. ...
+### token-reminder
+`context` is the share of the window in use. `round tokens` is the share of the run's token allowance ...
+
+（压缩之后发给执行者的一条消息）
+[planner: memory-compaction] Your earlier conversation was replaced by a summary. Whatever was only in the replaced
+turns is no longer in your context; files you wrote are still on disk. Continue with the current operation.
+
+How to tell it worked: After a compaction `context` drops well below the trigger. ...
+```
+
+**写了但未送达的**（e1 中进化者写的内容里）：g2–g5 在 `Mechanism` 和 `What to do` 里写的"保留更连续的上下文""不要假设被省略的细节还在"
+等，前者谁也看不到，后者在总结已经写完之后才到执行者手里，都影响不了总结内容；进化者提示里原先写的"Mechanism 给你和规划者"
+也不准确。修复（见 13.3）：总结指示并入 skill；进化者提示写明每一部分送达何处；不属于允许小节的小节在校验时拒绝；
+不起作用的参数 `advise` 不再向进化者列出。
+
+**核查中另外发现的问题（未修，待用户决定）**：总结调用的指示确实送达了（作为该调用的系统消息），但回复常常不是总结。
+此前不保存总结调用的提示与回复，只能从快照里出现过的总结条目看：保留关键行 π_0 的 5 次运行里，出现过的 13 条不同总结中 11 条以 `echo READY_FOR_NEXT_OP` 开头或只有这一句（有的重复两遍），不是总结——总结模型把用户消息里的任务说明当成了给自己的任务，去"执行"而不是总结。
+存取键值 π_0 的 5 次运行里，76 条中 49 条同类（含"无法运行 bash 工具"之类的回复和空回复）。e1 的 15 次运行同样如此。
+这解释了保留关键行上 π_0 固定为 0.167、且低于无管理。它不是"指示没送达"，而是总结调用的消息结构（任务说明原文放在用户消息里）
+使指示被盖过。这属于 π_0 的现状：改消息结构会改变 π_0，校准要重做；不改，则进化者可以通过改写总结指示来对付它。
+自 2026-11-26 起每次总结调用的指示与回复记在运行目录的 `summaries.jsonl`（工作区之外，不给进化者）。
+
+### 13.3 总结指示并入 `memory-compaction`（用户决定 2026-11-26）
+
+- `memory-compaction` 的正文多一节 `## What to keep when compacting`（压缩时保留什么）：这一节的全文、且只有这一节，
+  是总结调用的系统消息（触发的压缩、回滚后强制的压缩、执行者自己的 `compact`，凡是用总结的都一样）。执行者看不到这一节。
+  实现：`cb_run.summary_instruction`、`cb_run.make_summarizer`。缺这一节时拒绝运行。
+- π_0 该节 = 原 `configs/roles_cb/summary.md` 原文。该文件保留作对照基准，运行时不再读取。
+  正对照：改动前后 π_0 发出的总结调用（系统消息与用户消息）逐字相同，并固定原文的 sha256。
+- 新增校验（`cb_evolve.summary_section_problems`，按措辞的启发式检查）：该节不得出现具体的标记格式
+  （尖括号或方括号记号、`#` 标签、反引号里的字面量、元组或 `名=值` 格式、任务里的大写标记词）、任务名、任务术语；
+  只能用通用表述（如"任务说明中要求必须保留的内容"）。同时：`memory-compaction` 缺这一节、任何文档出现允许之外的小节、
+  `token-reminder` 带这一节，都拒绝（`cb_evolve.section_problems`）。
+- 进化者提示（`cb_evolve.system_prompt`）写明各部分送达何处，并写明改这一节会直接改变总结内容。
+- 进化 `e2`：评估方式、接受标准、用量上限（4000 万）与 e1 相同，只是可进化范围多了这一节。
+

@@ -8,6 +8,7 @@ directory names the task's seed, level or instance):
     agent/context_snapshots/      turn-NNNN.json, written by ContextBench's record_snapshot (the graders' input)
     agent/interactive_stream.json written by ContextBench's TurnSource
     ledger.json, sandbox_manifest.json
+    summaries.jsonl               one line per summary call: the instruction as sent, the reply (not for an evolver)
     result.json                   score, how the run ended, usage, counts, the planner's actions
     digest.json                   what an evolver may read: figures only
 
@@ -38,6 +39,7 @@ ROOT = Path(__file__).resolve().parents[2]
 ROLES = ROOT / "configs" / "roles_cb"
 OUT = ROOT / "outputs" / "cb"
 CONTEXT_SKILLS = ("memory-compaction", "token-reminder", "subagent-handoff")
+KEEP_SECTION = "What to keep when compacting"   # memory-compaction: the summary call's instruction
 DISK_FORBIDDEN = ("needle_retention", "sudoku_sketchpad")   # their instructions say: do not write to disk
 
 # how a session that the stream did not end is recorded in ContextBench's terms
@@ -82,9 +84,19 @@ def system_text(arm: str, skills: SkillSet | None, family: str = "") -> str:
             .replace("{{readout_guidance}}", guide).replace("{{marker_paragraph}}", "\n" + CB.marker_paragraph()))
 
 
-def make_summarizer(complete: Callable[[list[dict]], tuple[str, int, int]], instruction: str):
-    prompt = role("summary")
+def summary_instruction(skills: SkillSet) -> str:
+    """The instruction of the summary call: the section ``KEEP_SECTION`` of memory-compaction (user decision
+    2026-11-26). pi_0's section is the text of ``configs/roles_cb/summary.md``, which was the instruction before."""
+    text = skills["memory-compaction"].section(KEEP_SECTION)
+    if not text:
+        raise ValueError(f"memory-compaction has no section '## {KEEP_SECTION}': the summary call would have no instruction")
+    return text
 
+
+def make_summarizer(complete: Callable[[list[dict]], tuple[str, int, int]], instruction: str, prompt: str,
+                    log: Path | None = None):
+    """``prompt``: the summary call's system message. ``log``: a file outside the working directory that gets one
+    line per summary call (the system message as sent, the size of the user message, the reply)."""
     def summarize(messages: list[dict]) -> tuple[str, int, int]:
         parts = []
         for m in CB.wire(messages):
@@ -92,8 +104,13 @@ def make_summarizer(complete: Callable[[list[dict]], tuple[str, int, int]], inst
             for tc in m.get("tool_calls") or []:
                 text += f"\n[command] {(tc.get('function') or {}).get('arguments', '')}"
             parts.append(f"## {m.get('role')}\n{text}")
-        return complete([{"role": "system", "content": prompt},
-                         {"role": "user", "content": f"# The agent's task\n\n{instruction}\n\n# The conversation to replace\n\n" + "\n\n".join(parts)}])
+        user = f"# The agent's task\n\n{instruction}\n\n# The conversation to replace\n\n" + "\n\n".join(parts)
+        out = complete([{"role": "system", "content": prompt}, {"role": "user", "content": user}])
+        if log is not None:
+            with log.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps({"system": prompt, "user_chars": len(user), "replaced_messages": len(messages),
+                                     "reply": out[0], "prompt_tokens": out[1], "completion_tokens": out[2]}) + "\n")
+        return out
     return summarize
 
 
@@ -152,7 +169,8 @@ def run(family: str, level: str, seed: int, *, arm: str, round_id: str, cfg: Run
     agent = StreamAgent(agent_model(), env, source=source, logs_dir=logs, arm=arm, planner=planner, ledger=ledger,
                         memory_file=has_memory_file(family, arm),
                         name="executor", ws=ws, token=token,
-                        summarizer=make_summarizer(complete, instruction) if (complete and arm != "none") else None,
+                        summarizer=(make_summarizer(complete, instruction, summary_instruction(skills), run_dir / "summaries.jsonl")
+                                    if (complete and arm != "none") else None),
                         system_template="{{system_text}}", instance_template="{{task}}", context_window=CB.usable(),
                         max_rollbacks=cfg.max_rollbacks, rollback_limit=cfg.rollback_limit, keep_recent=cfg.keep_recent,
                         max_steps=max_steps, max_output_chars=cfg.max_output_chars)

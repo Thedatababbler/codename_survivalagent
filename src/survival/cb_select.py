@@ -1,6 +1,6 @@
 """Selection among skill combinations in the ContextBench setting (docs/CONTEXTBENCH.md §9, §11, §12).
 
-Since 2026-11-25 the evolution uses ``better_than_baseline`` + ``select_staged`` (two steps: the selection task
+Since 2026-11-25 the evolution uses ``better_paired`` (2026-11-26; before: ``better_than_baseline``) + ``select_staged`` (two steps: the selection task
 decides quality, the other task is a no-regression check); ``select`` is the one-step form described next.
 
 Order: compliance first (below), then two tiers. Tier 1: a combination whose quality (the mean over tasks of the
@@ -115,6 +115,25 @@ def better_than_baseline(rewards: list[float], *, base: float, margin: float, no
         return False, f"not every run above the baseline's {base:.3f} (scores {', '.join(f'{r:.3f}' for r in rewards)})"
     if m < base + margin - 1e-9:
         return False, f"mean {m:.3f} less than {margin:.2f} above the baseline's {base:.3f}"
+    if none is not None and not m > none + 1e-9:
+        return False, f"mean {m:.3f} not above the mean without management {none:.3f}"
+    return True, ""
+
+
+def better_paired(cand: list[float], base: list[float], *, margin: float, none: float | None) -> tuple[bool, str]:
+    """User decision 2026-11-26 (replaces ``better_than_baseline`` in the evolution): ``cand`` and ``base`` hold,
+    seed by seed, the mean score of the combination's runs and of pi_0's runs on the same instance. Better in
+    quality: on every seed the combination's mean is above pi_0's, its overall mean is at least ``margin`` above
+    pi_0's overall mean, and its overall mean is above the mean of the arm without management."""
+    if not cand or len(cand) != len(base):
+        return False, "runs missing"
+    m, b = _mean(cand), _mean(base)
+    worse = [i + 1 for i, (c, x) in enumerate(zip(cand, base)) if not c > x + 1e-9]
+    if worse:
+        return False, (f"not above the baseline on instance(s) {', '.join(map(str, worse))} "
+                       f"({', '.join(f'{c:.3f} vs {x:.3f}' for c, x in zip(cand, base))})")
+    if m < b + margin - 1e-9:
+        return False, f"mean {m:.3f} less than {margin:.2f} above the baseline's {b:.3f}"
     if none is not None and not m > none + 1e-9:
         return False, f"mean {m:.3f} not above the mean without management {none:.3f}"
     return True, ""

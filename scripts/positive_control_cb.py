@@ -581,9 +581,44 @@ def main() -> int:
             "compliance" in H[3]["outcome"] and H[3]["frontier_after"] == ["g02"] and of("g03") == [("needle_retention", 2)])
         checks["evolution: not better than pi_0 (mean not above the arm without management; one run not above pi_0) -> out, the check task is not run"] = (
             "not above the mean without management" in H[4]["outcome"] and of("g04") == [("needle_retention", 2)]
-            and "not every run above" in H[8]["outcome"] and H[8]["select_scores"] == [0.2, 0.6] and of("g08") == [("needle_retention", 2)]
-            and SEL.better_than_baseline([0.21, 0.21, 0.30], base=0.20, margin=0.05, none=None)[1].startswith("mean")
-            and SEL.better_than_baseline([0.21, 0.3, 0.4], base=0.20, margin=0.05, none=0.3)[0])
+            and "not above the baseline on instance(s) 1" in H[8]["outcome"] and H[8]["select_scores"] == [0.2, 0.6] and of("g08") == [("needle_retention", 2)]
+            and SEL.better_paired([0.21, 0.21, 0.30], [0.2, 0.2, 0.2], margin=0.05, none=None)[1].startswith("mean")
+            and SEL.better_paired([0.21, 0.3, 0.4], [0.2, 0.2, 0.2], margin=0.05, none=0.3)[0])
+        # paired by seed, two runs per instance (user decision 2026-11-26)
+        gate2 = {"select": {"family": "needle_retention", "reps": 2, "pi0": 0.35, "margin": 0.10, "none": 0.30, "eps": 0.05},
+                 "check": {"family": "kv_store", "reps": 1, "floor": 0.85}}
+        nd2 = {"pi0": {999001: (0.2, 0.3), 999002: (0.5, 0.5)}, "g01": {999001: (0.9, 0.9), 999002: (0.4, 0.6)},
+               "g02": {999001: (0.3, 0.5), 999002: (0.5, 0.7)}, "g03": {999001: (0.3, 0.4), 999002: (0.55, 0.6)}}
+        kv2 = {"g02": 0.84, "g03": 0.86}
+        b2: list[tuple[str, list]] = []
+        given: dict[tuple, int] = {}
+
+        def run_batch2(cid, sdir, todo):
+            b2.append((cid, sorted(todo)))
+            out = []
+            for f, lv, sd in todo:
+                if f == "kv_store":
+                    out.append(fake(f, lv, sd, kv2.get(cid, 0.9), 1000, 10, 0, 0.7, arm="pi0" if cid == "pi0" else "evolved"))
+                    continue
+                i = given.get((cid, sd), 1 if cid == "pi0" else 0)           # pi_0's first run comes from the calibration
+                given[(cid, sd)] = i + 1
+                out.append(fake(f, lv, sd, nd2[cid][sd][i], 1000 + i, 10, 0, 0.7, arm="pi0" if cid == "pi0" else "evolved"))
+            return out, ""
+        base2 = [fake("kv_store", "R1000", sd, 0.9, 1000, 10, 0, 0.7, arm="pi0") for sd in (999001, 999002)] + [
+            fake("needle_retention", "K4-C24", sd, nd2["pi0"][sd][0], 1000, 10, 0, 0.7, arm="pi0") for sd in (999001, 999002)]
+        e2 = EVO.CBEvolution(out_root / "evo-paired", instances=insts, run_batch=run_batch2, gate=gate2, base_skills=PI0, baseline_runs=base2,
+                             complete=lambda m: (answer_of(share(0.4)), 1, 1), patience=3, log=lambda x: None)
+        e2.run(3)
+        H2 = {h["generation"]: h for h in e2.state["history"]}
+        N = lambda sd: ("needle_retention", "K4-C24", sd)  # noqa: E731
+        checks["evolution (paired): every combination runs each selection instance twice; pi_0 is topped up to two runs per instance"] = (
+            b2[0] == ("pi0", [N(999001), N(999002)]) and b2[1] == ("g01", [N(999001), N(999001), N(999002), N(999002)])
+            and H2[1]["baseline_select_scores"] == [0.25, 0.5] and H2[1]["select_scores"] == [0.9, 0.5])
+        checks["evolution (paired): one seed not above pi_0's mean on that seed -> out, however high the overall mean; all seeds above and the margin met -> check task"] = (
+            "not above the baseline on instance(s) 2" in H2[1]["outcome"] and [b for b in b2 if b[0] == "g01" and b[1][0][0] == "kv_store"] == []
+            and H2[2]["select_scores"] == [0.4, 0.6] and H2[2]["check_scores"] == [0.84, 0.84] and "below the floor 0.850" in H2[2]["outcome"]
+            and "less than 0.10 above" in H2[3]["outcome"] and e2.state["frontier"] == ["pi0"]
+            and SEL.better_paired([0.4, 0.6], [0.25, 0.5], margin=0.10, none=0.30) == (True, ""))
         checks["evolution: a combination that regresses on the check task is out"] = (
             "regressed on T1" in H[5]["outcome"] and H[5]["check_scores"] == [0.3, 0.3] and H[5]["frontier_after"] == ["g02"]
             and H[5]["changed"] == ["memory-compaction", "token-reminder"])

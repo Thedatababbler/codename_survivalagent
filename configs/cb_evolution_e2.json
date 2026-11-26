@@ -1,0 +1,5 @@
+{
+ "_comment": "Two-step evaluation of evolution e2 (user decision 2026-11-26); figures of calibration calib-2 / calib-2-none (after the summariser fix). select: K4-C24, seeds 1001-1003, 2 runs each, paired by seed with pi_0's mean on the same seed; better = every seed above pi_0, overall mean at least margin above pi_0's, and above the arm without management (none, seed 1001: 7/24). select.pi0 is only shown to the evolver; the comparison uses pi_0's runs. select.eps: half the range of pi_0's repeats on seed 1001. check: R4000, seeds 1001 and 1002, mean >= floor.",
+ "select": {"family": "needle_retention", "reps": 2, "pi0": 0.375, "margin": 0.10, "none": 0.291667, "eps": 0.104},
+ "check": {"family": "kv_store", "reps": 1, "floor": 0.85}
+}

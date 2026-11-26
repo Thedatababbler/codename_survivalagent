@@ -8,8 +8,8 @@ the rewrites are validated (``skills.parse_skill``, every section has a reader a
 generally (``section_problems``), the rule that a skill must not tell the executor to break its
 task instructions, no sealed tag; one return to the evolver with the problems, then dropped); the new combination
 is evaluated in two steps (user decision 2026-11-25): it first runs only the instances of the selection task; if it
-is better than pi_0 there (``cb_select.better_than_baseline``) and enters the frontier on those runs, it also runs
-the instances of the check task, where its mean must not be below the floor (pi_0's mean minus that task's eps);
+is better than pi_0 there (``cb_select.better_paired``: paired by instance with pi_0's runs, user decision 2026-11-26) and enters the frontier on those runs, it also runs
+the instances of the check task, where its mean must not be below the gate's floor;
 then the frontier is recomputed (``cb_select.select_staged``: compliance, quality on the selection task, the four
 resources). Evolution stops after ``patience`` proposals in a row that leave the frontier as it was, on a void run,
 on a run the grader could not grade from snapshots, on a run that used clearly more than pi_0's runs of its task,
@@ -61,6 +61,7 @@ def _schema_text() -> str:
 
 def system_prompt(select_label: str = "T2", check_label: str = "T1", gate: dict[str, Any] | None = None) -> str:
     g = gate or {}
+    reps = int(g.get("reps", 1))
     ref = (f" (baseline mean {g['pi0']:.3f}; mean without any context management {g['none']:.3f}; margin {g['margin']:.2f})"
            if g.get("none") is not None and "pi0" in g else "")
     return f"""You are the evolver of a context manager. An agent (the executor) works through a long stream of
@@ -124,12 +125,13 @@ Rules that are checked mechanically (a document that breaks one is returned to y
   task's instructions can be set aside.
 
 You see figures only. A new combination is judged in two steps. First it runs only the instances of task
-{select_label}. It counts as better than the baseline only if every one of those runs scores above the baseline's
-mean, its own mean is higher by a fixed margin, and its mean is above that of a run without any context
-management{ref}. Only then it runs task {check_label}, where its mean must not fall below the baseline's by more
-than the noise between repeated runs. Combinations that pass are compared by their quality on {select_label} and,
-at equal quality, by four resources: tokens, compactions, roll-backs, peak context. A combination whose runs
-break their task's instructions more often than the baseline's is discarded whatever it scores.
+{select_label}, each {reps} time(s); the runs of one instance are averaged. It counts as better than the baseline
+only if on every instance its mean is above the baseline's mean on that same instance, its overall mean is higher
+than the baseline's by a fixed margin, and its overall mean is above that of a run without any context
+management{ref}. Only then it runs task {check_label}, where its mean must not fall below a fixed floor.
+Combinations that pass are compared by their quality on {select_label} and, at equal quality, by four resources:
+tokens, compactions, roll-backs, peak context. A combination whose runs break their task's instructions more
+often than the baseline's is discarded whatever it scores.
 
 Rewrite one or both documents (each as a whole). Every reason must point at figures in the note (a run label such
 as T1-I2 and what it shows). Answer with exactly these blocks and nothing else:
@@ -342,7 +344,8 @@ class CBEvolution:
                  patience: int = 5, cap: int = 8, usage_factor: float = 2.0, log: Callable[[str], None] = print):
         """``instances``: the evolution set [(family, level, seed)] -- those of the selection task and those of the
         check task. ``gate`` (figures of the calibration): {"select": {"family", "pi0": pi_0's mean, "margin",
-        "none": the mean without management, "eps"}, "check": {"family", "floor": pi_0's mean minus eps}}.
+        "none": the mean without management, "eps", "reps": runs per instance}, "check": {"family", "floor"}}. The
+        comparison with pi_0 is paired by instance, on the means of the runs in this evolution's state.
         ``baseline_runs``: result.json dicts of pi_0 runs already made on these instances (the calibration's).
         ``usage_factor``: a run that used more than this many times the mean of pi_0's runs of its task stops the
         evolution."""
@@ -405,11 +408,14 @@ class CBEvolution:
         return False
 
     def ensure_runs(self, cid: str, family: str) -> bool:
-        """One usable run on every evolution instance of ``family``; False when the evolution has to stop (a void
-        run, a run not graded from snapshots, a batch that stopped, usage clearly above pi_0's, the caller's cap)."""
+        """``reps`` usable runs (the gate's, 1 when not given) on every evolution instance of ``family``; False when
+        the evolution has to stop (a void run, a run not graded from snapshots, a batch that stopped, usage clearly
+        above pi_0's, the caller's cap)."""
         c = self.state["combos"][cid]
         insts = self.of(family)
-        todo = [(f, lv, s) for f, lv, s in insts if not any(r["usable"] for r in c["runs"].get(self.key(f, lv, s), []))]
+        reps = int(self.gate["select" if family == self.select_family else "check"].get("reps", 1))
+        have = lambda i: sum(1 for r in c["runs"].get(self.key(*i), []) if r["usable"])  # noqa: E731
+        todo = [i for i in insts for _ in range(max(0, reps - have(i)))]
         if not todo:
             return True
         why = self.should_stop()
@@ -431,7 +437,7 @@ class CBEvolution:
             self._stop(why="the batch of runs stopped: " + batch_stop, combination=cid)
         if self.state["stopped"]:
             return False
-        missing = [k for k in (self.key(*i) for i in insts) if not any(r["usable"] for r in c["runs"].get(k, []))]
+        missing = [i for i in insts if have(i) < reps]
         if missing:
             return self._stop(why="runs missing after the batch", combination=cid, instances=len(missing))
         return True
@@ -469,7 +475,8 @@ class CBEvolution:
             return False
         rs = self.rewards(cid, self.select_family)
         rec["select_scores"] = [round(x, 4) for x in rs]
-        better, why = SEL.better_than_baseline(rs, base=sel["pi0"], margin=sel["margin"], none=sel.get("none"))
+        rec["baseline_select_scores"] = [round(x, 4) for x in self.rewards("pi0", self.select_family)]
+        better, why = SEL.better_paired(rs, self.rewards("pi0", self.select_family), margin=sel["margin"], none=sel.get("none"))
         if not better:
             c["status"] = "eliminated"
             rec["outcome"] = f"eliminated: not better than the baseline on {ts}: {why}"

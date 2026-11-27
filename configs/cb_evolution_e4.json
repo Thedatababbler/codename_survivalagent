@@ -1,0 +1,16 @@
+{
+ "_comment": "Evolution e4 (user decision 2026-11-27): the same two-step evaluation and figures as e2/e3 (calibration calib-2). New in e4: carry_previous_summary: verbatim_capped with summary_cap (docs/CONTEXTBENCH.md section 18).",
+ "select": {
+  "family": "needle_retention",
+  "reps": 2,
+  "pi0": 0.375,
+  "margin": 0.1,
+  "none": 0.291667,
+  "eps": 0.104
+ },
+ "check": {
+  "family": "kv_store",
+  "reps": 1,
+  "floor": 0.85
+ }
+}

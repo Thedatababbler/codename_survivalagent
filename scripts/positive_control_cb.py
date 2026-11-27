@@ -597,6 +597,69 @@ def main() -> int:
             and r9s["summary_retention"]["resummary"]["mean"] == 1.0 and r9s["summary_retention"]["first"]["mean"] == 0.0
             and RUN.retention_from_snapshots(rd9s) == r9s["summary_retention"] and RUN.retention_from_snapshots(rd9v) == r9v["summary_retention"]
             and json.loads((rd9s / "digest.json").read_text())["summary_retention"] == r9s["summary_retention"])
+        # verbatim_capped (user decision 2026-11-27)
+        prev_big = "\n".join(f"old fact number {k:03d}: the agent noted item {k} of the earlier work" for k in range(120))
+        note_big = {"role": "user", "content": RUN.NOTE_MARK + ": summary of your earlier work in this session]\n" + prev_big}
+        short_old = "COMPRESSED-OLDEST-PART: the agent noted the items of its earlier work one after another; nothing else is recorded there."
+        CAP = 600
+
+        def capped_run(replies_, cap=CAP, prev=note_big):
+            it, seen, st, kp = iter(replies_), [], {}, []
+            out = RUN.make_summarizer(lambda m: (seen.append(m), (next(it), 10, 1))[1], "THE TASK", old_prompt, out_root / "scap.jsonl", st,
+                                      "verbatim_capped", kp, cap)([prev, *later])
+            return out, seen, st, kp
+        oc, seen_c, st_c, kp_c = capped_run([new_sum, short_old])
+        old_part, tail_part = RUN.split_oldest(prev_big, CAP // 2)
+        ou, seen_u, st_u, _ = capped_run([new_sum], cap=100_000)
+        ox, seen_x, st_x, _ = capped_run([new_sum, "\n".join(f"far too long a reply line {k:04d} that does not compress anything at all" for k in range(400))])
+        try:
+            RUN.make_summarizer(fake_summary, "THE TASK", old_prompt, carry="verbatim_capped")
+            no_cap = False
+        except ValueError:
+            no_cap = True
+        checks["verbatim_capped: under the cap it is verbatim (no extra call); over it the oldest part alone goes to the model in a call of its own and is replaced, the newest part of the earlier summary and the new summary stay word for word, and the whole is within the cap"] = (
+            ou == (prev_big + "\n\n" + new_sum, 10, 1) and len(seen_u) == 1 and st_u == {"calls": 1, "retries": 0, "unfit": 0}
+            and oc[0] == short_old + "\n\n" + tail_part + "\n\n" + new_sum and oc[1:] == (20, 2) and len(seen_c) == 2
+            and RUN.text_tokens(oc[0]) <= CAP < RUN.text_tokens(prev_big + "\n\n" + new_sum)
+            and 0 < RUN.text_tokens(tail_part) <= CAP // 2 and prev_big == old_part + "\n" + tail_part and prev_big.endswith(tail_part)
+            and seen_c[0][1]["content"] == RUN.record_message("THE TASK", later)
+            and seen_c[1][0]["content"] == old_prompt and old_part in seen_c[1][1]["content"] and "old fact number 119" not in seen_c[1][1]["content"]
+            and "gamma line three kept" not in seen_c[1][1]["content"] and seen_c[1][1]["content"].startswith(RUN.RECORD_HEAD)
+            and st_c == {"calls": 2, "retries": 0, "unfit": 0} and 0 < kp_c[0]["resummary"] < 1.0 and no_cap)
+        checks["verbatim_capped: a compressed part that does not fit is cut (counted); the newest part and the new summary are still word for word and the whole is within the cap"] = (
+            RUN.text_tokens(ox[0]) <= CAP and ox[0].endswith(tail_part + "\n\n" + new_sum) and ox[0].startswith("far too long a reply line 0000")
+            and st_x.get("cap_cuts") == 1 and "cap_cuts" not in st_c
+            and nprob(block("memory-compaction", doc_c.replace("  use_memory: false", "  use_memory: false\n  carry_previous_summary: verbatim_capped\n  summary_cap: 0.2"))) == 0
+            and nprob(block("memory-compaction", doc_c.replace("  use_memory: false", "  use_memory: false\n  carry_previous_summary: verbatim_capped\n  summary_cap: 5000"))) >= 1)
+        sk_cap = type(skills)({**skills.skills, "memory-compaction": parse_skill(
+            doc_c.replace("  use_memory: false", "  use_memory: false\n  carry_previous_summary: verbatim_capped\n  summary_cap: 0.001"), name="memory-compaction")})
+        n_cap: list[int] = []
+
+        def numbered_cap(msgs):
+            n_cap.append(1)
+            return f"SUMMARY-PART-{len(n_cap):03d}: the agent took in further operations and answered what it was asked; nothing else to report.", 1234, 56
+        r9c2, _, rd9c2 = go("kv_store", "R1000", kv_right, arm="pi0", complete=numbered_cap, sk=sk_cap)
+        cap_run = max(1, int(0.001 * CB.usable()))
+        notes_c = []
+        for sn in snapshots(rd9c2):
+            c2 = str(sn["messages"][2].get("content") or "") if len(sn["messages"]) > 2 else ""
+            if c2.startswith(RUN.NOTE_MARK) and (not notes_c or notes_c[-1] != c2):
+                notes_c.append(c2)
+        log_c = [json.loads(ln) for ln in (rd9c2 / "summaries.jsonl").read_text().splitlines()]
+        news_c = [x["tries"][-1]["reply"] for x in log_c if x.get("kind") != "cap"]
+        checks["verbatim_capped run: every summary in the context is within the cap and ends word for word with the newest summary; the oldest part was compressed by calls of their own; the answers still score"] = (
+            len(notes_c) == r9c2["counts"]["compactions"] >= 2 and all(RUN.text_tokens(n.split("\n", 1)[1]) <= cap_run for n in notes_c)
+            and all(n.endswith(t) for n, t in zip(notes_c, news_c)) and len(news_c) == len(notes_c)
+            and sum(1 for x in log_c if x.get("kind") == "cap") >= 1 and r9c2["counts"]["summary_calls"] == len(log_c) == len(n_cap)
+            and r9c2["reward"] == 1.0 and r9c2["summary_retention"]["resummary"]["min"] < 1.0
+            and r9s["counts"]["summary_calls"] == r9s["counts"]["compactions"] and r9s["counts"]["summary_cap_cuts"] == 0)
+        notes["verbatim_capped run"] = {"cap tokens": cap_run, "compactions": r9c2["counts"]["compactions"], "cap calls": sum(1 for x in log_c if x.get("kind") == "cap"),
+                                        "cuts": r9c2["counts"]["summary_cap_cuts"]}
+        sp4 = EVO.system_prompt("T2", "T1", {"pi0": 0.375, "none": 0.292, "margin": 0.10, "reps": 2})
+        checks["the evolver is told the three options of carry_previous_summary with their trade-offs, and what summary_cap is"] = (
+            "carry_previous_summary: rewrite|verbatim|verbatim_capped" in sp4 and "summary_cap: ratio" in sp4
+            and "what was summarised once can be lost" in sp4 and "the summary only grows" in sp4 and "stays within the cap" in sp4
+            and "the oldest part is rewritten and can lose content" in sp4)
         note_v = EVO.build_note({"kv_store:R1000:999001": [EVO.run_figures({**r9v, "void": False})]}, {"kv_store:R1000:999001": "T1-I1"})
         sp3 = EVO.system_prompt("T2", "T1", {"pi0": 0.375, "none": 0.292, "margin": 0.10, "reps": 2})
         checks["the evolver is told what carry_previous_summary does and what the two retention figures are; its note gives them as mean / min, numbers only"] = (

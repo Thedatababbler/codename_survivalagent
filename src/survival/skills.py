@@ -55,7 +55,7 @@ SCHEMA: dict[str, dict[str, Any]] = {
     "memory-compaction": {"actions": ("framework_compaction", "request_compaction", "force_compaction"),
                           "params": {"keep_recent_turns": "count", "keep_recent_share": "ratio", "use_memory": "flag",
                                      # ContextBench setting only (user decision 2026-11-27); read by survival.cb_run
-                                     "carry_previous_summary": ("rewrite", "verbatim")}},
+                                     "carry_previous_summary": ("rewrite", "verbatim", "verbatim_capped"), "summary_cap": "ratio"}},
     "subagent-handoff": {"actions": ("suggest_handoff",),
                          "params": {"quota_share": "ratio", "mode": ("fixed", "judge")}},
     "review-repair-dispatch": {"actions": ("suggest_review", "suggest_repair"),

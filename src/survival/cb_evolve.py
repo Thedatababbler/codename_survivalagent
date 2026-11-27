@@ -91,9 +91,17 @@ are: those that together take at most keep_recent_share of the window (at least 
 parameter is given, else keep_recent_turns turns. carry_previous_summary says what a compaction by summary does
 with the summary that an earlier compaction left: rewrite (the default when the parameter is absent) -> the
 earlier summary is handed to the summary writer together with the turns to replace, and whatever the writer does
-not repeat is gone; verbatim -> the earlier summary stays in the context exactly as it is, only the turns after it
-are handed to the summary writer, and what the writer returns is appended after the earlier summary (nothing
-already summarised can be lost, but the summary only grows: a summary that fills the window ends the run). A trigger fires when its condition turns true and is armed again
+not repeat is gone (the summary stays small; what was summarised once can be lost at every later compaction);
+verbatim -> the earlier summary stays in the context exactly as it is, only the turns after it are handed to the
+summary writer, and what the writer returns is appended after the earlier summary (nothing already summarised can
+be lost, but the summary only grows: it takes room from the turns, compactions come more and more often, and a
+summary that fills the window ends the run); verbatim_capped -> as verbatim for as long as the whole summary
+(earlier one plus the new part) takes at most summary_cap of the window; when it would take more, the oldest part
+of the earlier summary (all but its newest lines, which stay word for word, within half the cap) is handed to the
+summary writer in a call of its own and replaced by what the writer returns, so the summary stays within the cap
+(the newest part is safe, the oldest part is rewritten and can lose content; one more model call each time; if
+the writer's reply does not fit it is cut). summary_cap (a share of the window, default 0.25) is read only with
+verbatim_capped: the larger it is, the more is kept word for word and the less room is left for the turns. A trigger fires when its condition turns true and is armed again
 when it turns false (mode: once, the default), or before every model call for as long as its condition holds
 (mode: while).
 
@@ -136,7 +144,7 @@ You see figures only. Two of them are computed by the program at every compactio
 mean and minimum over the run's compactions: "kept at first summary" -- of the lines of the conversation that a
 compaction replaced, the share that stands word for word in the new summary; "kept at re-summary" -- of the lines
 of the earlier summary, the share that stands word for word in the new summary ("-" when a run never compacted
-twice). They measure copying only, not whether what was copied is what the task needs. A new combination is judged in two steps. First it runs only the instances of task
+twice; 1.00 by construction with verbatim, below it with verbatim_capped whenever the cap was reached). They measure copying only, not whether what was copied is what the task needs. A new combination is judged in two steps. First it runs only the instances of task
 {select_label}, each {reps} time(s); the runs of one instance are averaged. It counts as better than the baseline
 only if on every instance its mean is above the baseline's mean on that same instance, its overall mean is higher
 than the baseline's by a fixed margin, and its overall mean is above that of a run without any context

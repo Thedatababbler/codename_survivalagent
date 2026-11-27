@@ -130,7 +130,8 @@ def record_message(instruction: str, messages: list[dict]) -> str:
 
 
 NOTE_MARK = "[Context compacted"                 # how the note that replaced earlier turns begins (agents.compact)
-CARRY_MODES = ("rewrite", "verbatim")            # memory-compaction's `carry_previous_summary`
+CARRY_MODES = ("rewrite", "verbatim", "verbatim_capped")   # memory-compaction's `carry_previous_summary`
+SUMMARY_CAP_DEFAULT = 0.25                       # `summary_cap` when verbatim_capped is chosen without it (share of the window)
 RETENTION_MIN_CHARS = 8                          # shorter lines (brackets, blanks, single words) are not counted
 
 
@@ -188,27 +189,53 @@ def retention_from_snapshots(run_dir: Path) -> dict[str, Any]:
     return retention_stats(kept)
 
 
+def text_tokens(text: str) -> int:
+    return CB.count([{"role": "user", "content": text}]) if text else 0
+
+
+def split_oldest(text: str, keep_tokens: int) -> tuple[str, str]:
+    """(the oldest part, the newest part): the newest whole lines of ``text`` that together count at most
+    ``keep_tokens`` stay in the second, everything before them is the first."""
+    lines = text.split("\n")
+    k = len(lines)
+    while k > 0 and text_tokens("\n".join(lines[k - 1:])) <= keep_tokens:
+        k -= 1
+    return "\n".join(lines[:k]), "\n".join(lines[k:])
+
+
+def cut_to(text: str, tokens: int) -> str:
+    """The leading whole lines of ``text`` that count at most ``tokens``."""
+    lines = text.split("\n")
+    k = len(lines)
+    while k > 0 and text_tokens("\n".join(lines[:k])) > tokens:
+        k -= 1
+    return "\n".join(lines[:k])
+
+
 def make_summarizer(complete: Callable[[list[dict]], tuple[str, int, int]], instruction: str, prompt: str,
                     log: Path | None = None, stats: dict[str, int] | None = None, carry: str = "rewrite",
-                    kept: list[dict[str, float | None]] | None = None):
+                    kept: list[dict[str, float | None]] | None = None, cap_tokens: int | None = None):
     """``prompt``: the summary call's system message (the skill's section; nothing is added to it). The call
     carries no tool definitions. A reply that fails ``summary_problem`` is asked for once more; if the second
     fails too it is used as it is (the older turns are then replaced by a note that holds next to nothing, which
     is what dropping them would leave) and counted in ``stats`` as a diagnostic. ``log``: a file outside the
     working directory with one line per summary call. ``carry`` (the skill's ``carry_previous_summary``, user
-    decision 2026-11-27): ``rewrite`` -- the earlier summary is among the turns the model summarises (pi_0);
+    decisions 2026-11-27): ``rewrite`` -- the earlier summary is among the turns the model summarises (pi_0);
     ``verbatim`` -- the earlier summary is kept as it is, only the turns after it go to the model, and the model's
-    summary of them is appended. ``kept``: one entry per call with the two retention figures."""
+    summary of them is appended; ``verbatim_capped`` -- as verbatim, but when the earlier summary and the new one
+    together count more than ``cap_tokens`` (o200k), the oldest part of the earlier summary (all but its newest
+    lines within half the cap) goes to the model in a call of its own and is replaced by what the model returns;
+    if that still does not fit, the compressed part is cut from its end, then the kept part from its oldest side.
+    The new summary is never cut. ``kept``: one entry per compaction with the two retention figures."""
     if carry not in CARRY_MODES:
         raise ValueError(f"carry_previous_summary {carry!r} is not one of {', '.join(CARRY_MODES)}")
+    if carry == "verbatim_capped" and not cap_tokens:
+        raise ValueError("verbatim_capped needs a cap")
     stats = stats if stats is not None else {}
     stats.update({"calls": 0, "retries": 0, "unfit": 0})
 
-    def summarize(messages: list[dict]) -> tuple[str, int, int]:
-        previous, turns = split_previous(messages)
-        carried = previous if carry == "verbatim" else None
-        msgs = [{"role": "system", "content": prompt},
-                {"role": "user", "content": record_message(instruction, messages if carried is None else turns)}]
+    def ask(messages: list[dict]) -> tuple[str, int, int, list[dict], int]:
+        msgs = [{"role": "system", "content": prompt}, {"role": "user", "content": record_message(instruction, messages)}]
         text, p, c = complete(msgs)
         stats["calls"] += 1
         first = summary_problem(text)
@@ -221,16 +248,47 @@ def make_summarizer(complete: Callable[[list[dict]], tuple[str, int, int]], inst
             tries.append({"reply": text, "problem": summary_problem(text), "prompt_tokens": p2, "completion_tokens": c2})
             if tries[-1]["problem"]:
                 stats["unfit"] += 1
+        return text, p, c, tries, len(msgs[1]["content"])
+
+    def write(row: dict) -> None:
+        if log is not None:
+            with log.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(row) + "\n")
+
+    def summarize(messages: list[dict]) -> tuple[str, int, int]:
+        previous, turns = split_previous(messages)
+        carried = previous if carry != "rewrite" else None
+        text, p, c, tries, chars = ask(messages if carried is None else turns)
+        capped: dict[str, Any] = {}
         if carried is not None:
-            text = carried.rstrip("\n") + "\n\n" + text
+            carried = carried.rstrip("\n")
+            if carry == "verbatim_capped" and text_tokens(carried + "\n\n" + text) > cap_tokens:
+                old, tail = split_oldest(carried, cap_tokens // 2)
+                parts, cut = [tail], False
+                if old.strip():
+                    short, p2, c2, tries2, chars2 = ask([{"role": "user", "content": f"{NOTE_MARK}: summary of your earlier work in this session]\n{old}"}])
+                    p, c = p + p2, c + c2
+                    write({"system": prompt, "kind": "cap", "user_chars": chars2, "tries": tries2, "unfit": bool(tries2[-1]["problem"]),
+                           "carry": carry, "old_chars": len(old), "kept_chars": len(tail)})
+                    room = cap_tokens - text_tokens(tail + "\n\n" + text)
+                    fit = short if text_tokens(short) <= room else cut_to(short, max(0, room))
+                    cut = fit != short
+                    parts = [fit, tail]
+                    capped = {"old_tokens": text_tokens(old), "compressed_tokens": text_tokens(fit)}
+                carried = "\n\n".join(x for x in parts if x.strip())
+                if text_tokens(carried + "\n\n" + text) > cap_tokens:     # the kept part and the new summary alone are over
+                    carried = split_oldest(carried, max(0, cap_tokens - text_tokens(text) - 2))[1]
+                    cut = True
+                if cut:
+                    stats["cap_cuts"] = stats.get("cap_cuts", 0) + 1
+                capped["cut"] = cut
+            text = (carried + "\n\n" + text) if carried.strip() else text
         pair = retention_pair(previous, turns, text)
         if kept is not None:
             kept.append(pair)
-        if log is not None:
-            with log.open("a", encoding="utf-8") as fh:
-                fh.write(json.dumps({"system": prompt, "user_chars": len(msgs[1]["content"]), "replaced_messages": len(messages),
-                                     "tries": tries, "unfit": bool(tries[-1]["problem"]), "carry": carry,
-                                     "carried_chars": len(carried or ""), "retention": pair}) + "\n")
+        write({"system": prompt, "user_chars": chars, "replaced_messages": len(messages), "tries": tries,
+               "unfit": bool(tries[-1]["problem"]), "carry": carry, "carried_chars": len(carried or ""), "retention": pair,
+               **({"capped": capped} if capped else {})})
         return text, p, c
     return summarize
 
@@ -289,12 +347,14 @@ def run(family: str, level: str, seed: int, *, arm: str, round_id: str, cfg: Run
     sstats: dict[str, int] = {}
     skept: list[dict[str, float | None]] = []
     carry = str(skills.param("memory-compaction", "carry_previous_summary", "rewrite")) if skills is not None else "rewrite"
+    cap_tokens = (max(1, int(float(skills.param("memory-compaction", "summary_cap", SUMMARY_CAP_DEFAULT)) * CB.usable()))
+                  if carry == "verbatim_capped" else None)
     instruction = inst.instruction()
     max_steps = cfg.steps_per_op * len(records) + 60
     agent = StreamAgent(agent_model(), env, source=source, logs_dir=logs, arm=arm, planner=planner, ledger=ledger,
                         memory_file=has_memory_file(family, arm),
                         name="executor", ws=ws, token=token,
-                        summarizer=(make_summarizer(complete, instruction, summary_instruction(skills), run_dir / "summaries.jsonl", sstats, carry, skept)
+                        summarizer=(make_summarizer(complete, instruction, summary_instruction(skills), run_dir / "summaries.jsonl", sstats, carry, skept, cap_tokens)
                                     if (complete and arm != "none") else None),
                         system_template="{{system_text}}", instance_template="{{task}}", context_window=CB.usable(),
                         max_rollbacks=cfg.max_rollbacks, rollback_limit=cfg.rollback_limit, keep_recent=cfg.keep_recent,
@@ -339,7 +399,7 @@ def run(family: str, level: str, seed: int, *, arm: str, round_id: str, cfg: Run
                          "rollbacks": led["rollbacks"], "truncations": rec["truncations"],
                          "reminders": sum(1 for f in fired if f["action"] == "remind"),
                          "summary_calls": sstats.get("calls", 0), "summary_retries": sstats.get("retries", 0),
-                         "summary_unfit": sstats.get("unfit", 0),
+                         "summary_unfit": sstats.get("unfit", 0), "summary_cap_cuts": sstats.get("cap_cuts", 0),
                          "refusals": source.n_refusals, "explains": source.n_explains, "snapshots": rec["snapshots"]},
               "summary_retention": retention_stats(skept),
               "context": {"window": CB.usable(), "peak_o200k": rec["context"]["peak_o200k"], "peak_served": rec["context"]["peak"],

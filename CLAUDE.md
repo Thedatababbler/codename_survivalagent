@@ -61,5 +61,6 @@ started and no workspace code may be run in this project. Section format of rule
 - 触发条件与超窗判定用未校准的 `o200k_base`；记账用服务端的 token 数。结果只在三组（π_0、无管理、进化后）之间比较，与论文数字不可比。
 - 进化（2026-11-25）：两步评估——候选先只跑保留关键行，被判为比 π_0 更好并进入前沿的才加跑存取键值作不退步检查（参数 `configs/cb_evolution_e1.json`，说明 `docs/CONTEXTBENCH.md` §12）。智能体在工作区以外搜索任务输入或答案（`find /`、`find /root`、`find /tmp` 等）定为 CRITICAL（事件 `task_input_search`）：被拦下且核实未获取内容则保留并标记，获取到任何内容则作废。
 - 总结指示（2026-11-26）：`memory-compaction` 的 `## What to keep when compacting` 一节是总结调用的系统消息（π_0 该节 = 原 `configs/roles_cb/summary.md` 原文，该文件只作对照基准）。总结调用的用户消息把任务说明和对话标为“记录”（不执行、不回复），回复过短或像命令/拒绝时重试一次，仍不合格记为诊断项（`summary_unfit`）。`calib-1` 与 `e1` 是在修复前有缺陷的总结器下得到的，不与之后的结果直接比较。这一节只能用通用表述，不得出现标记格式、任务名、任务术语。skill 各部分送达何处见 `docs/CONTEXTBENCH.md` §13。
+- 进化 e3 起（2026-11-27）：进化者的每次回复原样保存在 `outputs/cb_evo/<名称>/generations/gNN/`；不合格的提议每代最多退回 2 次，之后才记为丢弃并计入停止计数；每次总结式压缩计算首次保留率、再总结保留率（只以数字给进化者）；`memory-compaction` 参数 `carry_previous_summary: rewrite | verbatim`（π_0 = rewrite，文档不写这个参数）。说明见 `docs/CONTEXTBENCH.md` §16。
 - 正对照：改动这一设置的任何部分后先跑 `uv run python scripts/positive_control_cb.py`（不花额度）；改了 `src/survival/agents.py` 还要跑 v0.3 的正对照。
 - 运行：`scripts/cb_run.py`。花额度，先报预计用量。沙盒规定、提交与推送先询问，全部适用。

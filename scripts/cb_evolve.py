@@ -43,6 +43,8 @@ def round_results(round_id: str, since: int = 0) -> list[dict]:
         x = json.loads(line)
         r = json.loads((RUN.OUT / round_id / x["run"] / "result.json").read_text())
         r["void"] = bool(x.get("void"))
+        if "summary_retention" not in r:               # a run made before the figures were recorded (2026-11-27)
+            r["summary_retention"] = RUN.retention_from_snapshots(RUN.OUT / round_id / x["run"])
         r["flagged"] = bool(x.get("critical")) and not r["void"]
         out.append(r)
     return out

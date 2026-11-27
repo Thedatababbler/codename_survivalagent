@@ -1,0 +1,16 @@
+{
+ "_comment": "Evolution e3 (user decision 2026-11-27): the same two-step evaluation and figures as e2 (configs/cb_evolution_e2.json; calibration calib-2). New in e3: re-proposals, retention figures in the evolver's note, the parameter carry_previous_summary (docs/CONTEXTBENCH.md section 16).",
+ "select": {
+  "family": "needle_retention",
+  "reps": 2,
+  "pi0": 0.375,
+  "margin": 0.1,
+  "none": 0.291667,
+  "eps": 0.104
+ },
+ "check": {
+  "family": "kv_store",
+  "reps": 1,
+  "floor": 0.85
+ }
+}

@@ -6,7 +6,9 @@ the frontier (the one used least often); the evolver reads the parent's two docu
 (figures only: no operation text, no reply, no answer, no task name, no level, no seed) and rewrites one or both;
 the rewrites are validated (``skills.parse_skill``, every section has a reader and the summary section is worded
 generally (``section_problems``), the rule that a skill must not tell the executor to break its
-task instructions, no sealed tag; one return to the evolver with the problems, then dropped); the new combination
+task instructions, no sealed tag; an invalid proposal is returned to the evolver with its problems, at most
+``REPROPOSALS`` times, and only a generation still invalid after that is dropped and counted (user decision
+2026-11-27); every answer of the evolver is saved as it came); the new combination
 is evaluated in two steps (user decision 2026-11-25): it first runs only the instances of the selection task; if it
 is better than pi_0 there (``cb_select.better_paired``: paired by instance with pi_0's runs, user decision 2026-11-26) and enters the frontier on those runs, it also runs
 the instances of the check task, where its mean must not be below the gate's floor;
@@ -47,6 +49,7 @@ SENT_SECTIONS = ("What to do", "Reading the readout", "Checking it worked")     
 # Sections a document may carry: the four of every skill, and KEEP_SECTION in memory-compaction only (required).
 ALLOWED_SECTIONS = {"memory-compaction": (*SECTIONS, KEEP_SECTION), "token-reminder": SECTIONS}
 NO_EFFECT_PARAMS = {"token-reminder": ("advise",)}      # accepted by the schema, read by no code of this setting
+REPROPOSALS = 2     # user decision 2026-11-27: an invalid proposal is returned up to twice; then the generation is dropped
 
 
 def _schema_text() -> str:
@@ -85,7 +88,12 @@ can run the command `compact` itself, which also compacts by a summary); force_c
 now (from the executor's memory file when the run has one, it was updated since the last compaction and use_memory
 is true; else a summary), then sends the executor the skill's text. A compaction keeps the newest turns as they
 are: those that together take at most keep_recent_share of the window (at least the newest one) when that
-parameter is given, else keep_recent_turns turns. A trigger fires when its condition turns true and is armed again
+parameter is given, else keep_recent_turns turns. carry_previous_summary says what a compaction by summary does
+with the summary that an earlier compaction left: rewrite (the default when the parameter is absent) -> the
+earlier summary is handed to the summary writer together with the turns to replace, and whatever the writer does
+not repeat is gone; verbatim -> the earlier summary stays in the context exactly as it is, only the turns after it
+are handed to the summary writer, and what the writer returns is appended after the earlier summary (nothing
+already summarised can be lost, but the summary only grows: a summary that fills the window ends the run). A trigger fires when its condition turns true and is armed again
 when it turns false (mode: once, the default), or before every model call for as long as its condition holds
 (mode: while).
 
@@ -113,7 +121,7 @@ reaches any model:
 
 {SEL.evolver_rules()}
 
-Rules that are checked mechanically (a document that breaks one is returned to you once, then dropped):
+Rules that are checked mechanically (a proposal that breaks one is returned to you, at most {REPROPOSALS} times; then it is dropped):
 - conditions use only the state names above, with ratios (0..1) and counts (at most 100);
 - no absolute token amount anywhere; no name of a task, file, module or function: the documents must hold for
   tasks you have never seen;
@@ -124,7 +132,11 @@ Rules that are checked mechanically (a document that breaks one is returned to y
   anywhere outside its context must carry the condition that its task allows it; no sentence may say that the
   task's instructions can be set aside.
 
-You see figures only. A new combination is judged in two steps. First it runs only the instances of task
+You see figures only. Two of them are computed by the program at every compaction by summary and given per run as
+mean and minimum over the run's compactions: "kept at first summary" -- of the lines of the conversation that a
+compaction replaced, the share that stands word for word in the new summary; "kept at re-summary" -- of the lines
+of the earlier summary, the share that stands word for word in the new summary ("-" when a run never compacted
+twice). They measure copying only, not whether what was copied is what the task needs. A new combination is judged in two steps. First it runs only the instances of task
 {select_label}, each {reps} time(s); the runs of one instance are averaged. It counts as better than the baseline
 only if on every instance its mean is above the baseline's mean on that same instance, its overall mean is higher
 than the baseline's by a fixed margin, and its overall mean is above that of a run without any context
@@ -143,7 +155,7 @@ what the better runs did differently from the worse ones, with run labels; which
 {{"quality": "up|same|down", "tokens": "up|same|down", "compactions": "up|same|down", "rollbacks": "up|same|down", "peak_context": "up|same|down"}}
 <<<END>>>
 <<<SKILL name=<one of the two names>>>>
-(the whole SKILL.md)
+(the whole SKILL.md as plain text, starting with its --- line: no code fence around it)
 <<<END>>>
 (optionally a second SKILL block)"""
 
@@ -262,26 +274,41 @@ def user_message(texts: dict[str, str], note: str, history: list[dict[str, Any]]
     return "\n".join(parts)
 
 
+_FENCE = re.compile(r"\A\s*(`{3,}|~{3,})[^\n]*\n(.*?)\n\1[ \t]*\s*\Z", re.S)
+
+
+def unfence(text: str) -> str:
+    """A SKILL block that the evolver wrapped as a whole in one code fence (```SKILL.md ... ```; seen in evolution
+    e2, where it cost two generations): the fence is taken off. Anything else is returned as it is."""
+    m = _FENCE.match(text)
+    return m.group(2).strip() + "\n" if m and m.group(2).lstrip().startswith("---") else text
+
+
 def propose(complete: Complete, texts: dict[str, str], note: str, history: list[dict[str, Any]], system: str = "") -> dict[str, Any]:
-    """One proposal: at most two tries (the second with the first's problems). ``rewrites`` is empty when dropped."""
+    """One proposal: the first answer and at most ``REPROPOSALS`` more, each after the problems of the one before.
+    ``rewrites`` is empty when dropped. ``replies``: the evolver's answers as they came (kept by the caller outside
+    every working directory)."""
     msgs = [{"role": "system", "content": system or system_prompt()}, {"role": "user", "content": user_message(texts, note, history)}]
     tokens, tries = {"prompt": 0, "completion": 0}, []
     prop: dict[str, Any] = {"analysis": "", "prediction": {}}
-    for attempt in (1, 2):
+    replies: list[str] = []
+    for attempt in range(1, REPROPOSALS + 2):
         text, p, c = complete(msgs)
+        replies.append(text)
         tokens["prompt"] += p
         tokens["completion"] += c
         prop = parse_proposal(text)
+        prop["skills"] = [(n, unfence(b)) for n, b in prop["skills"]]
         ok, problems = validate(prop)
         tries.append({"attempt": attempt, "problems": problems, "rewritten": [n for n, _ in prop["skills"]]})
         if not problems and ok:
             return {"rewrites": ok, "analysis": prop["analysis"], "prediction": prop["prediction"], "tries": tries,
-                    "tokens": tokens, "request": msgs[1]["content"]}
+                    "tokens": tokens, "request": msgs[1]["content"], "replies": replies}
         msgs = [*msgs, {"role": "assistant", "content": text},
                 {"role": "user", "content": "Your proposal was not accepted:\n" + "\n".join(f"- {x}" for x in problems)
                  + "\nSend the whole answer again, corrected."}]
     return {"rewrites": {}, "analysis": prop["analysis"], "prediction": prop["prediction"], "tries": tries, "tokens": tokens,
-            "request": msgs[1]["content"]}
+            "request": msgs[1]["content"], "replies": replies}
 
 
 # ---------------------------------------------------------------------------------------------- the note
@@ -308,6 +335,8 @@ def run_figures(r: dict[str, Any]) -> dict[str, Any]:
                         "model_calls": c["calls"], "compactions": c["compactions"], "compactions_from_memory_file": c["compactions_from_memory"],
                         "rollbacks": c["rollbacks"], "reminders": c["reminders"], "replies_without_command": c["free_turns"],
                         "peak_context_share": round(r["context"]["peak_o200k"] / window, 3),
+                        "kept_at_first_summary": (r.get("summary_retention") or {}).get("first"),
+                        "kept_at_resummary": (r.get("summary_retention") or {}).get("resummary"),
                         "task_forbids_disk": r["compliance"]["disk_forbidden_by_task"], "broke_task_instructions": r["compliance"]["violation"],
                         "planner_actions": fired[:80], "events": events[:120],
                         "context_share_by_call": [round(x["context"] / window, 2) for x in r.get("trace") or []][:400]}}
@@ -316,8 +345,10 @@ def run_figures(r: dict[str, Any]) -> dict[str, Any]:
 def build_note(runs: dict[str, list[dict[str, Any]]], labels: dict[str, str]) -> str:
     """``runs``: {instance key: [run figures]}; ``labels``: {instance key: "T1-I2"}. Nothing here names a task, a
     level or a seed."""
-    rows = ["| run | score | ended | prompt tokens | summary share | calls | compactions | roll-backs | reminders | peak context | broke task instructions |",
-            "|---|---|---|---|---|---|---|---|---|---|---|"]
+    rows = ["| run | score | ended | prompt tokens | summary share | calls | compactions | roll-backs | reminders | peak context | "
+            "kept at first summary (mean / min) | kept at re-summary (mean / min) | broke task instructions |",
+            "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+    kept = lambda x: f"{x['mean']:.2f} / {x['min']:.2f}" if x else "-"  # noqa: E731
     flat = []
     for key in sorted(runs, key=lambda k: labels[k]):
         for i, r in enumerate(runs[key]):
@@ -326,7 +357,8 @@ def build_note(runs: dict[str, list[dict[str, Any]]], labels: dict[str, str]) ->
             flat.append((lab, labels[key].split("-")[0], f))
             rows.append(f"| {lab} | {f['score']:.3f} | {f['ended']} | {f['prompt_tokens']} | "
                         f"{(f['of_which_summary_calls'] / f['prompt_tokens'] if f['prompt_tokens'] else 0):.2f} | {f['model_calls']} | {f['compactions']} | "
-                        f"{f['rollbacks']} | {f['reminders']} | {f['peak_context_share']:.2f} | {'yes' if f['broke_task_instructions'] else 'no'} |")
+                        f"{f['rollbacks']} | {f['reminders']} | {f['peak_context_share']:.2f} | {kept(f.get('kept_at_first_summary'))} | "
+                        f"{kept(f.get('kept_at_resummary'))} | {'yes' if f['broke_task_instructions'] else 'no'} |")
     parts = ["T<n> is a task, I<n> an instance of it (same task, another stream).", "", *rows, ""]
     for task in sorted({t for _, t, _ in flat}):
         mine = sorted([(lab, f) for lab, t, f in flat if t == task], key=lambda x: x[1]["score"])
@@ -524,13 +556,15 @@ class CBEvolution:
         for k in ("prompt", "completion"):
             self.state["evolver_tokens"][k] += prop["tokens"][k]
         (gdir / "evolver_request.md").write_text(prop["request"], encoding="utf-8")
+        for k, text in enumerate(prop.get("replies") or [], 1):      # as they came; outside every working directory
+            (gdir / f"evolver_reply_{k}.txt").write_text(text, encoding="utf-8")
         (gdir / "analysis.md").write_text(prop["analysis"] + "\n", encoding="utf-8")
         before = list(self.state["frontier"])
         rec: dict[str, Any] = {"generation": g, "time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "parent": parent,
                                "changed": sorted(prop["rewrites"]), "prediction": prop["prediction"], "tries": prop["tries"],
                                "analysis": prop["analysis"][:4000], "frontier_before": before}
         if not prop["rewrites"]:
-            rec["outcome"] = "dropped: not valid after one return"
+            rec["outcome"] = f"dropped: not valid after {REPROPOSALS} returns"
         else:
             cid = f"g{g:02d}"
             for n, t in {**texts, **prop["rewrites"]}.items():

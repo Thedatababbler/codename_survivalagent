@@ -53,7 +53,9 @@ SCHEMA: dict[str, dict[str, Any]] = {
     "token-reminder": {"actions": ("remind",),
                        "params": {"advise": ("wrap_up", "request_topup", "either"), "repeat": "flag"}},
     "memory-compaction": {"actions": ("framework_compaction", "request_compaction", "force_compaction"),
-                          "params": {"keep_recent_turns": "count", "keep_recent_share": "ratio", "use_memory": "flag"}},
+                          "params": {"keep_recent_turns": "count", "keep_recent_share": "ratio", "use_memory": "flag",
+                                     # ContextBench setting only (user decision 2026-11-27); read by survival.cb_run
+                                     "carry_previous_summary": ("rewrite", "verbatim")}},
     "subagent-handoff": {"actions": ("suggest_handoff",),
                          "params": {"quota_share": "ratio", "mode": ("fixed", "judge")}},
     "review-repair-dispatch": {"actions": ("suggest_review", "suggest_repair"),

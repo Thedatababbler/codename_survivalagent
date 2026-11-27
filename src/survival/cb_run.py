@@ -8,7 +8,7 @@ directory names the task's seed, level or instance):
     agent/context_snapshots/      turn-NNNN.json, written by ContextBench's record_snapshot (the graders' input)
     agent/interactive_stream.json written by ContextBench's TurnSource
     ledger.json, sandbox_manifest.json
-    summaries.jsonl               one line per summary call: the instruction as sent, the reply (not for an evolver)
+    summaries.jsonl               one line per summary call: the instruction as sent, the reply, the retention figures (the file is not for an evolver)
     result.json                   score, how the run ended, usage, counts, the planner's actions
     digest.json                   what an evolver may read: figures only
 
@@ -129,18 +129,86 @@ def record_message(instruction: str, messages: list[dict]) -> str:
             + "\n\n".join(parts) + f"\n\n===== RECORD END =====\n\n{RECORD_TAIL}")
 
 
+NOTE_MARK = "[Context compacted"                 # how the note that replaced earlier turns begins (agents.compact)
+CARRY_MODES = ("rewrite", "verbatim")            # memory-compaction's `carry_previous_summary`
+RETENTION_MIN_CHARS = 8                          # shorter lines (brackets, blanks, single words) are not counted
+
+
+def _lines(text: str) -> set[str]:
+    return {ln.strip() for ln in str(text or "").splitlines() if len(ln.strip()) >= RETENTION_MIN_CHARS}
+
+
+def retention(source: str, summary: str) -> float | None:
+    """The share of the distinct lines of ``source`` (stripped, at least ``RETENTION_MIN_CHARS`` characters) that
+    stand word for word in ``summary``; None when ``source`` has no such line. A general diagnostic of a
+    compaction (user decision 2026-11-27): it knows nothing of any task."""
+    lines = _lines(source)
+    return round(sum(1 for ln in lines if ln in summary) / len(lines), 4) if lines else None
+
+
+def split_previous(messages: list[dict]) -> tuple[str | None, list[dict]]:
+    """(the text of the earlier summary when the turns to replace begin with one, the other turns)."""
+    if messages and str(messages[0].get("content") or "").startswith(NOTE_MARK):
+        return str(messages[0]["content"]).split("\n", 1)[-1], list(messages[1:])
+    return None, list(messages)
+
+
+def retention_pair(previous: str | None, turns: list[dict], summary: str) -> dict[str, float | None]:
+    """The two figures of one compaction: ``first`` -- lines of the replaced conversation found word for word in the
+    new summary; ``resummary`` -- lines of the earlier summary found word for word in the new one."""
+    return {"first": retention("\n".join(str(m.get("content") or "") for m in CB.wire(turns)), summary),
+            "resummary": None if previous is None else retention(previous, summary)}
+
+
+def retention_stats(kept: list[dict[str, float | None]]) -> dict[str, Any]:
+    """Per run: the mean and the minimum of each figure over the run's compactions by summary."""
+    out: dict[str, Any] = {}
+    for k in ("first", "resummary"):
+        xs = [x[k] for x in kept if x.get(k) is not None]
+        out[k] = {"n": len(xs), "mean": round(sum(xs) / len(xs), 4), "min": round(min(xs), 4)} if xs else None
+    return out
+
+
+def retention_from_snapshots(run_dir: Path) -> dict[str, Any]:
+    """The same figures for a run made before they were recorded, rebuilt from its snapshots: a ``turn`` snapshot
+    written right before a compaction holds the turns, the next snapshot the new summary."""
+    snaps = [json.loads(f.read_text()) for f in sorted((Path(run_dir) / "agent" / "context_snapshots").glob("*.json"))]
+    text = lambda m: str(m.get("content") or "")  # noqa: E731
+    kept = []
+    for i, s in enumerate(snaps[:-1]):
+        pre, nxt = s["messages"], snaps[i + 1]["messages"]
+        if s["kind"] != "turn" or len(nxt) < 4 or not text(nxt[2]).startswith(NOTE_MARK + ": summary"):
+            continue
+        cut = next((j for j in range(3, len(pre)) if [(m.get("role"), text(m)) for m in pre[j:]]
+                    == [(m.get("role"), text(m)) for m in nxt[3:3 + len(pre) - j]]), None)
+        if cut is None or not any(m.get("role") == "assistant" for m in pre[2:cut]):
+            continue                                    # not a compaction: no turn was replaced
+        previous, turns = split_previous(pre[2:cut])
+        kept.append(retention_pair(previous, turns, text(nxt[2]).split("\n", 1)[-1]))
+    return retention_stats(kept)
+
+
 def make_summarizer(complete: Callable[[list[dict]], tuple[str, int, int]], instruction: str, prompt: str,
-                    log: Path | None = None, stats: dict[str, int] | None = None):
+                    log: Path | None = None, stats: dict[str, int] | None = None, carry: str = "rewrite",
+                    kept: list[dict[str, float | None]] | None = None):
     """``prompt``: the summary call's system message (the skill's section; nothing is added to it). The call
     carries no tool definitions. A reply that fails ``summary_problem`` is asked for once more; if the second
     fails too it is used as it is (the older turns are then replaced by a note that holds next to nothing, which
     is what dropping them would leave) and counted in ``stats`` as a diagnostic. ``log``: a file outside the
-    working directory with one line per summary call."""
+    working directory with one line per summary call. ``carry`` (the skill's ``carry_previous_summary``, user
+    decision 2026-11-27): ``rewrite`` -- the earlier summary is among the turns the model summarises (pi_0);
+    ``verbatim`` -- the earlier summary is kept as it is, only the turns after it go to the model, and the model's
+    summary of them is appended. ``kept``: one entry per call with the two retention figures."""
+    if carry not in CARRY_MODES:
+        raise ValueError(f"carry_previous_summary {carry!r} is not one of {', '.join(CARRY_MODES)}")
     stats = stats if stats is not None else {}
     stats.update({"calls": 0, "retries": 0, "unfit": 0})
 
     def summarize(messages: list[dict]) -> tuple[str, int, int]:
-        msgs = [{"role": "system", "content": prompt}, {"role": "user", "content": record_message(instruction, messages)}]
+        previous, turns = split_previous(messages)
+        carried = previous if carry == "verbatim" else None
+        msgs = [{"role": "system", "content": prompt},
+                {"role": "user", "content": record_message(instruction, messages if carried is None else turns)}]
         text, p, c = complete(msgs)
         stats["calls"] += 1
         first = summary_problem(text)
@@ -153,10 +221,16 @@ def make_summarizer(complete: Callable[[list[dict]], tuple[str, int, int]], inst
             tries.append({"reply": text, "problem": summary_problem(text), "prompt_tokens": p2, "completion_tokens": c2})
             if tries[-1]["problem"]:
                 stats["unfit"] += 1
+        if carried is not None:
+            text = carried.rstrip("\n") + "\n\n" + text
+        pair = retention_pair(previous, turns, text)
+        if kept is not None:
+            kept.append(pair)
         if log is not None:
             with log.open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps({"system": prompt, "user_chars": len(msgs[1]["content"]), "replaced_messages": len(messages),
-                                     "tries": tries, "unfit": bool(tries[-1]["problem"])}) + "\n")
+                                     "tries": tries, "unfit": bool(tries[-1]["problem"]), "carry": carry,
+                                     "carried_chars": len(carried or ""), "retention": pair}) + "\n")
         return text, p, c
     return summarize
 
@@ -171,6 +245,7 @@ def digest(result: dict[str, Any]) -> dict[str, Any]:
             "terminated_by": r["terminated_by"], "exit_status": r["exit_status"],
             "ops_delivered": r["ops_delivered"], "ops_total": r["ops_total"],
             "tokens": r["tokens"], "counts": r["counts"], "context": r["context"], "compliance": r["compliance"],
+            "summary_retention": r.get("summary_retention"),
             "planner_fired": [{"skill": f["skill"], "action": f["action"], "context": f["state"]["context"], "tick": f["tick"]}
                               for f in r["planner_fired"]],
             "events": [{k: e[k] for k in ("event", "call", "ops", "why", "from_memory", "dropped", "kept_turns", "kept_tokens", "summary_share") if k in e} for e in r["events"]],
@@ -212,12 +287,14 @@ def run(family: str, level: str, seed: int, *, arm: str, round_id: str, cfg: Run
     token.take("executor")
     source = CB.turn_source(inst, logs)
     sstats: dict[str, int] = {}
+    skept: list[dict[str, float | None]] = []
+    carry = str(skills.param("memory-compaction", "carry_previous_summary", "rewrite")) if skills is not None else "rewrite"
     instruction = inst.instruction()
     max_steps = cfg.steps_per_op * len(records) + 60
     agent = StreamAgent(agent_model(), env, source=source, logs_dir=logs, arm=arm, planner=planner, ledger=ledger,
                         memory_file=has_memory_file(family, arm),
                         name="executor", ws=ws, token=token,
-                        summarizer=(make_summarizer(complete, instruction, summary_instruction(skills), run_dir / "summaries.jsonl", sstats)
+                        summarizer=(make_summarizer(complete, instruction, summary_instruction(skills), run_dir / "summaries.jsonl", sstats, carry, skept)
                                     if (complete and arm != "none") else None),
                         system_template="{{system_text}}", instance_template="{{task}}", context_window=CB.usable(),
                         max_rollbacks=cfg.max_rollbacks, rollback_limit=cfg.rollback_limit, keep_recent=cfg.keep_recent,
@@ -264,6 +341,7 @@ def run(family: str, level: str, seed: int, *, arm: str, round_id: str, cfg: Run
                          "summary_calls": sstats.get("calls", 0), "summary_retries": sstats.get("retries", 0),
                          "summary_unfit": sstats.get("unfit", 0),
                          "refusals": source.n_refusals, "explains": source.n_explains, "snapshots": rec["snapshots"]},
+              "summary_retention": retention_stats(skept),
               "context": {"window": CB.usable(), "peak_o200k": rec["context"]["peak_o200k"], "peak_served": rec["context"]["peak"],
                           "served_per_o200k": rec["context"]["served_per_o200k"]},
               "planner_fired": fired, "events": rec["events"], "trace": rec["trace"],

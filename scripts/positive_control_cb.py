@@ -103,14 +103,14 @@ def main() -> int:
     FAKE = "SUMMARY-OF-EARLIER-TURNS: the agent stored what it was given and answered what it was asked; nothing else is left to do."
     fake_summary = lambda msgs: (FAKE, 1234, 56)  # noqa: E731
 
-    def go(family, level, policy, *, arm="none", seed=SEED, served=1.0, tokens=30_000_000, complete=None, **cfg):
+    def go(family, level, policy, *, arm="none", seed=SEED, served=1.0, tokens=30_000_000, complete=None, sk=None, **cfg):
         made: list[Scripted] = []
 
         def model():
             made.append(Scripted(policy, served))
             return made[-1]
         r = RUN.run(family, level, seed, arm=arm, round_id="pc", cfg=RUN.RunConfig(tokens=tokens, **cfg), agent_model=model,
-                    complete=complete or fake_summary, skills=None if arm == "none" else skills, skills_id="" if arm == "none" else "cb_pi0",
+                    complete=complete or fake_summary, skills=None if arm == "none" else (sk or skills), skills_id="" if arm == "none" else "cb_pi0",
                     out_root=out_root)
         return r, made[0], out_root / "pc" / r["run"]
 
@@ -523,6 +523,88 @@ def main() -> int:
             and "reaches no model" in sp and "AFTER the compaction is done" in sp and "advise" not in sp
             and "four sections" not in sp and not any(t in sp.lower() for t in ("needle", "sudoku", "filler", "kv_store")))
 
+        # ---------------------------------------------------------------- the evolver's real answer format (e2, generations 2 and 5)
+        fenced = lambda name, text: f"<<<SKILL name={name}>>>\n```SKILL.md\n{text.strip()}\n```\n<<<END>>>"  # noqa: E731
+        two = answer_of(fenced("memory-compaction", doc_c.replace("keep_recent_share: 0.25", "keep_recent_share: 0.35")),
+                        fenced("token-reminder", doc_r))
+        raw_two = EVO.parse_proposal(two)
+        got_two = EVO.propose(lambda m: (two, 1, 1), {"memory-compaction": doc_c, "token-reminder": doc_r}, "note", [])
+        inner = doc_c.replace("## Mechanism", "## Mechanism\n```\nexample\n```", 1)
+        checks["evolver answer as it really came: each of two documents wrapped whole in a ```SKILL.md fence is accepted with the fence taken off; a fence inside a document is left alone"] = (
+            any("no YAML header" in x for x in EVO.validate(raw_two)[1]) and len(got_two["tries"]) == 1 and got_two["tries"][0]["problems"] == []
+            and sorted(got_two["rewrites"]) == ["memory-compaction", "token-reminder"]
+            and got_two["rewrites"]["token-reminder"] == doc_r.strip() + "\n" and "keep_recent_share: 0.35" in got_two["rewrites"]["memory-compaction"]
+            and "```" not in got_two["rewrites"]["memory-compaction"] and got_two["replies"] == [two]
+            and EVO.unfence(inner) == inner and EVO.unfence(doc_c) == doc_c and EVO.unfence("~~~\n" + doc_r.strip() + "\n~~~\n") == doc_r.strip() + "\n"
+            and EVO.unfence("```\nnot a document\n```") == "```\nnot a document\n```")
+
+        # ---------------------------------------------------------------- retention figures and carry_previous_summary (2026-11-27)
+        prev_note = {"role": "user", "content": RUN.NOTE_MARK + ": summary of your earlier work in this session]\nalpha line one kept\nbeta line two lost\nok"}
+        later = [{"role": "user", "content": "op 3\ngamma line three kept\ndelta line four lost"}, {"role": "assistant", "content": "epsilon reply line"},
+                 {"role": "user", "content": "op 4\nzeta line five kept\nx"}]
+        new_sum = "The agent took in two more operations.\nalpha line one kept\ngamma line three kept\nzeta line five kept and more"
+        seen_rw, seen_vb, kept_rw, kept_vb, st_vb = [], [], [], [], {}
+        o_rw = RUN.make_summarizer(lambda m: (seen_rw.append(m), (new_sum, 10, 1))[1], "THE TASK", old_prompt, kept=kept_rw)([prev_note, *later])
+        old_summarizer(lambda m: (sent_old.append(m), (new_sum, 10, 1))[1], "THE TASK")([prev_note, *later])
+        o_vb = RUN.make_summarizer(lambda m: (seen_vb.append(m), (new_sum, 10, 1))[1], "THE TASK", old_prompt, out_root / "svb.jsonl", st_vb, "verbatim", kept_vb)([prev_note, *later])
+        first_vb = RUN.make_summarizer(lambda m: (new_sum, 10, 1), "THE TASK", old_prompt, carry="verbatim")(later)
+        try:
+            RUN.make_summarizer(fake_summary, "THE TASK", old_prompt, carry="other")
+            bad_carry = False
+        except ValueError:
+            bad_carry = True
+        prev_body = "alpha line one kept\nbeta line two lost\nok"
+        checks["retention figures: the share of the replaced conversation's lines, and of the earlier summary's lines, that stand word for word in the new summary; short lines are not counted"] = (
+            RUN.retention("one long line\nanother long line\nab", "x one long line y") == 0.5 and RUN.retention("ab\n\ncd", "ab") is None
+            and kept_rw == [{"first": 0.5, "resummary": 0.5}] and RUN.retention_pair(None, later, new_sum) == {"first": 0.5, "resummary": None}
+            and RUN.retention_stats([{"first": 0.4, "resummary": None}, {"first": 0.2, "resummary": 0.5}])
+            == {"first": {"n": 2, "mean": 0.3, "min": 0.2}, "resummary": {"n": 1, "mean": 0.5, "min": 0.5}}
+            and RUN.retention_stats([]) == {"first": None, "resummary": None})
+        checks["carry_previous_summary rewrite (pi_0, also when the parameter is absent): the summary call is word for word what it was -- the earlier summary goes to the model with the turns, the reply alone is the new summary"] = (
+            "carry_previous_summary" not in doc_c and skills.param("memory-compaction", "carry_previous_summary", "rewrite") == "rewrite"
+            and o_rw == (new_sum, 10, 1) and sent_old[-1][1]["content"] in seen_rw[0][1]["content"] and prev_body in seen_rw[0][1]["content"]
+            and seen_rw[0][1]["content"] == RUN.record_message("THE TASK", [prev_note, *later]) and seen_rw[0][0]["content"] == old_prompt)
+        checks["carry_previous_summary verbatim: the earlier summary is not sent to the model, only the turns after it; it stays word for word and the new summary is appended; anything else than rewrite | verbatim is refused"] = (
+            o_vb == (prev_body + "\n\n" + new_sum, 10, 1) and seen_vb[0][1]["content"] == RUN.record_message("THE TASK", later)
+            and "beta line two lost" not in seen_vb[0][1]["content"] and kept_vb == [{"first": 0.5, "resummary": 1.0}]
+            and first_vb == (new_sum, 10, 1) and st_vb == {"calls": 1, "retries": 0, "unfit": 0} and bad_carry
+            and json.loads((out_root / "svb.jsonl").read_text())["carry"] == "verbatim"
+            and nprob(block("memory-compaction", doc_c.replace("  use_memory: false", "  use_memory: false\n  carry_previous_summary: verbatim"))) == 0
+            and nprob(block("memory-compaction", doc_c.replace("  use_memory: false", "  use_memory: false\n  carry_previous_summary: append"))) == 1)
+        sk_vb = type(skills)({**skills.skills, "memory-compaction": parse_skill(
+            doc_c.replace("  use_memory: false", "  use_memory: false\n  carry_previous_summary: verbatim"), name="memory-compaction")})
+        n_sum: list[int] = []
+
+        def numbered(msgs):
+            n_sum.append(1)
+            return f"SUMMARY-PART-{len(n_sum):03d}: the agent took in further operations and answered what it was asked; nothing else to report.", 1234, 56
+        r9v, _, rd9v = go("kv_store", "R1000", kv_right, arm="pi0", complete=numbered, sk=sk_vb)
+        notes_v = []
+        for sn in snapshots(rd9v):
+            c2 = str(sn["messages"][2].get("content") or "") if len(sn["messages"]) > 2 else ""
+            if c2.startswith(RUN.NOTE_MARK) and (not notes_v or notes_v[-1] != c2):
+                notes_v.append(c2)
+        sent_v = [json.loads(ln) for ln in (rd9v / "summaries.jsonl").read_text().splitlines()]
+        checks["verbatim run: every earlier summary stands word for word at the start of the next context's summary; the run's retention at re-summary is 1.0; the pi_0 run is unchanged by the new parameter"] = (
+            len(notes_v) == r9v["counts"]["compactions"] >= 2 and all(notes_v[i + 1].startswith(notes_v[i] + "\n\n") for i in range(len(notes_v) - 1))
+            and all(f"SUMMARY-PART-{k:03d}" in notes_v[-1] for k in range(1, len(n_sum) + 1))
+            and r9v["summary_retention"]["resummary"] == {"n": len(n_sum) - 1, "mean": 1.0, "min": 1.0}
+            and sent_v[0]["carried_chars"] == 0 and all(x["carried_chars"] > 0 and x["carry"] == "verbatim" for x in sent_v[1:])
+            and r9v["reward"] == 1.0 and all(x["carry"] == "rewrite" and x["carried_chars"] == 0 for x in logged)
+            and r9s["counts"]["compactions"] == r9["counts"]["compactions"] and r9s["reward"] == r9["reward"] == 1.0)
+        checks["retention per run: recorded in the result and the digest (figures only); rebuilt from the snapshots of an older run it is the same"] = (
+            r9s["summary_retention"]["first"]["n"] == r9s["counts"]["compactions"] and r9s["summary_retention"]["resummary"]["n"] == r9s["counts"]["compactions"] - 1
+            and r9s["summary_retention"]["resummary"]["mean"] == 1.0 and r9s["summary_retention"]["first"]["mean"] == 0.0
+            and RUN.retention_from_snapshots(rd9s) == r9s["summary_retention"] and RUN.retention_from_snapshots(rd9v) == r9v["summary_retention"]
+            and json.loads((rd9s / "digest.json").read_text())["summary_retention"] == r9s["summary_retention"])
+        note_v = EVO.build_note({"kv_store:R1000:999001": [EVO.run_figures({**r9v, "void": False})]}, {"kv_store:R1000:999001": "T1-I1"})
+        sp3 = EVO.system_prompt("T2", "T1", {"pi0": 0.375, "none": 0.292, "margin": 0.10, "reps": 2})
+        checks["the evolver is told what carry_previous_summary does and what the two retention figures are; its note gives them as mean / min, numbers only"] = (
+            "carry_previous_summary: rewrite|verbatim" in sp3 and "stays in the context exactly as it is" in sp3 and "kept at re-summary" in sp3
+            and "at most 2 times" in sp3 and "no code fence around it" in sp3
+            and "kept at first summary (mean / min)" in note_v and "| 1.00 / 1.00 |" in note_v and "SUMMARY-PART" not in note_v
+            and '"kept_at_resummary":{"n":' in note_v)
+
         insts = [("kv_store", "R1000", 999001), ("kv_store", "R1000", 999002), ("needle_retention", "K4-C24", 999001), ("needle_retention", "K4-C24", 999002)]
 
         def fake(fam, lv, seed, reward, tokens, comp, rb, peak, viol=False, void=False, arm="evolved"):
@@ -551,7 +633,7 @@ def main() -> int:
             nd = lambda sd: ndq[sd - 999001] if isinstance(ndq, tuple) else ndq  # noqa: E731
             return [fake(f, lv, sd, kvq if f == "kv_store" else nd(sd), tok, comp, rb, peak, viol and f == "needle_retention",
                          arm="pi0" if cid == "pi0" else "evolved") for f, lv, sd in todo], ""
-        answers = [answer_of(to_file), answer_of(to_file),                      # g1: returned once, then dropped
+        answers = [answer_of(to_file), answer_of(to_file), answer_of(to_file),  # g1: returned twice, then dropped
                    answer_of(block("subagent-handoff", doc_h)), answer_of(share(0.4)),   # g2: a frozen skill, then a valid rewrite
                    answer_of(share(0.5)), answer_of(share(0.45)), answer_of(share(0.3), cond), answer_of(share(0.35))] + [answer_of(share(0.2))] * 12
         asked: list[list[dict]] = []
@@ -568,9 +650,16 @@ def main() -> int:
         of = lambda cid: [b[1:] for b in batches if b[0] == cid]  # noqa: E731
         notes["evolution outcomes"] = {g: h["outcome"][:90] for g, h in H.items()}
         checks["evolution: pi_0's calibration runs are taken over and only the missing instance is run"] = batches[0] == ("pi0", "needle_retention", 1) and len(of("pi0")) == 1
-        checks["evolution: a rewrite that tells the executor to write to a file is returned once, then dropped, and nothing is run for it"] = (
-            H[1]["outcome"].startswith("dropped") and len(H[1]["tries"]) == 2 and "g01" not in evo.state["combos"]
-            and "without the condition" in asked[1][-1]["content"])
+        g1dir, g2dir = out_root / "evo" / "generations" / "g01", out_root / "evo" / "generations" / "g02"
+        checks["evolution: an invalid proposal is returned twice with its problems; still invalid, the generation is dropped, counted, and nothing is run for it"] = (
+            H[1]["outcome"].startswith("dropped") and len(H[1]["tries"]) == 3 and "g01" not in evo.state["combos"]
+            and "without the condition" in asked[1][-1]["content"] and "without the condition" in asked[2][-1]["content"]
+            and len(asked[2]) == 6 and json.loads(lines[0])["no_change"] == 1 and EVO.REPROPOSALS == 2)
+        checks["evolution: a proposal that is valid after a return is not a drop (one generation, one count at most); every answer of the evolver is saved as it came, outside the working directories"] = (
+            len(H[2]["tries"]) == 2 and H[2]["outcome"] == "on the frontier" and json.loads(lines[1])["no_change"] == 0
+            and [(g1dir / f"evolver_reply_{k}.txt").read_text() for k in (1, 2, 3)] == answers[:3]
+            and [(g2dir / f"evolver_reply_{k}.txt").read_text() for k in (1, 2)] == answers[3:5]
+            and not (g2dir / "evolver_reply_3.txt").exists() and out_root / "pc" not in g1dir.parents)
         checks["evolution: a rewrite of a frozen skill is returned; the corrected one runs the selection task, is better than pi_0, then runs the check task and replaces pi_0"] = (
             len(H[2]["tries"]) == 2 and H[2]["changed"] == ["memory-compaction"] and H[2]["frontier_after"] == ["g02"]
             and of("g02") == [("needle_retention", 2), ("kv_store", 2)] and H[2]["select_scores"] == [0.4, 0.4] and H[2]["check_scores"] == [0.7, 0.7]
